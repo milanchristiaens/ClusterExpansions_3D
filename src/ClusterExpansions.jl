@@ -11,6 +11,34 @@ using Zygote, OptimKit
 using TensorOperations
 using TensorOperations: ManualAllocator
 using GenericLinearAlgebra, GenericSchur
+import TimerOutputs     # TimerOutputs is imported WITHOUT its macros: the package defines its own `@timeit` below.
+using TimerOutputs: TimerOutput
+
+
+const to = TimerOutput()
+
+# Largest allocation (in bytes, including sub-sections) of ONE call, per section name.
+# Allocation = bytes allocated by the Julia GC; memory from malloc (ManualAllocator in contract_onesite) is not counted.
+const MAXALLOC = Dict{String, Int}()
+reset_max_alloc!() = empty!(MAXALLOC)
+function record_max_alloc!(label, bytes)
+    key = String(label)
+    MAXALLOC[key] = max(get(MAXALLOC, key, 0), Int(bytes))
+    return nothing
+end
+
+# Same use as TimerOutputs' `@timeit to "name" expr`: times the section with TimerOutputs
+# and ALSO records the allocation of this single call in MAXALLOC (the largest one is kept).
+macro timeit(to, label, ex)
+    return quote
+        b0 = TimerOutputs.gc_bytes()
+        try
+            TimerOutputs.@timeit($(esc(to)), $(esc(label)), $(esc(ex)))
+        finally
+            record_max_alloc!($(esc(label)), TimerOutputs.gc_bytes() - b0)
+        end
+    end
+end
 
 include("clusterexpansions/utility/symmetries.jl")
 

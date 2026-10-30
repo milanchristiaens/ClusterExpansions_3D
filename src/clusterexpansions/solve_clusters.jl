@@ -25,8 +25,8 @@ function solve_cluster(T, cluster, PEPO, β, twosite_op, onesite_op, spaces; nn_
     end
     levels_to_update = cluster.levels_sites[sites_to_update]
 
-    exp_H = exponentiate_hamiltonian(twosite_op, onesite_op, cluster, β; nn_term)
-    residual = contract_PEPO(T, cluster, PEPO, spaces)
+    exp_H = @timeit to "solve_cluster: exponentiate_hamiltonian" exponentiate_hamiltonian(twosite_op, onesite_op, cluster, β; nn_term)
+    residual = @timeit to "solve_cluster: contract_PEPO (residual)" contract_PEPO(T, cluster, PEPO, spaces)
     RHS = exp_H - residual
 
     @assert !(any(isnan.(RHS.data))) "RHS contains elements that are NaN"
@@ -37,11 +37,11 @@ function solve_cluster(T, cluster, PEPO, β, twosite_op, onesite_op, spaces; nn_
         return spaces
     end
     if length(sites_to_update) == 4 && cluster.m > 0 # second condition to exclude the case where the previous solutions have not been found
-        solutions, _ = solve_4_loop_optim(RHS, spaces, levels_to_update; verbosity, symmetry)
+        solutions, _ = @timeit to "solve_cluster: solve_4_loop_optim (LBFGS + Zygote)" solve_4_loop_optim(RHS, spaces, levels_to_update; verbosity, symmetry)
     elseif length(sites_to_update) ∈ [1, 2]
-        A = get_A(T, cluster, PEPO, sites_to_update)
+        A = @timeit to "solve_cluster: get_A" get_A(T, cluster, PEPO, sites_to_update)
         dir, conjugated = get_update_dir(cluster.cluster, sites_to_update)
-        solutions = solve_index(T, A, RHS, conjugated, sites_to_update, levels_to_update, get_direction(dir), cluster.N, spaces; verbosity, svd)
+        solutions = @timeit to "solve_cluster: solve_index (linear solve)" solve_index(T, A, RHS, conjugated, sites_to_update, levels_to_update, get_direction(dir), cluster.N, spaces; verbosity, svd)
     else
         @error "Number of sites to update = $(length(sites_to_update))"
         return spaces
@@ -66,6 +66,8 @@ function move(clusters, x_shift, y_shift)
     return [(c[1]+x_shift, c[2]+y_shift) for c in clusters]
 end
 
+# List every connected cluster of exact N sites on the square lattice, 
+# only counting 1 if one is translation of other
 function get_nontrivial_terms(N; prev_clusters = [[(0,0)]])
     if N == 1
         return [[(0,0)]]
@@ -90,17 +92,19 @@ function get_nontrivial_terms(N; prev_clusters = [[(0,0)]])
     return clusters
 end
 
+# Function runs over cluster sizes N=2...p for each size it creates every connected cluster
+# After which it runs solve_cluster function.
 function get_all_indices(T, PEPO, p, β, twosite_op, onesite_op, spaces; nn_term = nothing, levels_convention = "tree_depth", symmetry = nothing, verbosity = 2, solving_loops = true, svd = true)
     previous_clusters = [[(0,0)]]
     for N = 2:p
         if verbosity >= 2
             @info "N = $(N)"
         end
-        cluster_indices = get_nontrivial_terms(N; prev_clusters = previous_clusters)
-        clusters = [Cluster(c; levels_convention = levels_convention, symmetry = symmetry) for c in cluster_indices]
+        cluster_indices = @timeit to "CE: generate cluster shapes" get_nontrivial_terms(N; prev_clusters = previous_clusters)
+        clusters = @timeit to "CE: construct Cluster objects" [Cluster(c; levels_convention = levels_convention, symmetry = symmetry) for c in cluster_indices]
         sort!(clusters, by = p -> (p.m, p.n)) # Sort the clusters such that the loops and higher levels are solved last
         for cluster = clusters
-            spaces = solve_cluster(T, cluster, PEPO, β, twosite_op, onesite_op, spaces; nn_term, symmetry, verbosity, solving_loops, svd)
+            spaces = @timeit to "solve_cluster" solve_cluster(T, cluster, PEPO, β, twosite_op, onesite_op, spaces; nn_term, symmetry, verbosity, solving_loops, svd)
         end
         previous_clusters = cluster_indices
     end
@@ -131,9 +135,10 @@ function clusterexpansion(T, p, β, twosite_op, onesite_op; nn_term = nothing, l
     isnothing(nn_term) || @warn "Using a non-`nothing` diagonal term (`nn_term`) is higly discouraged due to the corresponding increase in norm and diverging strings. Only small diagonal terms will converge."
 
     pspace = domain(onesite_op)[1]
-    PEPO₀ = init_PEPO(T, β, onesite_op, spaces(0))
-    PEPO = get_all_indices(T, PEPO₀, p, β, twosite_op, onesite_op, spaces; nn_term, levels_convention, symmetry, verbosity, solving_loops, svd)
-    return PEPO, get_PEPO(T, pspace, PEPO, spaces)
+    PEPO₀ = @timeit to "CE: init_PEPO" init_PEPO(T, β, onesite_op, spaces(0))
+    PEPO = @timeit to "CE: get_all_indices (all clusters)" get_all_indices(T, PEPO₀, p, β, twosite_op, onesite_op, spaces; nn_term, levels_convention, symmetry, verbosity, solving_loops, svd)
+    PEPO_full = @timeit to "CE: get_PEPO (2D dense tensor)" get_PEPO(T, pspace, PEPO, spaces)
+    return PEPO, PEPO_full
 end
 
 function clusterexpansion(p, β, twosite_op, onesite_op; kwargs...)

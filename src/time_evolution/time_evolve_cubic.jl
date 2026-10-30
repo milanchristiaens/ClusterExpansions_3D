@@ -46,6 +46,7 @@ function construct_cubic_CE(O_2D)
     return Dict(zip(keys_3D, tensors_3D))
 end
 
+# SUPER IMPORTANT: this runs the 2D cluster expansion, embeds it into 3D, assmebles one tensor and converts it to plain ComplexF64
 function evolution_operator_cubic(ce_alg::ClusterExpansion, β::Number; T_conv = ComplexF64, canoc_alg::Union{Nothing,Canonicalization} = nothing)
     pspace = domain(ce_alg.onesite_op)[1]
     if β == 0.0
@@ -53,15 +54,19 @@ function evolution_operator_cubic(ce_alg::ClusterExpansion, β::Number; T_conv =
         t = id(T_conv, pspace ⊗ vspace ⊗ vspace ⊗ vspace)
         return permute(t, ((1,5),(6,7,8,2,3,4)))
     end
-    PEPO_2D, = clusterexpansion(ce_alg.T, ce_alg.p, β, ce_alg.twosite_op, ce_alg.onesite_op; nn_term = ce_alg.nn_term, spaces = ce_alg.spaces, verbosity = ce_alg.verbosity, symmetry = (ce_alg.symmetry == "Oh") ? "C4v" : nothing , solving_loops = ce_alg.solving_loops, svd = ce_alg.svd)
-    PEPO_3D = construct_cubic_CE(PEPO_2D)
-    O_clust_full = get_PEPO_cubic(ce_alg.T, pspace, PEPO_3D, ce_alg.spaces)
+    PEPO_2D, = @timeit to "CE: clusterexpansion (2D PEPO)" clusterexpansion(ce_alg.T, ce_alg.p, β, ce_alg.twosite_op, ce_alg.onesite_op; nn_term = ce_alg.nn_term, spaces = ce_alg.spaces, verbosity = ce_alg.verbosity, symmetry = (ce_alg.symmetry == "Oh") ? "C4v" : nothing , solving_loops = ce_alg.solving_loops, svd = ce_alg.svd)
+    PEPO_3D = @timeit to "CE: construct_cubic_CE (embed in 3 planes)" construct_cubic_CE(PEPO_2D)
+    
+    # This function creates the real 3D Block tensor O from the DICT PEPO
+    O_clust_full = @timeit to "CE: get_PEPO_cubic (SumSpace tensor)" get_PEPO_cubic(ce_alg.T, pspace, PEPO_3D, ce_alg.spaces)
 
-    O_clust_full_tm = convert(TensorMap, O_clust_full)
-    O_canoc = canonicalize(O_clust_full_tm, canoc_alg)
+    O_clust_full_tm = @timeit to "CE: convert SumSpace tensor to TensorMap" convert(TensorMap, O_clust_full)
+    O_canoc = @timeit to "CE: canonicalize" canonicalize(O_clust_full_tm, canoc_alg)
     O = zeros(T_conv, codomain(O_canoc), domain(O_canoc))
-    for (f_full, f_conv) in zip(blocks(O_canoc), blocks(O))
-        f_conv[2] .= f_full[2]
+    @timeit to "CE: convert scalartype (block copy)" begin
+        for (f_full, f_conv) in zip(blocks(O_canoc), blocks(O))
+            f_conv[2] .= f_full[2]
+        end
     end
     return O # Don't normalize, otherwise Atsushi will be mad.
 end

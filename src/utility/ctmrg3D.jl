@@ -98,11 +98,15 @@ function get_projectors_corner(ecs, trunc)
     Uys = []
     Uzs = []
     for i = 1:4
-        Uy, Sy, Vyᴴ = svd_trunc(permute(ecs[i], ((1,2),(3,4,5))); trunc)
-        Uz, Sz, Vzᴴ = svd_trunc(permute(ecs[i], ((3,4),(1,2,5))); trunc)
+        ecy = @timeit to "corner projector: permute (y)" permute(ecs[i], ((1,2),(3,4,5)))
+        Uy, Sy, Vyᴴ = @timeit to "corner projector: svd_trunc (y)" svd_trunc(ecy; trunc)
+        ecz = @timeit to "corner projector: permute (z)" permute(ecs[i], ((3,4),(1,2,5)))
+        Uz, Sz, Vzᴴ = @timeit to "corner projector: svd_trunc (z)" svd_trunc(ecz; trunc)
 
-        push!(Uys, Uy * sqrt(Sy))
-        push!(Uzs, Uz * sqrt(Sz))
+        @timeit to "corner projector: U*sqrt(S)" begin
+            push!(Uys, Uy * sqrt(Sy))
+            push!(Uzs, Uz * sqrt(Sz))
+        end
     end
     return Uys, Uzs
 end
@@ -110,80 +114,93 @@ end
 function get_projectors_edge(ees, trunc)
     Ws = []
     for i = 1:4
-        W, S, M = svd_trunc(permute(ees[i], ((3,4),(1,2,5,6,7))); trunc)
+        eep = @timeit to "edge projector: permute" permute(ees[i], ((3,4),(1,2,5,6,7)))
+        W, S, M = @timeit to "edge projector: svd_trunc" svd_trunc(eep; trunc)
 
-        push!(Ws, W * sqrt(S))
+        @timeit to "edge projector: W*sqrt(S)" push!(Ws, W * sqrt(S))
     end
     return Ws
 end
 
 
 function partial_ctmrgstep(env::CTMRG3D)
-    ecs = enlarged_corners(env)
-    ees = enlarged_edges(env)
-    es = enlarged_side(env)
+    ecs = @timeit to "enlarged_corners (4 contractions)" enlarged_corners(env)
+    ees = @timeit to "enlarged_edges (4 contractions)" enlarged_edges(env)
+    es = @timeit to "enlarged_side (1 contraction)" enlarged_side(env)
 
-    Uys, Uzs = get_projectors_corner(ecs, env.trunc_env)
-    Ws = get_projectors_edge(ees, env.trunc_bpeps)
+    Uys, Uzs = @timeit to "get_projectors_corner (8 SVDs)" get_projectors_corner(ecs, env.trunc_env)
+    Ws = @timeit to "get_projectors_edge (4 SVDs)" get_projectors_edge(ees, env.trunc_bpeps)
 
-    renormalize_corners(env, ecs, Uys, Uzs)
-    renormalize_edges(env, ees, Uys, Uzs, Ws)
-    renormalize_side(env, es, Ws)
+    @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys, Uzs)
+    @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys, Uzs, Ws)
+    @timeit to "renormalize_side" renormalize_side(env, es, Ws)
 
-    normalize!(env)
+    @timeit to "normalize! (all 26 tensors)" normalize!(env)
 
     return
 end
 
 function ctmrg_4steps(env::CTMRG3D)
     for i = 1:4
-        partial_ctmrgstep(env)
-        rot_we_90(env)
+        @timeit to "partial_ctmrgstep" partial_ctmrgstep(env)
+        @timeit to "rot_we_90" rot_we_90(env)
     end
 end
 
 function ctmrgstep(env::CTMRG3D)
     for i = 1:4
         ctmrg_4steps(env)
-        rot_ud_90(env)
+        @timeit to "rot_ud_90" rot_ud_90(env)
     end
-    rot_ns_90(env)
+    @timeit to "rot_ns_90" rot_ns_90(env)
     ctmrg_4steps(env)
-    rot_ns_90(env)
-    rot_ns_90(env)
+    @timeit to "rot_ns_90" rot_ns_90(env)
+    @timeit to "rot_ns_90" rot_ns_90(env)
     ctmrg_4steps(env)
-    rot_ns_90(env)
-    _, S, _ = svd_trunc(permute(env.C[1], ((1,2),(3,))))
+    @timeit to "rot_ns_90" rot_ns_90(env)
+    S = @timeit to "convergence quantity: svd_trunc of C[1]" begin
+        _, S, _ = svd_trunc(permute(env.C[1], ((1,2),(3,))))
+        S
+    end
     return S
 end
 
 function renormalize_corners(env::CTMRG3D, ecs, Uys, Uzs)
     corners = [4, 1, 5, 8]
     for i = 1:4
-        @tensor opt = true C′[u n e] :=
-                            ecs[i][UP1 UP2 NORTH1 NORTH2 e] * 
-                            conj(Uys[i][UP1 UP2; u]) * conj(Uzs[i][NORTH1 NORTH2; n])
-        env.C[corners[i]] = permute(C′, ((),(1,2,3)))
+        C′ = @timeit to "renormalize_corners: contraction" begin
+            @tensor opt = true C′[u n e] :=
+                                ecs[i][UP1 UP2 NORTH1 NORTH2 e] *
+                                conj(Uys[i][UP1 UP2; u]) * conj(Uzs[i][NORTH1 NORTH2; n])
+            C′
+        end
+        env.C[corners[i]] = @timeit to "renormalize_corners: permute" permute(C′, ((),(1,2,3)))
     end
 end
 
 function renormalize_edges(env::CTMRG3D, ees, Uys, Uzs, Ws)
     edges = [4, 5, 12, 8]
     for i = 1:4
-        @tensor opt = true E′[u n; d e] := 
-                            ees[i][UP1 UP2 NORTH1 NORTH2; DOWN1 DOWN2 e] * 
-                            Uzs[mod1(i+1,4)][UP1 UP2; u] * Uys[i][DOWN1 DOWN2; d] *
-                            conj(Ws[i][NORTH1 NORTH2; n])
-        env.E[edges[i]] = flip(E′, 2)
+        E′ = @timeit to "renormalize_edges: contraction" begin
+            @tensor opt = true E′[u n; d e] :=
+                                ees[i][UP1 UP2 NORTH1 NORTH2; DOWN1 DOWN2 e] *
+                                Uzs[mod1(i+1,4)][UP1 UP2; u] * Uys[i][DOWN1 DOWN2; d] *
+                                conj(Ws[i][NORTH1 NORTH2; n])
+            E′
+        end
+        env.E[edges[i]] = @timeit to "renormalize_edges: flip" flip(E′, 2)
     end
 end
 
 function renormalize_side(env::CTMRG3D, es, Ws)
-    @tensor opt = true A′[e; u n d s] := 
-                        es[e; UP1 UP2 NORTH1 NORTH2 DOWN1 DOWN2 SOUTH1 SOUTH2] * 
-                        Ws[1][UP1 UP2; u] * Ws[2][NORTH1 NORTH2; n] * 
-                        Ws[3][DOWN1 DOWN2; d] * Ws[4][SOUTH1 SOUTH2; s]
-    env.A[5] = flip(A′, [2 3 4 5])
+    A′ = @timeit to "renormalize_side: contraction" begin
+        @tensor opt = true A′[e; u n d s] :=
+                            es[e; UP1 UP2 NORTH1 NORTH2 DOWN1 DOWN2 SOUTH1 SOUTH2] *
+                            Ws[1][UP1 UP2; u] * Ws[2][NORTH1 NORTH2; n] *
+                            Ws[3][DOWN1 DOWN2; d] * Ws[4][SOUTH1 SOUTH2; s]
+        A′
+    end
+    env.A[5] = @timeit to "renormalize_side: flip" flip(A′, [2 3 4 5])
 end
 
 function normalize!(env::CTMRG3D)
@@ -239,6 +256,8 @@ end
 #
 # parentheses enforce contraction order, so no `opt` is needed.
 
+# This function below is the most costly function we have, two times (numerator/denomantaror) run 
+# per observation we want to perform
 function contract_onesite(env::CTMRG3D, M; allocator = ManualAllocator())
     return @tensor allocator = allocator (
         env.C[1][U1 A1 U3] *

@@ -39,21 +39,31 @@ function takagi_trunc(mat; trunc)
     return W, S
 end
 
+# From the two R factors, build the pair (P1, P2), that compresses the doubled bond to the allowed size
 function oblique_projector(R1, R2, trunc; proj = :svd)
-    mat = R1 * R2
+    mat = @timeit to "oblique projector: R1*R2" R1 * R2
     if proj == :takagi
-        W, S = takagi_trunc(mat; trunc)
-        P2 = inv(sqrt(S)) * W' * R1
-        P1 = transpose_flip(P2) # = R2 * conj(W) * inv(sqrt(S)) when R2 = transpose_flip(R1)
+        W, S = @timeit to "oblique projector: takagi_trunc" takagi_trunc(mat; trunc)
+        P1, P2 = @timeit to "oblique projector: build P1 P2" begin
+            P2 = inv(sqrt(S)) * W' * R1
+            P1 = transpose_flip(P2) # = R2 * conj(W) * inv(sqrt(S)) when R2 = transpose_flip(R1)
+            (P1, P2)
+        end
     elseif proj == :svd
-        U, S, Vt = svd_trunc(mat; trunc)
-        P1 = R2 * adjoint(Vt) * inv(sqrt(S))
-        P2 = inv(sqrt(S)) * adjoint(U) * R1
+        U, S, Vt = @timeit to "oblique projector: svd_trunc" svd_trunc(mat; trunc)
+        P1, P2 = @timeit to "oblique projector: build P1 P2" begin
+            P1 = R2 * adjoint(Vt) * inv(sqrt(S))
+            P2 = inv(sqrt(S)) * adjoint(U) * R1
+            (P1, P2)
+        end
     elseif proj == :eig
-        D, V = eig_trunc(mat; trunc)
-        D = complex(D)
-        P1 = R2 * V * inv(sqrt(D))
-        P2 = inv(sqrt(D)) * adjoint(V) * R1
+        D, V = @timeit to "oblique projector: eig_trunc" eig_trunc(mat; trunc)
+        P1, P2 = @timeit to "oblique projector: build P1 P2" begin
+            D = complex(D)
+            P1 = R2 * V * inv(sqrt(D))
+            P2 = inv(sqrt(D)) * adjoint(V) * R1
+            (P1, P2)
+        end
     end
     return P1, P2
 end
@@ -118,6 +128,7 @@ function QR_two_pepo(lattice,A,ind;side=:left)
     end
 end
 
+# compute the two R matrices for a pair of opposite legs (N/S or E/W)
 function R1R2(lattice, A, ind1, ind2; check_space=true)
     RA1 = QR_two_pepo(lattice,A,ind1);
     RA2 = QR_two_pepo(lattice,A,ind2;side=:right);
@@ -129,15 +140,16 @@ function R1R2(lattice, A, ind1, ind2; check_space=true)
     return RA1, RA2
 end
 
+# computes the projector pair P1, P2 for one bond direction
 function find_P1P2(lattice, A, ind1, ind2, trunc; check_space=true, proj = :svd)
     if proj == :takagi
         # For symmetric tensors, the LQ on ind2 equals the transposed QR on ind1 up to a gauge, which is fixed here
-        R1 = QR_two_pepo(lattice, A, ind1)
-        R2 = transpose_flip(R1)
+        R1 = @timeit to "find_P1P2: QR left only (takagi)" QR_two_pepo(lattice, A, ind1)
+        R2 = @timeit to "find_P1P2: transpose_flip" transpose_flip(R1)
     else
-        R1, R2 = R1R2(lattice, A, ind1, ind2; check_space = check_space)
+        R1, R2 = @timeit to "find_P1P2: QR left + QR right (R1R2)" R1R2(lattice, A, ind1, ind2; check_space = check_space)
     end
-    return oblique_projector(R1, R2, trunc; proj)
+    return @timeit to "find_P1P2: oblique_projector" oblique_projector(R1, R2, trunc; proj)
 end
 
 function approximate_state(

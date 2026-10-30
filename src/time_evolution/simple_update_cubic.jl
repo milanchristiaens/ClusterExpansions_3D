@@ -506,14 +506,17 @@ according to `trscheme`.
 ```
 """
 function _apply_gate3D(a, b, gate::AbstractTensorMap{<:Any,S,2,2}, trscheme) where {S}
-    @tensor a2b2[-1 -2; -3 -4] := gate[-2 -3; 1 2] * a[-1 1 3] * b[3 2 -4]
+    a2b2 = @timeit to "gate: apply (contraction)" begin
+        @tensor a2b2[-1 -2; -3 -4] := gate[-2 -3; 1 2] * a[-1 1 3] * b[3 2 -4]
+        a2b2
+    end
     trunc = if trscheme isa FixedSpaceTruncation
         V = space(b, 1)
         truncspace(isdual(V) ? V' : V)
     else
         trscheme
     end
-    return svd_trunc!(a2b2; trunc)#, alg=TensorKit.SVD())
+    return @timeit to "gate: svd_trunc! (bond truncation)" svd_trunc!(a2b2; trunc)#, alg=TensorKit.SVD())
 end
 
 #
@@ -846,28 +849,35 @@ function _su_bond!(
 
     # absorb the environment weights; the shared bond gets a square root on either side
     alldirs = ntuple(identity, 6)
-    A = _absorb_weights3D(
-        peps.vertices[site], peps.weights, site, alldirs, ntuple(==(dir), 6), false
-    )
-    B = _absorb_weights3D(
-        peps.vertices[site2], peps.weights, site2, alldirs, ntuple(==(dirop), 6), false
-    )
+    A, B = @timeit to "SU bond: absorb env weights (in)" begin
+        A = _absorb_weights3D(
+            peps.vertices[site], peps.weights, site, alldirs, ntuple(==(dir), 6), false
+        )
+        B = _absorb_weights3D(
+            peps.vertices[site2], peps.weights, site2, alldirs, ntuple(==(dirop), 6), false
+        )
+        (A, B)
+    end
 
     # apply the gate to the reduced tensors and truncate the bond
-    X, a, b, Y = _qr_bond3D(A, B, dir)
-    a, s, b, ϵ = _apply_gate3D(a, b, gate, alg.trscheme)
-    A, B = _qr_bond_undo3D(X, a, b, Y, dir)
+    X, a, b, Y = @timeit to "SU bond: QR split (_qr_bond3D)" _qr_bond3D(A, B, dir)
+    a, s, b, ϵ = @timeit to "SU bond: gate + SVD (_apply_gate3D)" _apply_gate3D(a, b, gate, alg.trscheme)
+    A, B = @timeit to "SU bond: QR undo (_qr_bond_undo3D)" _qr_bond_undo3D(X, a, b, Y, dir)
 
     # remove the environment weights again
     otherA = Tuple(filter(!=(dir), 1:6))
     otherB = Tuple(filter(!=(dirop), 1:6))
     allfalse = ntuple(Returns(false), 5)
-    A = _absorb_weights3D(A, peps.weights, site, otherA, allfalse, true)
-    B = _absorb_weights3D(B, peps.weights, site2, otherB, allfalse, true)
+    @timeit to "SU bond: remove env weights (out)" begin
+        A = _absorb_weights3D(A, peps.weights, site, otherA, allfalse, true)
+        B = _absorb_weights3D(B, peps.weights, site2, otherB, allfalse, true)
+    end
 
     if alg.normalize_vertices
-        A = A / norm(A, Inf)
-        B = B / norm(B, Inf)
+        @timeit to "SU bond: normalize vertices" begin
+            A = A / norm(A, Inf)
+            B = B / norm(B, Inf)
+        end
     end
     peps.vertices[site], peps.vertices[site2] = A, B
     peps.weights[axis, site] = s / norm(s, Inf)
@@ -899,12 +909,13 @@ function su_iter3D(
     symmetric::Bool=true,
 )
     @assert size(gates) == size(peps)
-    peps = deepcopy(peps)
+    peps = @timeit to "SU sweep: deepcopy(peps)" deepcopy(peps)
     order = _bond_order(size(peps))
     symmetric && (order = [order; reverse(order)])
     ϵ = 0.0
     for (axis, site) in order
-        ϵ = max(ϵ, _su_bond!(site, axis, gates[axis, site], peps, alg))
+        ϵb = @timeit to "SU bond update (_su_bond!)" _su_bond!(site, axis, gates[axis, site], peps, alg)
+        ϵ = max(ϵ, ϵb)
     end
     return peps, ϵ
 end
@@ -935,16 +946,16 @@ function simpleupdate3D(
 )
     @assert size(H) == size(peps)
     time_start = time()
-    gates = get_expham(symmetric ? alg.dt / 2 : alg.dt, H)
+    gates = @timeit to "SU: get_expham (gates)" get_expham(symmetric ? alg.dt / 2 : alg.dt, H)
     wtdiff = 1.0
     wts0 = deepcopy(peps.weights)
     for count in 1:(alg.maxiter)
         time0 = time()
-        peps, _ = su_iter3D(gates, peps, alg; symmetric)
-        wtdiff = compare_weights(peps.weights, wts0)
+        peps, _ = @timeit to "SU: sweep (su_iter3D)" su_iter3D(gates, peps, alg; symmetric)
+        wtdiff = @timeit to "SU: compare_weights" compare_weights(peps.weights, wts0)
         converged = wtdiff < alg.tol
         cancel = count == alg.maxiter
-        wts0 = deepcopy(peps.weights)
+        wts0 = @timeit to "SU: deepcopy(weights)" deepcopy(peps.weights)
         time1 = time()
         show_info =
             verbosity > 0 &&

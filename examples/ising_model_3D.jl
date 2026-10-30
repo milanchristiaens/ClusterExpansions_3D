@@ -115,7 +115,7 @@ obs = SpinOperators.σᶻ(T, spin_symmetry)
 Δβ_iter = 0.005
 Δβ_obs = 0.01
 # maxiter_obs = 34
-maxiter_obs = 5
+maxiter_obs = 6
 
 βs, ms = evolve_CE(obs, Δβ_iter, Δβ_obs, maxiter_obs, D_CE, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry)
 βs_SU, ms_SU = evolve_SU(obs, Δβ_iter, Δβ_obs, maxiter_obs / 2, D_SU, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry)

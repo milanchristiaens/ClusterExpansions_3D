@@ -21,6 +21,7 @@ TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
 TensorKitTensors = "41b62e7d-e9d1-4e23-942c-79a97adf954b"
 TensorOperations = "6aa20fa7-93e2-5fca-9bc0-fbd0db3c71a2"
 Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
 
 [compat]
@@ -41,4 +42,5 @@ TensorKit = "0.17.1"
 TensorKitTensors = "0.3.1"
 TensorOperations = "5.8.2"
 Test = "1.11.0"
+TimerOutputs = "0.5.29"
 Zygote = "0.7.14"
