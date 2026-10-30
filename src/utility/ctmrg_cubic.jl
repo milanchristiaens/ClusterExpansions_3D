@@ -8,9 +8,10 @@ abstract type CTMRG3D_alg end
 tot = 27
 """
 
-# corners: UP, NORTH, EAST. All arrows outgoing
-# edges: UP, NORTH, DOWN, EAST. All arrows ingoing
-# As: UP, NORTH, EAST, SOUTH, WEST. All arrows outgoing
+# Positions and leg order of the environment tensors: see the conventions at the top of ctmrg3D.jl.
+# corners: all arrows outgoing
+# edges: all arrows ingoing
+# As: all arrows outgoing
 # tensor O: UP, NORTH, EAST, DOWN, SOUTH, WEST. All arrows ingoing
 
 # This function runs CTMRG sweeps on env, untill the corner spectrum stops changing, or untill maxiter is reached

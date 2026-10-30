@@ -31,33 +31,33 @@ transpose_flip(X) = flip(permute(X, (domainind(X), codomainind(X))), Tuple(1:num
 # Takagi factorisation of a symmetric mat = transpose_flip(mat) as mat ≈ W * S * transpose_flip(W'),
 # with W an isometry and S ≥ 0 the (truncated) singular values
 function takagi_trunc(mat; trunc)
-    U, S, Vᴴ = svd_trunc(mat; trunc)
+    U, S, Vᴴ, ϵ = svd_trunc(mat; trunc)
 
     # For symmetric mat, conj(V) = U * Z with Z a symmetric unitary commuting with S
     Z = U' * transpose_flip(Vᴴ)
     W = U * sqrt(Z)
-    return W, S
+    return W, S, ϵ
 end
 
 # From the two R factors, build the pair (P1, P2), that compresses the doubled bond to the allowed size
 function oblique_projector(R1, R2, trunc; proj = :svd)
     mat = @timeit to "oblique projector: R1*R2" R1 * R2
     if proj == :takagi
-        W, S = @timeit to "oblique projector: takagi_trunc" takagi_trunc(mat; trunc)
+        W, S, ϵ = @timeit to "oblique projector: takagi_trunc" takagi_trunc(mat; trunc)
         P1, P2 = @timeit to "oblique projector: build P1 P2" begin
             P2 = inv(sqrt(S)) * W' * R1
             P1 = transpose_flip(P2) # = R2 * conj(W) * inv(sqrt(S)) when R2 = transpose_flip(R1)
             (P1, P2)
         end
     elseif proj == :svd
-        U, S, Vt = @timeit to "oblique projector: svd_trunc" svd_trunc(mat; trunc)
+        U, S, Vt, ϵ = @timeit to "oblique projector: svd_trunc" svd_trunc(mat; trunc)
         P1, P2 = @timeit to "oblique projector: build P1 P2" begin
             P1 = R2 * adjoint(Vt) * inv(sqrt(S))
             P2 = inv(sqrt(S)) * adjoint(U) * R1
             (P1, P2)
         end
     elseif proj == :eig
-        D, V = @timeit to "oblique projector: eig_trunc" eig_trunc(mat; trunc)
+        D, V, ϵ = @timeit to "oblique projector: eig_trunc" eig_trunc(mat; trunc)
         P1, P2 = @timeit to "oblique projector: build P1 P2" begin
             D = complex(D)
             P1 = R2 * V * inv(sqrt(D))
@@ -65,7 +65,7 @@ function oblique_projector(R1, R2, trunc; proj = :svd)
             (P1, P2)
         end
     end
-    return P1, P2
+    return P1, P2, ϵ
 end
 
 function QR_two_pepo_left(::Square,O1,O2,ind)
@@ -158,13 +158,13 @@ function approximate_state(
 ) where {E,S<:ElementarySpace}
     proj = rot_invariance ? :takagi : :svd
     lattice = Square()
-    PN,PS,ϵv = find_P1P2(lattice,A,3,5,trunc_alg.trscheme);
+    PN,PS,ϵv = find_P1P2(lattice,A,3,5,trunc_alg.trscheme; proj);
     if rot_invariance
         PE = copy(PN)
         PW = copy(PS)
         ϵh = ϵv
     else
-        PE,PW,ϵh = find_P1P2(lattice,A,4,6,trunc_alg.trscheme);
+        PE,PW,ϵh = find_P1P2(lattice,A,4,6,trunc_alg.trscheme; proj);
     end
     @tensor opt=true Onew[-1 -2; -3 -4 -5 -6] := A[1][1 -2; 7 8 9 10] * A[2][-1 1; 3 4 5 6] * PN[3 7; -3] * PE[4 8; -4] * PS[-5; 5 9] * PW[-6; 6 10]
     return Onew, maximum([ϵv,ϵh])
@@ -176,13 +176,13 @@ function approximate_state(
 ) where {E,S<:ElementarySpace}
     proj = rot_invariance ? :takagi : :svd
     lattice = Square()
-    PN,PS,ϵv = find_P1P2(lattice,A,3,5,trunc_alg.trscheme);
+    PN,PS,ϵv = find_P1P2(lattice,A,3,5,trunc_alg.trscheme; proj);
     if rot_invariance
         PE = copy(PN)
         PW = copy(PS)
         ϵh = ϵv
     else
-        PE,PW,ϵh = find_P1P2(lattice,A,4,6,trunc_alg.trscheme);
+        PE,PW,ϵh = find_P1P2(lattice,A,4,6,trunc_alg.trscheme; proj);
     end
     @tensor opt=true Onew[-1; -3 -4 -5 -6] := A[1][1; 7 8 9 10] * A[2][-1 1; 3 4 5 6] * PN[3 7; -3] * PE[4 8; -4] * PS[-5; 5 9] * PW[-6; 6 10]
     return Onew, maximum([ϵv,ϵh])
@@ -194,13 +194,13 @@ function approximate_state(
 ) where {E,S<:ElementarySpace}
     proj = rot_invariance ? :takagi : :svd
     lattice = Square()
-    PN,PS,ϵv = find_P1P2(lattice,(A,),3,5,trunc_alg.trscheme);
+    PN,PS,ϵv = find_P1P2(lattice,(A,),3,5,trunc_alg.trscheme; proj);
     if rot_invariance
         PE = copy(PN)
         PW = copy(PS)
         ϵh = ϵv
     else
-        PE,PW,ϵh = find_P1P2(lattice,(A,),4,6,trunc_alg.trscheme);
+        PE,PW,ϵh = find_P1P2(lattice,(A,),4,6,trunc_alg.trscheme; proj);
     end
     @tensor opt=true Onew[-1 -2; -3 -4 -5 -6] := A[-1 -2; 1 2 3 4] * PN[1; -3] * PE[2; -4] * PS[-5; 3] * PW[-6; 4]
     return Onew, maximum([ϵv,ϵh])
