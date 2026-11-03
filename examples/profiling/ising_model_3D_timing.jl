@@ -186,6 +186,8 @@ end
 # include() runs another Julia file as if its code were pasted here
 # It just defines the plot functions in the session
 include(joinpath(@__DIR__, "timing_plots.jl"))
+outdir = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling"))
+mkpath(outdir)
 
 ## Parameters (same as in ising_model_3D.jl)
 T = Float64
@@ -225,7 +227,7 @@ println("\n===== CE + CTMRG3D: overview (depth <= 2) =====")
 print_overview(rows_CE; maxdepth = 2)
 println("\n===== CE + CTMRG3D: full tree (TimerOutputs) =====")
 print_timer(to; sortby = :time)
-write_timer_csv("timing_CE.csv", rows_CE)
+write_timer_csv(joinpath(outdir, "timing_CE.csv"), rows_CE)
 @info "Peak memory of the Julia process so far (includes memory outside the GC): $(round(Sys.maxrss() / 2^20; digits = 1)) MiB"
 plt_CE_phases = plot_phases(rows_CE, "CE + CTMRG3D")
 plt_CE_self = plot_self_time(rows_CE, "CE + CTMRG3D")
@@ -233,9 +235,9 @@ plt_CE_ctm = plot_self_time(rows_CE, "CE + CTMRG3D"; under = "leading_boundary",
 display(plt_CE_phases)
 display(plt_CE_self)
 display(plt_CE_ctm)
-savefig(plt_CE_phases, "timing_CE_phases.png")
-savefig(plt_CE_self, "timing_CE_self.png")
-savefig(plt_CE_ctm, "timing_CE_ctmrg.png")
+savefig(plt_CE_phases, joinpath(outdir, "timing_CE_phases.png"))
+savefig(plt_CE_self, joinpath(outdir, "timing_CE_self.png"))
+savefig(plt_CE_ctm, joinpath(outdir, "timing_CE_ctmrg.png"))
 
 
 ## Measured run: SU + CTMRG3D
@@ -247,7 +249,7 @@ println("\n===== SU + CTMRG3D: overview (depth <= 2) =====")
 print_overview(rows_SU; maxdepth = 2)
 println("\n===== SU + CTMRG3D: full tree (TimerOutputs) =====")
 print_timer(to; sortby = :time)
-write_timer_csv("timing_SU.csv", rows_SU)
+write_timer_csv(joinpath(outdir, "timing_SU.csv"), rows_SU)
 @info "Peak memory of the Julia process so far (includes memory outside the GC): $(round(Sys.maxrss() / 2^20; digits = 1)) MiB"
 plt_SU_phases = plot_phases(rows_SU, "SU + CTMRG3D")
 plt_SU_self = plot_self_time(rows_SU, "SU + CTMRG3D")
@@ -255,6 +257,7 @@ plt_SU_ctm = plot_self_time(rows_SU, "SU + CTMRG3D"; under = "leading_boundary",
 display(plt_SU_phases)
 display(plt_SU_self)
 display(plt_SU_ctm)
-savefig(plt_SU_phases, "timing_SU_phases.png")
-savefig(plt_SU_self, "timing_SU_self.png")
-savefig(plt_SU_ctm, "timing_SU_ctmrg.png")
+savefig(plt_SU_phases, joinpath(outdir, "timing_SU_phases.png"))
+savefig(plt_SU_self, joinpath(outdir, "timing_SU_self.png"))
+savefig(plt_SU_ctm, joinpath(outdir, "timing_SU_ctmrg.png"))
+

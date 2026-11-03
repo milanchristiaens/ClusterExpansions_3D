@@ -5,3 +5,5 @@ GenericLinearAlgebra.jl
 TensorKit.jl
 deprecated
 data
+/*.csv
+/*.png

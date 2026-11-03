@@ -2,8 +2,7 @@
 
 include(joinpath(@__DIR__, "timing_plots.jl"))
 
-csvdir = pwd() # folder with timing_CE.csv and timing_SU.csv: the working directory in which ising_model_3D_timing.jl was run
-
+csvdir = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling"))  # where ising_model_3D_timing.jl writes
 
 # Read both CSV files first
 all_rows = Dict(tag => read_timer_csv(joinpath(csvdir, "timing_$tag.csv")) for tag in ("CE", "SU"))

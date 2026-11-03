@@ -27,7 +27,7 @@
 #   --reps=N               timed repetitions of contraction after the warm-up (min is reported)                           [default 2]
 #   --slices=N             time only the first N slices and extrapolate to all (flagged 'extrapolated'; no value check)
 #   --blas-threads=N       BLAS threads (default: unchanged)
-#   --csv=FILE             results file                                                                    [default benchmark_contract_onesite.csv]
+#   --csv=FILE             results file                                                                    [default data/benchmarks/benchmark_contract_onesite.csv]
 #   --force                run even if the estimated memory exceeds 85 % of the free memory
 
 # WHAT IS MEASURED
@@ -367,8 +367,9 @@ function main()
     # Small check if --force exists
     haskey(o, "force") && !any(startswith("--force"), pass) && push!(pass, "--force")
     
-    # Create a results file: on --csv= choice or on default
-    csv = get(o, "csv", "benchmark_contract_onesite.csv")
+    # Create a results file:
+    csv = get(o, "csv", joinpath(@__DIR__, "..", "data", "benchmarks", "benchmark_contract_onesite.csv"))
+
     # Define the header/list of 17 columns
     hdr = ["case", "cuts", "allocator", "slices", "model_flops_rel", "model_peak_gib", "time_s", "time_per_slice_s", "tracked_gib",
            "rss_gib", "rss_before_gib", "pool_gib", "sys_s", "minflt", "extrapolated", "re", "im"]
@@ -415,6 +416,7 @@ function main()
         end
     end
 
+    isempty(dirname(csv)) || mkpath(dirname(csv))
     # Now we write the CSV file, using the rows
     open(csv, "w") do io
         # First we write the title line hdr
