@@ -42,3 +42,11 @@ end
 @time @safetestset "3D CTMRG" begin
     include("3d_symmetries.jl")
 end
+
+@time @safetestset "contract_onesite slicing" begin
+    include("contract_onesite_sliced.jl")
+end
+
+@time @safetestset "contract_onesite auto" begin
+    include("contract_onesite_auto.jl")
+end

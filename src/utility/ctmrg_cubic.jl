@@ -40,7 +40,8 @@ end
 
 # This is the user-facing entry point, given the 3D PEPO O tensor and the obs tensor, it builds the 3D CTMRG environment
 # Converges it and returns one value per requested observabke
-function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, verbosity = 0) where {A,S}
+# ram_gib (= nothing) tells how much RAM we have to do this contraction (slicing)
+function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, verbosity = 0, ram_gib = nothing) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
         O = flip(permute(O, ((),(1,2,3,4,5,6))), [4 5 6])
@@ -66,8 +67,8 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
                 M = flip(permute(M, ((),(1,2,3,4,5,6))), [4 5 6])
                 M
             end
-            num = @timeit to "EV: contract_onesite numerator (M)" contract_onesite(env, M)
-            den = @timeit to "EV: contract_onesite denominator (O)" contract_onesite(env, O)
+            num = @timeit to "EV: contract_onesite numerator (M)" contract_onesite_dispatch(env, M, ram_gib)
+            den = @timeit to "EV: contract_onesite denominator (O)" contract_onesite_dispatch(env, O, ram_gib)
             m = num / den
         end
         push!(expvals, m)

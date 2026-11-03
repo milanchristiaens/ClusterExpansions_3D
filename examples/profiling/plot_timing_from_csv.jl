@@ -15,11 +15,11 @@ for (tag, label) in (("CE", "CE + CTMRG3D"), ("SU", "SU + CTMRG3D"))
     rows = all_rows[tag]
 
     plt_phases = plot_phases(rows, label)                                         # the main phases of the run
-    plt_self = plot_self_time(rows, label)                                        # top 20 sections by self time
-    # plt_ctm = plot_self_time(rows, label; under = "leading_boundary", top = 25)   # only inside the CTMRG3D iterations
-    plt_mean_alloc = plot_alloc_per_call(rows, label)                             # top sections by mean self allocation per call
+    plt_self = plot_self_time(rows, label; top = 10)                              # top 10 sections by self time
+    # plt_ctm = plot_self_time(rows, label; under = "leading_boundary", top = 25) # only inside the CTMRG3D iterations
+    plt_mean_alloc = plot_alloc_per_call(rows, label; top = 10)                   # top sections by mean self allocation per call
     # plt_mean_alloc_ctm = plot_alloc_per_call(rows, label; under = "leading_boundary")
-    plt_max_alloc = plot_max_alloc_per_call(rows, label)                          # NEW: largest allocation of ONE call
+    plt_max_alloc = plot_max_alloc_per_call(rows, label; top = 10)                # largest allocation of one call
     # plt_max_alloc_ctm = plot_max_alloc_per_call(rows, label; under = "leading_boundary")
 
     display(plt_phases)
