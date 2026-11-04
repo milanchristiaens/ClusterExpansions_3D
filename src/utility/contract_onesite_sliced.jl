@@ -461,11 +461,13 @@ onesite_nslices(env, M, cuts) = prod((npieces(BondCut(env, M, lab, n)) for (lab,
 
 # IMPORTANT: this function computes the same scalar as contract_onesite(env, M), as a serial sum over slices.
 function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}};
-                                 kernel = contract_onesite_kernel, allocator = ManualAllocator(), max_slices::Int = typemax(Int))
+                                 kernel = contract_onesite_kernel, allocator = ManualAllocator(), max_slices::Int = typemax(Int),
+                                 verbosity::Int = 0)
     # cuts = vector of (label => n) pairs
     # kernel = contraction order
     # allocator = chosen allocator
     # max_slices = makes result a partial sum
+    # verbosity = if > 2: logs the value of every slice and the accumulated sum
     
     # Create the kernel once, for the whole call
     kern = _os_resolve_kernel(kernel)
@@ -478,6 +480,9 @@ function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}
     
     # Running sum (accumulated result)
     acc = zero(scalartype(M))
+
+    # Total number of slices that will actually run (needed for the progress message)
+    nslices = min(prod(npieces(b) for b in bcs), max_slices)
 
     # Now we will replace tensors one by one with their cut version:
     # For all slices (for all possible combinations of indexes per cut bond)
@@ -509,9 +514,15 @@ function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}
                 Mj = _os_slice_leg(Mj, leg, ι)
             end
         end
+        
+        # Contract the sliced network with the new tensors, and time it
+        t0 = time_ns()
+        zslice = kern(C, E, A, Mj; allocator)
+        dt = (time_ns() - t0) / 1e9
+        acc += zslice
 
-        # Contract the sliced network with the new tensors
-        acc += kern(C, E, A, Mj; allocator)
+        # Per-slice progress: value of this slice and the accumulated sum so far
+        verbosity > 2 && @info "contract_onesite_sliced: slice $n/$nslices, pieces $(js), value = $zslice, accumulated = $acc, $(round(dt; digits = 2)) s"
     end
 
     # Return the answer

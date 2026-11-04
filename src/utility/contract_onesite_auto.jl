@@ -92,7 +92,7 @@ end
 
 # This computes the same number as contract_onesite(env, M), but using slices, number of slices chosen automatically from RAM budget
 function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30, allocator::Symbol = :reuse, cuts = nothing,
-                               kmax::Int = 3, margin::Real = 0.8, rules = ONESITE_RAM_RULES, force::Bool = false, verbose::Bool = true)
+                               kmax::Int = 3, margin::Real = 0.8, rules = ONESITE_RAM_RULES, force::Bool = false, verbosity::Int = 0)
     
     # ram_gib: memory this PROCESS may use. Default=Sys.total_memory(), pass it explicitely if needed (e.g. = 64)
     # allocator: :reuse or :manuel (:reuse = `ReuseAllocator`: 13-19 % faster than `:manual` in the Windows runs)
@@ -121,15 +121,16 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
               "Give more `ram_gib`, a larger `kmax` (<= 5), or find more cuts with development/find_orders_cotengra.py; `force = true` runs anyway.")
     end
 
-    # Otherwise give info
-    verbose && @info "contract_onesite_auto: cuts = $(plan.cuts), $(Int(plan.slices)) slices, flops x$(round(plan.flops_rel; digits = 3)), " *
-                     "predicted $(round(plan.est_gib; digits = 2)) GiB of $(round(ram_gib; digits = 2)) GiB"
-    # Choose the correct allocatr
+    # Otherwise give info (not if plan doesn't fit, we already have above error for this)
+    if !plan.fits && verbosity > 0
+        @warn "contract_onesite_auto: predicted $(round(plan.est_gib; digits = 2)) GiB > $(round(margin * ram_gib; digits = 2)) GiB budget, running anyway (force = true)"
+    end
+    # Choose the correct allocator
     alloc = allocator === :reuse ? ReuseAllocator() : ManualAllocator()
     
     # Perform the sliced contraction
     try
-        return contract_onesite_sliced(env, M, onesite_full_cuts(env, M, plan.cuts); allocator = alloc)
+        return contract_onesite_sliced(env, M, onesite_full_cuts(env, M, plan.cuts); allocator = alloc, verbosity)
     finally
         # Release memory if not ReuseAllocator
         allocator === :reuse && release!(alloc)

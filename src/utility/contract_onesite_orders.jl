@@ -505,7 +505,7 @@ const _os_SELFCHECK = [
 
 
 # Returns true if Julia cost model reproduces all reference numbers
-function onesite_selfcheck(; verbose::Bool = true)
+function onesite_selfcheck(; verbose::Int = 1)
     # define the dimenions of the reference scenario
     d = onesite_dims(8, 5, 5)
     ok = true
@@ -522,7 +522,7 @@ function onesite_selfcheck(; verbose::Bool = true)
         ok &= good
 
         # If verbose is on, print data per reference value
-        verbose && println(rpad(name, 30), " flops ", c.flops, " peak ", c.peak, " (", round(c.peak * 16 / 2^30, digits = 3), " GiB) slices ", round(Int, c.slices),
+        verbose > 0 && println(rpad(name, 30), " flops ", c.flops, " peak ", c.peak, " (", round(c.peak * 16 / 2^30, digits = 3), " GiB) slices ", round(Int, c.slices),
                            good ? "   OK" : "   MISMATCH (expected $f, $p, $s)")
     end
     return ok

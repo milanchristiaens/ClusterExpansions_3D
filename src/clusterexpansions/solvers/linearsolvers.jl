@@ -154,6 +154,15 @@ function permute_dir(x, dir, second)
     return permute(x, ((1,2).+second, (Tuple(tup))))
 end
 
+# LSMR settings depend on the number type: BigFloat-based types (real or complex) need a much tighter tolerance than the default
+function _lsmr_alg(T, verbosity)
+    R = real(T)
+    if R <: BigFloat
+        return LSMR(verbosity = verbosity, maxiter = 2000, tol = R(1e-36))
+    else
+        return LSMR(verbosity = verbosity, maxiter = 1000)
+    end
+end
 
 function solve_index(T, A, exp_H, conjugated, sites_to_update, levels_to_update, dir, N, spaces; verbosity = 2, svd = true)
     trivspace = spaces(0)
@@ -178,12 +187,9 @@ function solve_index(T, A, exp_H, conjugated, sites_to_update, levels_to_update,
         exp_H_flipped = permute(exp_H, ((included_sites..., (included_sites .+ N)...), (sites_to_update..., (sites_to_update .+ N)...)))
 
         @timeit to "solve_index: lssolve LSMR (two sites)" begin
-            if scalartype(exp_H) == Complex{BigFloat}
-                x, info = lssolve(apply_A, exp_H_flipped, LSMR(verbosity = verbosity, maxiter = 2000, tol = BigFloat(1e-36)))
-            else
-                x, info = lssolve(apply_A, exp_H_flipped, LSMR(verbosity = verbosity, maxiter = 1000))
-            end
+            x, info = lssolve(apply_A, exp_H_flipped, _lsmr_alg(scalartype(exp_H), verbosity))
         end
+
         error_sol = @timeit to "solve_index: residual check (apply_A)" norm(apply_A(x, Val(false)) - exp_H_flipped)/norm(exp_H_flipped)
         if error_sol > 1e-10 && verbosity > 0
             @warn "Error made on the solution is of the order $(error_sol)"
@@ -199,11 +205,7 @@ function solve_index(T, A, exp_H, conjugated, sites_to_update, levels_to_update,
         exp_H_flipped = permute(exp_H, ((included_sites..., (included_sites .+ N)...), (sites_to_update[1], sites_to_update[1]+N)))
 
         @timeit to "solve_index: lssolve LSMR (one site)" begin
-            if scalartype(exp_H) == Complex{BigFloat}
-                x, info = lssolve(apply_A, exp_H_flipped, LSMR(verbosity = verbosity, maxiter = 2000, tol = BigFloat(1e-36)))
-            else
-                x, info = lssolve(apply_A, exp_H_flipped, LSMR(verbosity = verbosity, maxiter = 1000))
-            end
+            x, info = lssolve(apply_A, exp_H_flipped, _lsmr_alg(scalartype(exp_H), verbosity))
         end
         error_sol = @timeit to "solve_index: residual check (apply_A)" norm(apply_A(x, Val(false)) - exp_H_flipped)/norm(exp_H_flipped)
         if error_sol > 1e-10 && verbosity > 0

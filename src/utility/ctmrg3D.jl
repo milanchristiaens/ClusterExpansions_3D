@@ -95,10 +95,14 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     maxiter::Int
     tol::Float64
     verbosity::Int
+    west_updates::Union{Int, Symbol}   # West updates per side: Int >= 1, or :auto (stop once ϵ < west_tol, at most 4)
+    west_tol::Float64
 
-    function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}
+    function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}
         A, E, C = CTMRG3D_init(O; Vp, Vbp, Vv)
-        new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, verbosity)
+        (west_updates === :auto || (west_updates isa Int && west_updates ≥ 1)) ||
+            throw(ArgumentError("west_updates must be :auto or an integer ≥ 1"))
+        new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, verbosity, west_updates, west_tol)
     end
 end
 
@@ -252,30 +256,61 @@ function partial_ctmrgstep(env::CTMRG3D)
     return
 end
 
-function ctmrg_4steps(env::CTMRG3D)
-    for i = 1:4
+
+# Corner spectrum used as convergence quantity: singular values of C[1] in the CURRENT frame
+corner_spectrum(env::CTMRG3D) = svd_trunc(permute(env.C[1], ((1,2),(3,))))[2]
+
+# Variable number of west updates:
+function ctmrg_4steps(env::CTMRG3D; side::String = "")
+    env.verbosity > 1 && @info "CTMRG3D side $side"
+
+    # First check how many west updates we want
+    auto = env.west_updates === :auto
+    nmax = auto ? 4 : env.west_updates
+
+    # Calculate current spectrum of C[1], if auto or if vebosity > 2
+    track = auto || env.verbosity > 2
+    S_prev = nothing
+    if track   # baseline at the start of this side, in the current frame
+        S_prev = @timeit to "convergence quantity: svd_trunc of C[1]" corner_spectrum(env)
+    end
+
+    # Perform the West updates
+    for i = 1:nmax
         @timeit to "partial_ctmrgstep" partial_ctmrgstep(env)
-        @timeit to "rot_we_90" rot_we_90(env)
+
+        # If we track the spectrum (vebosity > 2 or auto)
+        if track
+            S = @timeit to "convergence quantity: svd_trunc of C[1]" corner_spectrum(env)
+            ϵ = norm(S - S_prev)
+            S_prev = S
+            env.verbosity > 2 && @info "CTMRG3D side $side, West update $i/$nmax: ϵ = $ϵ"
+            
+            # If auto, and the spectrum's change is smaller than the tolerance, then we stop the updates
+            if auto && ϵ < env.west_tol
+                env.verbosity > 2 && @info "CTMRG3D side $side: stopped after $i West update(s)"
+                break
+            end
+        end
     end
 end
 
+# One full iteration: all six sides are updated (4 West updates each).
 function ctmrgstep(env::CTMRG3D)
-    for i = 1:4
-        ctmrg_4steps(env)
+    for side in ("W", "S", "E", "N")
+        ctmrg_4steps(env; side)
         @timeit to "rot_ud_90" rot_ud_90(env)
     end
     @timeit to "rot_ns_90" rot_ns_90(env)
-    ctmrg_4steps(env)
+    ctmrg_4steps(env; side = "D")
     @timeit to "rot_ns_90" rot_ns_90(env)
     @timeit to "rot_ns_90" rot_ns_90(env)
-    ctmrg_4steps(env)
+    ctmrg_4steps(env; side = "U")
     @timeit to "rot_ns_90" rot_ns_90(env)
-    S = @timeit to "convergence quantity: svd_trunc of C[1]" begin
-        _, S, _ = svd_trunc(permute(env.C[1], ((1,2),(3,))))
-        S
-    end
+    S = @timeit to "convergence quantity: svd_trunc of C[1]" corner_spectrum(env)
     return S
 end
+
 
 function renormalize_corners(env::CTMRG3D, ecs, Uys, Uzs)
     corners = [4, 1, 5, 8]

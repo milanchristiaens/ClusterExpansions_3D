@@ -41,19 +41,21 @@ function approximate_state(
     ) where {E, S <: ElementarySpace}
     proj = rot_invariance ? :takagi : :svd
     lattice = Cubic()
-    PU, PD = @timeit to "projectors UP-DOWN (find_P1P2)" find_P1P2(lattice, A, 3, 6, trunc_alg.trscheme; proj)
-    # @info "$(norm(PU.data - (PD').data)) / $(norm(PU))"
-    # @info "$(norm(PU.data - conj.((PD').data))) / $(norm(PU))"
+    
+    PU, PD, ϵ_ud = @timeit to "projectors UP-DOWN (find_P1P2)" find_P1P2(lattice, A, 3, 6, trunc_alg.trscheme; proj)
     if rot_invariance
         PN = PE = copy(PU)
         PS = PW = copy(PD)
+        ϵ = ϵ_ud
     else
-        PN, PS = @timeit to "projectors NORTH-SOUTH (find_P1P2)" find_P1P2(lattice, A, 4, 7, trunc_alg.trscheme; proj)
-        PE, PW = @timeit to "projectors EAST-WEST (find_P1P2)" find_P1P2(lattice, A, 5, 8, trunc_alg.trscheme; proj)
+        PN, PS, ϵ_ns = @timeit to "projectors NORTH-SOUTH (find_P1P2)" find_P1P2(lattice, A, 4, 7, trunc_alg.trscheme; proj)
+        PE, PW, ϵ_ew = @timeit to "projectors EAST-WEST (find_P1P2)" find_P1P2(lattice, A, 5, 8, trunc_alg.trscheme; proj)
+        ϵ = max(ϵ_ud, ϵ_ns, ϵ_ew)
     end
     Onew = @timeit to "stack and truncate: contraction (A1 A2 P*6)" begin
         @tensor opt = true Onew[-1 -2; -3 -4 -5 -6 -7 -8] := A[1][1 -2; 8 9 10 11 12 13] * A[2][-1 1; 2 3 4 5 6 7] * PU[2 8; -3] * PN[3 9; -4] * PE[4 10; -5] * PD[-6; 5 11] * PS[-7; 6 12] * PW[-8; 7 13]
-        Onew 
+        Onew
     end
-    return Onew, nothing
+    trunc_alg.verbosity > 1 && @info "approximate_state (cubic): truncation error = $ϵ"
+    return Onew, ϵ
 end
