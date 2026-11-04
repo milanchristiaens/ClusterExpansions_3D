@@ -68,6 +68,10 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
                 M = flip(permute(M, ((),(1,2,3,4,5,6))), [4 5 6])
                 M
             end
+            # Now we contract:
+            # We go to file contract_onesite_auto.jl (to find best cuts, given budget), 
+            # then we go to contract_onesite_sliced.jl (for performing the sliced contraction)
+            # Then we call the current contraction kernel (which is stored in contract_onesite_orders.jl, under name TREE_CURRENT)
             num = @timeit to "EV: contract_onesite numerator (M)" contract_onesite_dispatch(env, M, ram_gib; verbosity, onesite_kwargs...)
             den = @timeit to "EV: contract_onesite denominator (O)" contract_onesite_dispatch(env, O, ram_gib; verbosity = 0, onesite_kwargs...)
             m = num / den

@@ -13,22 +13,22 @@
 using TensorKit, TensorOperations
 using TensorOperations: ManualAllocator
 
-
-# Each row is: kind tensor (corner, face, ...), index of that kind, leg indices (all based on order in `contract_onesite`)
-# e.g. (:E, 1, [:U2, :A2, :U1, :U4]) = env.E[1][U2 A2; U1 U4]
+# Each row is: kind tensor (corner, face, ...), index of that kind, leg labels in the correct leg order (see leg-order table at the
+# top of ctmrg3D.jl; the kernels below are generated from this table, so it is the single source of truth together with TREE_CURRENT)
+# e.g. (:E, 1, [:U1, :U4, :U2, :A2]) = env.E[1][U1 U4; U2 A2]
 const ONESITE_TENSORS = Tuple{Symbol,Int,Vector{Symbol}}[
-    (:C, 1, [:U1, :A1, :U3]),
-    (:E, 1, [:U2, :A2, :U1, :U4]),
+    (:C, 1, [:A1, :U3, :U1]),                       
+    (:E, 1, [:U1, :U4, :U2, :A2]),                  
     (:C, 2, [:U5, :A3, :U2]),
-    (:E, 5, [:A1, :M1, :B1, :M3]),
-    (:C, 5, [:B1, :L1, :L3]),
-    (:A, 2, [:NORTH, :A2, :M2, :B2, :M1]),
+    (:E, 5, [:B1, :M3, :A1, :M1]),                  
+    (:C, 5, [:L3, :B1, :L1]),                       
+    (:A, 2, [:NORTH, :B2, :M1, :A2, :M2]),          
     (:E, 6, [:A3, :M5, :B3, :M2]),
     (:E, 9, [:L1, :B2, :L2, :L4]),
     (:C, 6, [:B3, :L5, :L2]),
     (:E, 2, [:U10, :A6, :U5, :U7]),
-    (:C, 3, [:U12, :A9, :U10]),
-    (:A, 1, [:UP, :U9, :U7, :U4, :U6]),
+    (:C, 3, [:A9, :U10, :U12]),                     
+    (:A, 1, [:UP, :U4, :U6, :U9, :U7]),           
     (:E, 4, [:U3, :A4, :U8, :U6]),
     (:E, 3, [:U11, :A8, :U12, :U9]),
     (:C, 4, [:U8, :A7, :U11]),
@@ -39,12 +39,14 @@ const ONESITE_TENSORS = Tuple{Symbol,Int,Vector{Symbol}}[
     (:M, 1, [:UP, :NORTH, :EAST, :DOWN, :SOUTH, :WEST]),
     (:A, 3, [:EAST, :A6, :M10, :B6, :M5]),
     (:A, 4, [:SOUTH, :A8, :M11, :B8, :M12]),
-    (:E, 7, [:A9, :M12, :B9, :M10]),
-    (:A, 6, [:DOWN, :L4, :L7, :L9, :L6]),
-    (:E, 11, [:L12, :B8, :L11, :L9]),
+    (:E, 7, [:B9, :M10, :A9, :M12]),               
+    (:A, 6, [:DOWN, :L9, :L6, :L4, :L7]),         
+    (:E, 11, [:L11, :L9, :L12, :B8]),               
     (:E, 10, [:L5, :B6, :L10, :L7]),
-    (:C, 7, [:B9, :L12, :L10]),
+    (:C, 7, [:L10, :B9, :L12]),                   
 ]
+
+
 # Number of leafs of contraction tree = number of one site tensors = 27 in our case
 const ONESITE_NLEAF = length(ONESITE_TENSORS)
 
@@ -113,9 +115,9 @@ function onesite_dims(env, M)
 end
 
 
-# Now we define 2 reference trees, we write them as nested tuples ((a, b) = "contract a with b", `a` is evaluated first by @tensor)
-"Current contraction used in `contract_onesite`: memory-lean (39.1 GiB for unsliced 8,5,5)"
-const TREE_CURRENT = (1, (2, (3, (((4, 5), (6, (7, (8, 9)))), (((10, 11), (12, (13, (14, 15)))), ((16, (17, (18, 19))), (20, (21, (22, (23, (24, (25, (26, 27)))))))))))))
+# Now we define the two reference trees for the full code, we write them as nested tuples ((a, b) = "contract a with b", `a` is evaluated first by @tensor)
+"Current contraction used in `contract_onesite`: memory-lean (38.8 GiB for unsliced 8,5,5; the children of two products are ordered so the big block is evaluated first)"
+const TREE_CURRENT = (1, (2, (3, ((((16, (17, (18, 19))), (20, (21, (22, (23, (24, (25, (26, 27)))))))), ((10, 11), (12, (13, (14, 15))))), ((4, 5), (6, (7, (8, 9))))))))
 "Contraction found by opt=true: less FLOPS needed (doesn't automatically mean faster though!!), but super memory intensive (238 GiB for unsliced 8,5,5)"
 const TREE_FAST = (((((20, (((24, ((((25, 19), 27), ((17, 15), (((23, 11), 22), 14))), (((4, (13, 1)), 16), (18, 5)))), 8), (9, 26))), 6), 21), ((12, 10), (2, 3))), 7)
 
@@ -455,6 +457,13 @@ function onesite_kernel_source(@nospecialize(tree); name::Symbol = :contract_one
 end
 
 
+# The two static kernels are generated HERE (at load time) from the data above, so a contraction order is defined only once:
+#   contract_onesite_kernel(C, E, A, M; allocator)        = TREE_CURRENT   (`contract_onesite(env, M)` in ctmrg3D.jl calls this)
+#   contract_onesite_kernel_fast(C, E, A, M; allocator)   = TREE_FAST      (only to be used together with cuts: it needs much more memory unsliced)
+include_string(@__MODULE__, onesite_kernel_source(TREE_CURRENT; name = :contract_onesite_kernel))
+include_string(@__MODULE__, onesite_kernel_source(TREE_FAST; name = :contract_onesite_kernel_fast))
+
+
 # Given the above string, save it to a file, such that we can read/include it later on
 function onesite_write_kernel_file(path::AbstractString, @nospecialize(tree); name::Symbol = :contract_onesite_kernel_custom)
     # Open the file at path
@@ -494,10 +503,10 @@ end
 # Here we define a table of reference results (from Python model)
 const _os_SELFCHECK = [
     # name, tree, cuts, flops, peak (elements), slices
-    ("current (no cuts)", TREE_CURRENT, Symbol[], 2272611776512.0, 2627200000.0, 1.0),
-    ("current + L5", TREE_CURRENT, Symbol[:L5], 2276800938496.0, 341000000.0, 8.0),
-    ("current + L5,L4", TREE_CURRENT, Symbol[:L5, :L4], 2295962042880.0, 79720000.0, 40.0),
-    ("current + L5,L4,A8", TREE_CURRENT, Symbol[:L5, :L4, :A8], 2323064230400.0, 17480000.0, 200.0),
+    ("current (no cuts)", TREE_CURRENT, Symbol[], 2272611776512.0, 2601600000.0, 1.0),
+    ("current + L5", TREE_CURRENT, Symbol[:L5], 2276800938496.0, 326600000.0, 8.0),
+    ("current + L5,L4", TREE_CURRENT, Symbol[:L5, :L4], 2295962042880.0, 66600000.0, 40.0),
+    ("current + L5,L4,A8", TREE_CURRENT, Symbol[:L5, :L4, :A8], 2323064230400.0, 14600000.0, 200.0),
     ("fast (no cuts)", TREE_FAST, Symbol[], 1512621097600.0, 16000000000.0, 1.0),
     ("fast + U10,U6,U9", TREE_FAST, Symbol[:U10, :U6, :U9], 1553400616000.0, 80000000.0, 200.0),
     ("fast + U1,U10", TREE_FAST, Symbol[:U1, :U10], 1549349683200.0, 250000000.0, 64.0),
@@ -505,7 +514,7 @@ const _os_SELFCHECK = [
 
 
 # Returns true if Julia cost model reproduces all reference numbers
-function onesite_selfcheck(; verbose::Int = 1)
+function onesite_selfcheck(; verbosity::Int = 1)
     # define the dimenions of the reference scenario
     d = onesite_dims(8, 5, 5)
     ok = true
@@ -521,8 +530,8 @@ function onesite_selfcheck(; verbose::Int = 1)
         # Only if everything is good, then ok = True
         ok &= good
 
-        # If verbose is on, print data per reference value
-        verbose > 0 && println(rpad(name, 30), " flops ", c.flops, " peak ", c.peak, " (", round(c.peak * 16 / 2^30, digits = 3), " GiB) slices ", round(Int, c.slices),
+        # If verbosity is above 1, print data per reference value
+        verbosity > 0 && println(rpad(name, 30), " flops ", c.flops, " peak ", c.peak, " (", round(c.peak * 16 / 2^30, digits = 3), " GiB) slices ", round(Int, c.slices),
                            good ? "   OK" : "   MISMATCH (expected $f, $p, $s)")
     end
     return ok

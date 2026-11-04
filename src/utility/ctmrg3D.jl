@@ -368,62 +368,14 @@ end
 #
 #                     flops      largest intermediate   live intermediates (peak)
 #   opt = true        1.52e12    119.2 GiB (χ⁴D⁹)       238.4 GiB
-#   this order        2.27e12     23.8 GiB (χ⁴D⁸)        39.1 GiB
+#   this order        2.27e12     23.8 GiB (χ⁴D⁸)        38.8 GiB
 #
-# parentheses enforce contraction order, so no `opt` is needed.
+# Contraction order is defined in TREE_CURRENT in contract_onesite_orders.jl
 
 # This function below is the most costly function we have, two times (numerator/denomantaror) run 
 # per observation we want to perform
 function contract_onesite(env::CTMRG3D, M; allocator = ManualAllocator())
-    return @tensor allocator = allocator (
-        env.C[1][A1 U3 U1] *
-        (
-            env.E[1][U1 U4; U2 A2] *
-            (
-                env.C[2][U5 A3 U2] *
-                (
-                    (
-                        (env.E[5][B1 M3; A1 M1] * env.C[5][L3 B1 L1]) *
-                        (
-                            env.A[2][NORTH; B2 M1 A2 M2] *
-                            (env.E[6][A3 M5; B3 M2] * (env.E[9][L1 B2; L2 L4] * env.C[6][B3 L5 L2]))
-                        )
-                    ) *
-                    (
-                        (
-                            (env.E[2][U10 A6; U5 U7] * env.C[3][A9 U10 U12]) *
-                            (
-                                env.A[1][UP; U4 U6 U9 U7] *
-                                (env.E[4][U3 A4; U8 U6] * (env.E[3][U11 A8; U12 U9] * env.C[4][U8 A7 U11]))
-                            )
-                        ) *
-                        (
-                            (
-                                env.A[5][WEST; A4 M3 B4 M8] *
-                                (env.E[8][A7 M8; B7 M11] * (env.E[12][L8 B4; L3 L6] * env.C[8][B7 L8 L11]))
-                            ) *
-                            (
-                                M[UP NORTH EAST; DOWN SOUTH WEST] *
-                                (
-                                    env.A[3][EAST; A6 M10 B6 M5] *
-                                    (
-                                        env.A[4][SOUTH; A8 M11 B8 M12] *
-                                        (
-                                            env.E[7][B9 M10; A9 M12] *
-                                            (
-                                                env.A[6][DOWN; L9 L6 L4 L7] *
-                                                (env.E[11][L11 L9; L12 B8] * (env.E[10][L5 B6; L10 L7] * env.C[7][L10 B9 L12]))
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
+    return contract_onesite_kernel(env.C, env.E, env.A, M; allocator)
 end
 
 function transfer_matrix(env::CTMRG3D)

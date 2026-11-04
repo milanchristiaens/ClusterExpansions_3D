@@ -5,13 +5,10 @@
 # The slices are run one after the other; not parallel (yet?)
 #
 # What is in this file
-#   1. contract_onesite_kernel          the CURRENT bracketing of contract_onesite, written on plain vectors C, E, A, M
-#      contract_onesite_kernel_fast     a different bracketing (fewer flops, much more memory when unsliced)
-#      (any other tree: onesite_make_kernel(tree) from contract_onesite_orders.jl, or pass the tree itself as `kernel`)
-#   2. slicing machinery  (_os_slice_leg, _os_bond_pieces, ..., BondCut)
-#   3. allocators: ReuseAllocator (re-uses temporaries), TrackingAllocator (measures the peak of the temporaries)
-#   4. contract_onesite_sliced(env, M, cuts; kernel, allocator), onesite_full_cuts, check_slicing
-#   5. a mock environment (random tensors with the right leg structure) for tests and benchmarks without CTMRG3D
+#   1. slicing machinery  (_os_slice_leg, _os_bond_pieces, ..., BondCut)
+#   2. allocators: ReuseAllocator (re-uses temporaries), TrackingAllocator (measures the peak of the temporaries)
+#   3. contract_onesite_sliced(env, M, cuts; kernel, allocator), onesite_full_cuts, check_slicing
+#   4. a mock environment (random tensors with the right leg structure) for tests and benchmarks without CTMRG3D
 #
 # Names of the bonds are the index names of the @tensor expression, e.g. :L5 is `env.C[6][B3 L5 L2]`-`env.E[10][L5 B6; L10 L7]`.
 
@@ -20,126 +17,7 @@
 using TensorKit, TensorOperations, Random
 using TensorOperations: ManualAllocator
 
-
-# 1. Define some contraction kernels
-
-# Redefine the current contraction, reading this time from (C, E, A, M) instead of (env, M) (that's handier for slicing)
-function contract_onesite_kernel(C, E, A, M; allocator = ManualAllocator())
-    return @tensor allocator = allocator (
-        C[1][U1 A1 U3] *
-        (
-            E[1][U2 A2; U1 U4] *
-            (
-                C[2][U5 A3 U2] *
-                (
-                    (
-                        (E[5][A1 M1; B1 M3] * C[5][B1 L1 L3]) *
-                        (
-                            A[2][NORTH; A2 M2 B2 M1] *
-                            (E[6][A3 M5; B3 M2] * (E[9][L1 B2; L2 L4] * C[6][B3 L5 L2]))
-                        )
-                    ) *
-                    (
-                        (
-                            (E[2][U10 A6; U5 U7] * C[3][U12 A9 U10]) *
-                            (
-                                A[1][UP; U9 U7 U4 U6] *
-                                (E[4][U3 A4; U8 U6] * (E[3][U11 A8; U12 U9] * C[4][U8 A7 U11]))
-                            )
-                        ) *
-                        (
-                            (
-                                A[5][WEST; A4 M3 B4 M8] *
-                                (E[8][A7 M8; B7 M11] * (E[12][L8 B4; L3 L6] * C[8][B7 L8 L11]))
-                            ) *
-                            (
-                                M[UP NORTH EAST; DOWN SOUTH WEST] *
-                                (
-                                    A[3][EAST; A6 M10 B6 M5] *
-                                    (
-                                        A[4][SOUTH; A8 M11 B8 M12] *
-                                        (
-                                            E[7][A9 M12; B9 M10] *
-                                            (
-                                                A[6][DOWN; L4 L7 L9 L6] *
-                                                (E[11][L12 B8; L11 L9] * (E[10][L5 B6; L10 L7] * C[7][B9 L12 L10]))
-                                            )
-                                        )
-                                    )
-                                )
-                            )
-                        )
-                    )
-                )
-            )
-        )
-    )
-end
-
-# Alternative bracketing (corresponding to opt=true): found by a joint search over (contraction tree, sliced bonds) with cuts {:U1, :U10}.
-# Unsliced it needs ~6x MORE memory than the kernel above (at chi_env = 8, chi_peps = D = 5) and ~1.5x fewer flops; the child order
-# inside every product is chosen for the sliced network.  
-# ONLY use it together with cuts, otherwise peak memory needed is way too high.
-function contract_onesite_kernel_fast(C, E, A, M; allocator = ManualAllocator())
-    return @tensor allocator = allocator (
-        (
-            (
-                (
-                    (
-                        M[UP NORTH EAST; DOWN SOUTH WEST] *
-                        (
-                            (
-                                (
-                                    A[6][DOWN; L4 L7 L9 L6] *
-                                    (
-                                        (
-                                            (
-                                                (E[11][L12 B8; L11 L9] * C[8][B7 L8 L11]) *
-                                                C[7][B9 L12 L10]
-                                            ) *
-                                            (
-                                                (E[8][A7 M8; B7 M11] * C[4][U8 A7 U11]) *
-                                                (
-                                                    (
-                                                        (E[7][A9 M12; B9 M10] * C[3][U12 A9 U10]) *
-                                                        A[4][SOUTH; A8 M11 B8 M12]
-                                                    ) *
-                                                    E[3][U11 A8; U12 U9]
-                                                )
-                                            )
-                                        ) *
-                                        (
-                                            (
-                                                (
-                                                    E[5][A1 M1; B1 M3] *
-                                                    (E[4][U3 A4; U8 U6] * C[1][U1 A1 U3])
-                                                ) *
-                                                A[5][WEST; A4 M3 B4 M8]
-                                            ) *
-                                            (E[12][L8 B4; L3 L6] * C[5][B1 L1 L3])
-                                        )
-                                    )
-                                ) *
-                                E[9][L1 B2; L2 L4]
-                            ) *
-                            (C[6][B3 L5 L2] * E[10][L5 B6; L10 L7])
-                        )
-                    ) *
-                    A[2][NORTH; A2 M2 B2 M1]
-                ) *
-                A[3][EAST; A6 M10 B6 M5]
-            ) *
-            (
-                (A[1][UP; U9 U7 U4 U6] * E[2][U10 A6; U5 U7]) *
-                (E[1][U2 A2; U1 U4] * C[2][U5 A3 U2])
-            )
-        ) *
-        E[6][A3 M5; B3 M2]
-    )
-end
-
-
-# 2. slicing machinery: turns “fix bond ℓ to piece j” into ordinary tensor operations
+# 1. slicing machinery: turns “fix bond ℓ to piece j” into ordinary tensor operations
 
 # Given a kind (C,E,A,M) and an index i, it returns the tensor kind[i]
 _os_tensor_of(C, E, A, M, kind::Symbol, i::Int) = kind === :C ? C[i] : kind === :E ? E[i] : kind === :A ? A[i] : M
@@ -276,7 +154,7 @@ function BondCut(env, M, label::Symbol, n::Int)
 end
 
 
-# 3: now we add two new allocators (for @tensor allocator = ), which might handle the memory allocation 
+# 2: now we add two new allocators (for @tensor allocator = ), which might handle the memory allocation 
 # for the repeated contractions of the different slicings better
 
 # ManuelAllocator = default: Every temporary is malloced and freed, but this cost a lot
@@ -423,7 +301,7 @@ function TensorOperations.tensorfree!(C::AbstractArray, t::TrackingAllocator)
 end
 
 
-# 4. the sliced contraction
+# 3. the sliced contraction
 
 # Turn the kernel argument into a function with signature: 
 # (C, E, A, M; allocator) -> scalar
@@ -544,7 +422,7 @@ function check_slicing(env, M, cuts; rtol = 1e-8, reference = nothing, kwargs...
 end
 
 
-# 5. mock environment: random tensors with the leg structure of the 27 tensors (no CTMRG3D needed)
+# 4. mock environment: random tensors with the leg structure of the 27 tensors (no CTMRG3D needed)
 
 struct OnesiteMockEnv
     C::Vector{Any}
