@@ -1,18 +1,20 @@
+# Supertype of the truncation algorithms for the approximation of the product of two
+# PEPOs (approximate_state); NoEnvTruncation is the only one
+abstract type EnvTruncation end
+
 abstract type Lattice end
 
 struct Square <: Lattice end
 
-
 struct NoEnvTruncation <: EnvTruncation
     trscheme::MatrixAlgebraKit.TruncationStrategy
-    check_fidelity::Bool
     verbosity::Int
     rot_invariance::Bool
 end
 
 function NoEnvTruncation(trscheme::MatrixAlgebraKit.TruncationStrategy;
-    check_fidelity::Bool = false, verbosity::Int = 0, rot_invariance::Bool = false)
-    NoEnvTruncation(trscheme, check_fidelity, verbosity, rot_invariance)
+    verbosity::Int = 0, rot_invariance::Bool = false)
+    NoEnvTruncation(trscheme, verbosity, rot_invariance)
 end
 
 

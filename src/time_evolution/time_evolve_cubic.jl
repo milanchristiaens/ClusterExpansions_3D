@@ -47,7 +47,7 @@ function construct_cubic_CE(O_2D)
 end
 
 # SUPER IMPORTANT: this runs the 2D cluster expansion, embeds it into 3D, assmebles one tensor and converts it to plain ComplexF64
-function evolution_operator_cubic(ce_alg::ClusterExpansion, β::Number; T_conv = ComplexF64, canoc_alg::Union{Nothing,Canonicalization} = nothing)
+function evolution_operator_cubic(ce_alg::ClusterExpansion, β::Number; T_conv = ComplexF64)
     pspace = domain(ce_alg.onesite_op)[1]
     if β == 0.0
         vspace = ce_alg.spaces(0)
@@ -61,10 +61,9 @@ function evolution_operator_cubic(ce_alg::ClusterExpansion, β::Number; T_conv =
     O_clust_full = @timeit to "CE: get_PEPO_cubic (SumSpace tensor)" get_PEPO_cubic(ce_alg.T, pspace, PEPO_3D, ce_alg.spaces)
 
     O_clust_full_tm = @timeit to "CE: convert SumSpace tensor to TensorMap" convert(TensorMap, O_clust_full)
-    O_canoc = @timeit to "CE: canonicalize" canonicalize(O_clust_full_tm, canoc_alg)
-    O = zeros(T_conv, codomain(O_canoc), domain(O_canoc))
+    O = zeros(T_conv, codomain(O_clust_full_tm), domain(O_clust_full_tm))
     @timeit to "CE: convert scalartype (block copy)" begin
-        for (f_full, f_conv) in zip(blocks(O_canoc), blocks(O))
+        for (f_full, f_conv) in zip(blocks(O_clust_full_tm), blocks(O))
             f_conv[2] .= f_full[2]
         end
     end
@@ -78,24 +77,22 @@ function time_evolve_cubic(
     observable;
     finalize! = nothing,
     A0 = nothing,
-    canoc_alg::Union{Canonicalization,Nothing} = nothing,
     skip_first::Bool = false,
-    initial_guesses = i -> nothing,
     saving::Bool = true,
     saving_frequency::Int = 1,
     normalizing::Bool = true,
     trunc_alg_start = nothing
 )
     if isnothing(trunc_alg_start)
-        As = AbstractTensorMap[evolution_operator_cubic(ce_alg, β; canoc_alg) for β = time_alg.βs_helper]
+        As = AbstractTensorMap[evolution_operator_cubic(ce_alg, β) for β = time_alg.βs_helper]
     else
-        As = AbstractTensorMap[approximate_state(evolution_operator_cubic(ce_alg, β; canoc_alg), trunc_alg_start; rot_invariance = trunc_alg.rot_invariance)[1] for β = time_alg.βs_helper]
+        As = AbstractTensorMap[approximate_state(evolution_operator_cubic(ce_alg, β), trunc_alg_start; rot_invariance = trunc_alg.rot_invariance)[1] for β = time_alg.βs_helper]
     end
     times = copy(time_alg.βs_helper)
     if isnothing(A0)
-        A = evolution_operator_cubic(ce_alg, time_alg.β₀; canoc_alg)
+        A = evolution_operator_cubic(ce_alg, time_alg.β₀)
     else
-        A = canonicalize(A0, canoc_alg)
+        A = A0
     end
     if skip_first
         obs = nothing
@@ -118,7 +115,6 @@ function time_evolve_cubic(
         if normalizing
             A /= norm(A)
         end
-        A = canonicalize(A, canoc_alg)
         obs = observable(A, i)
         push!(errors, ϵ)
         push!(times, times[end] + times[ind])

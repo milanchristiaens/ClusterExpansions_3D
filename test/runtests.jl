@@ -61,13 +61,17 @@ end
     include("3d_symmetries.jl")
 end
 
-# Test slicing code on mock environment, also cost model, and cut selection
+# Test the slicing code (cost model, cut selection, plan csv, OMEinsumContractionOrders
+# trees, allocators, contract_onesite_auto) on a mock environment
 # Also tests for dense and Z2 graded tensors. Tests if every contraction results in same answer.
 @time @safetestset "contract_onesite slicing" begin
-    include("contract_onesite_sliced.jl")
+    include("contract_onesite_slicing.jl")
 end
 
-# Test the automatic slicing choise for contraction given a RAM budget
-@time @safetestset "contract_onesite auto" begin
-    include("contract_onesite_auto.jl")
+# Variational boundary PEPS (observables_cubic_bpeps.jl) on a small 3D Ising PEPO: 2D
+# PEPO tensor, gradient with fixed environments (automatic differentiation
+# against finite differences), LBFGS from a perturbed PEPS, observable, nested timers.
+# The gradient through the CTMRG is opt-in: BPEPS_TEST_FIXEDPOINT=1
+@time @safetestset "Variational boundary PEPS (bPEPS)" begin
+    include("bpeps.jl")
 end

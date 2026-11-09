@@ -1,52 +1,61 @@
-# This file benchmarks time and memory usage of `contract_onesite` variants: current bracketing vs. other contraction trees, 
-# with 0-3 (or more) sliced bonds, with the default allocator (ManualAllocator) or the ReuseAllocator.  Each case runs in a FRESH child
-# julia process, so that `Sys.maxrss()` (peak resident memory) belongs to that case only and no allocator pool survives.
+# This file times the plans of the plan file src/utility/onesite_plans.csv (written by development/find_orders_ome.jl): the sliced contraction
+# `contract_onesite` with a given contraction tree and given cut bonds.
+# Each plan runs in a FRESH child julia process, so that `Sys.maxrss()` (peak resident memory) belongs to that plan only and no allocator pool survives.
 #
-# USAGE; (-O1 (-02=default = 'more optimization' for compiling the code just in time) keeps the compilation of the 27-tensor kernels shorter (-02 takes longer than -01 in this case)
-# , -t 8 = 8 number of cores):
-#   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl --list --dims=8,5,5
-#       -> only prints the cost-model prediction of every case (flops, peak memory, slices, estimated RSS); contracts nothing
-#   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl --dims=6,4,4
-#       -> 'default' (= current:2, current:3 and fast:3, each with both allocators manual/reuse) cases on a mock environment of random dense tensors
-#   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl --dims=6,4,4 --orders=development/orders_6_4_4.tsv --select="slice\+reconf/T2[46]"
-#       -> Use same mock environment, but this time the different cases come from contengra's output:
-#          --orders=... reads the different rows of the TSV written by contengra, --select=REGEX
-#          now we only keep rows that match with REGEX: in this case we have REGEX = "slice\+reconf/T2[46]", this corresponds with:
-#          technique "slicing with reoptimalisation", with target for largest intermediate = T2[46] = between 2^24 and 2^26 (ComplexF64: 0.25-1 GiB)
-#   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl --env-loader=development/env_loader_example.jl --cases=current:3
-#       -> Use the real environment via loader file and contract using current contraction + 3 slices
+# USAGE:
+#   -O1 keeps the just-in-time compilation of the 27-tensor kernels shorter than the default -O2, -t 8 = 8 threads):
+#   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl
+#
+# WHAT IT DOES
+#   Every plan of the plan file that has no time yet is timed, one after the other, grouped by dimensions (chi_env, chi_peps, D).
+#   After each plan the measurements are written back into the same row of the plan file (CE.onesite_update_plans). Nothing else is written.
+#   - ENV_LOADER = nothing (default): the contraction runs on a MOCK environment, random dense tensors with the dimensions of the plan, for ALL plans of the file.
+#     The time goes into the column time_s.
+#   - ENV_LOADER = "development/env_loader_example.jl": the contraction runs on the REAL environment that this file builds (see env_loader_example.jl). Only the plans
+#     for the dimensions of that environment are timed (the others are skipped). The time goes into the column time_real_s.
+#     contract_onesite_auto uses time_real_s if it is filled, otherwise time_s.
+#   The seven columns allocator, rss_gib, pool_gib, sys_s, minflt, check, note belong to the real run if there is one, otherwise to the mock run.
+#   A plan that has a time in the column of this run is skipped, so an interrupted run can simply be started again. To time a plan again, empty its time cell in the csv.
+#   A plan that needs more memory than is free (model estimate > 85 % of the free memory) is not run (unless FORCE): it gets a `note` and stays without a time.
+#
+#   A time is only valid for the machine, the allocator and the number of (BLAS) threads that it was measured with: on another machine use another plan file
+#   (PLAN_FILE here and in find_orders_ome.jl) and time it there. A plan that was made for a large RAM budget (column ram_gib) is only worth timing on a machine
+#   that has that much memory.
 
-# OPTIONS (all --key=value)
-#   --dims=6,4,4           chi_env,chi_peps,D of the mock environment (dense ℂ^χ, ComplexF64)           [default 6,4,4]
-#   --env-loader=FILE      instead of the mock environment use a real one: a file defining `onesite_load_env() -> (env, M)`           (see env_loader_example.jl)
-#   --cases=LIST           comma list of  current:K  fast:K  (K = 0..3: amount of cuts, specific cuts correspond to defaults)   [default current:2,current:3,fast:3]
-#                          current:minpeak:K  fast:minpeak:K  (K cuts chosen by exhaustive search for minimal model peak)
-#                          orders:NAME        a row of the --orders file;   all = current:0..3 and fast:0..3
-#   --orders=FILE --select=REGEX   TSV from find_orders_cotengra.py; rows whose name matches REGEX are added as cases
-#   --allocator=manual|reuse|both                                                                          [default both]
-#   --reps=N               timed repetitions of contraction after the warm-up (min is reported)                           [default 2]
-#   --slices=N             time only the first N slices and extrapolate to all (flagged 'extrapolated'; no value check)
-#   --blas-threads=N       BLAS threads (default: unchanged)
-#   --csv=FILE             results file                                                                    [default data/benchmarks/benchmark_contract_onesite.csv]
-#   --force                run even if the estimated memory exceeds 85 % of the free memory
-
-# WHAT IS MEASURED
-#   time_s       wall time of the whole sliced contraction (min over reps, GC.gc() before each); NOT including compilation
-#   model_*      cost model (dense; src/utility/contract_onesite_orders.jl): flops relative to current unsliced, peak of the intermediates in GiB
-#   tracked_gib  peak bytes of ALL temporaries of one slice (TrackingAllocator; includes TensorKit's permutation copies)
-#   rss_gib      peak resident memory of the whole child process (Sys.maxrss) -- includes Julia/TensorKit (~1-2 GiB), the environment
-#                tensors, garbage not yet collected, and (reuse) the pool
-#   pool_gib     reuse only: what the ReuseAllocator asked the OS for at its high-water mark
-#   sys_s, minflt  Linux only (/proc/self/stat): system CPU seconds and minor page faults during the timed reps
-#   check        relative deviation of the value from the first full-slice case (should be ~1e-10 or smaller; not for --slices)
-
-
-using Printf, LinearAlgebra, Random
+using Printf, LinearAlgebra
 using TensorKit
 using ClusterExpansions         # Import this full package we are working on
 const CE = ClusterExpansions
 
-# Turn the command-line arguments (--key=value) into a Dict of strings
+# ======================================================================================================================
+# SETTINGS:
+# ======================================================================================================================
+const PLAN_FILE  = CE.ONESITE_PLAN_FILE   # plan file that is read and updated (the same constant is in find_orders_ome.jl)
+const ENV_LOADER = nothing                # nothing = mock environment (time_s); "development/env_loader_example.jl" = real environment (time_real_s)
+const REPS       = 1                      # timed repetitions of the contraction after the warm-up (the minimum is written)
+const ALLOCATOR  = "reuse"                # "reuse" (the allocator of contract_onesite_auto) or "manual"
+const FORCE      = false                  # true = run also if the estimated memory exceeds 85 % of the free memory
+# ======================================================================================================================
+
+# WHAT IS MEASURED (the plan file gets: time, allocator, rss_gib, pool_gib, sys_s, minflt, check, note)
+#   time         wall time of the whole sliced contraction (min over REPS, GC.gc() before each); NOT including compilation
+#   model_*      cost model (dense; src/utility/contract_onesite_slicing.jl): flops relative to current unsliced, peak of the intermediates in GiB (screen only)
+#   tracked_gib  peak bytes of ALL temporaries of one slice (TrackingAllocator; includes TensorKit's permutation copies) (screen only)
+#   rss_gib      peak resident memory of the whole child process (Sys.maxrss) -- includes Julia/TensorKit (~1-2 GiB), the environment
+#                tensors, garbage not yet collected, and (reuse) the pool
+#   pool_gib     reuse only: what the ReuseAllocator asked the OS for at its high-water mark
+#   sys_s, minflt  Linux only (/proc/self/stat): system CPU seconds and minor page faults per repetition (empty on Windows)
+#   check        relative deviation of the value from the first plan of the same dimensions in this run (so 0 for that first plan; should be ~1e-10 or smaller)
+
+# The absolute path of the plan file (also used as the key of the plan cache, so the update and the reads agree)
+const PLAN_PATH = abspath(PLAN_FILE)
+# Convert bytes to GiB
+GiB(x) = x / 2^30
+# SEP = tab
+const SEP = '\t'
+
+
+# Turn the command-line arguments (--key=value) into a Dict of strings. Only the child processes get arguments (--child --plan=NAME --dims=a,b,c).
 function parse_cli(args)
     o = Dict{String,String}()
     for a in args
@@ -56,97 +65,38 @@ function parse_cli(args)
         # Drop the leading -- and split at the first = only
         kv = split(a[3:end], '='; limit = 2)
 
-        # Add this to Dic: key -> value (if no =, like in --list, then list gets value=True)
+        # Add this to Dic: key -> value (if no =, like in --child, then it gets value "true")
         o[String(kv[1])] = length(kv) == 2 ? String(kv[2]) : "true"
     end
     return o
 end
 
-# Convert bytes to GiB
-GiB(x) = x / 2^30
-# SEP = tab
-const SEP = '\t'
-
-# return (env, M), either from real env or from random mock env
-function load_env(o)
-    # If in settings dict o, there is (env-loader -> FILE) = as input "--env-loader=FILE"
-    if haskey(o, "env-loader")
+# return (env, M), either from the real env (ENV_LOADER) or a random mock env with dims = (chi_env, chi_peps, D)
+function load_env(dims)
+    # if a real env was given:
+    if ENV_LOADER !== nothing
         # Now we evaluate this file inside Main
-        Base.include(Main, abspath(o["env-loader"]))
-        # And we run it in Main, and retrieve the answer
-        return Base.invokelatest(getproperty(Main, :onesite_load_env))
+        Base.include(Main, abspath(ENV_LOADER))
+        # And we run it in Main, and retrieve the answer (the binding is looked up AND called with invokelatest: Julia 1.12 warns about
+        # a binding that was defined after this function started running)
+        f = Base.invokelatest(getproperty, Main, :onesite_load_env)
+        return Base.invokelatest(f)
     end
-
-    # If no real env was given, then we read --dims (default = 6, 4, 4)
-    # And retrieve the 3 integeres
-    χe, χp, D = parse.(Int, split(get(o, "dims", "6,4,4"), ','))
-
-    # Now we can build a random env with this dimensions
-    return CE.onesite_mock_env(ℂ^χe, ℂ^χp, ℂ^D)
+    # If no real env was given, we build a random mock env
+    return CE.onesite_mock_env(ℂ^dims[1], ℂ^dims[2], ℂ^dims[3])
 end
 
-
-# returns (kernel, model_tree, cut labels) from specs
-function resolve_case(spec::AbstractString, d, orders)
-    # spec = string such as "current:2"
-    # d = vector of 54 bond dimensions
-    # orders = list of rows read from TSV
-    
-    # Split the specs: e.g. "fast:minpeak:3" → ["fast","minpeak","3"]
-    parts = split(spec, ':')
-
-    # If the first part of spec refers to a reference tree:
-    if parts[1] in ("current", "fast")
-        # Choose which one
-        tree = parts[1] == "current" ? CE.TREE_CURRENT : CE.TREE_FAST
-
-        # If form is "current/fast:K"
-        if length(parts) == 2
-            # In 'src/utility/contract_onesite_orders.jl' we defined some default cut orders (in case of 8, 5, 5) for the current and fast tree
-            # for 0-3 cuts: e.g.     current = [Symbol[], [:L5], [:L5, :L4], [:L5, :L4, :A8]], fast = ...
-            # Now we have to find the correct one, so we take the (K+1)th element of the list
-            # cuts will be e.g. ":L5"
-            cuts = getfield(CE.ONESITE_TESTED_CUTS, Symbol(parts[1]))[parse(Int, parts[2]) + 1]
-        
-        # If form is current:minpeak:K
-        elseif length(parts) == 3 && parts[2] == "minpeak"
-            # Extract k
-            k = parse(Int, parts[3])
-            # if k=0 there are no cuts, otherwise run the exhhaustive search over all k-subsets of 54 bonds
-            # given the limit on the model peak, and then it takes the .cuts field
-            cuts = k == 0 ? Symbol[] : CE.onesite_best_cuts(tree, d, k).cuts
-        
-        # Any other shape is an error
-        else
-            error("bad case $spec")
-        end
-
-        # Return: :current/:fast, tree for cost model, the cuts as a vector
-        return Symbol(parts[1]), tree, collect(Symbol, cuts)
-    
-    # If form is orders:NAME
-    elseif parts[1] == "orders"
-        # join everything after "order" back together (if : was in NAME)
-        name = join(parts[2:end], ':')
-
-        # Search the TSV row (in orders) with that name
-        i = findfirst(r -> r.name == name, orders)
-        # if no row found return error
-        i === nothing && error("no row named $name in the orders file")
-        # Otherwise return the full TSV row
-        r = orders[i]
-        
-        # Now we reorder the children of each pair so that the peak of the sliced network is minimal
-        # And we return the tree (in form of a tuple), nothing, and the cuts 
-        return CE.onesite_reorder(r.tree, d; cuts = r.cuts), nothing, r.cuts      # model tree = the re-ordered tree itself
-    end
-
-    # If unknown prefix
-    error("bad case $spec")
+# The rows of the plan file that were made for the bond dimensions d (the 54 numbers of CE.onesite_dims), as a Vector of (name, tree, cuts, time_s, time_real_s).
+# The name is SOURCE#N (N = number of the row among the rows for these dims), so parent and child process find the same row.
+function plan_rows(d)
+    rows = CE.onesite_plans_for(d, PLAN_PATH)
+    return [(name = string(r.source, "#", i), tree = r.tree, cuts = r.cuts, time_s = r.time_s, time_real_s = r.time_real_s) for (i, r) in enumerate(rows)]
 end
 
+# The time of a plan row in the column that this run fills
+run_time(r) = ENV_LOADER === nothing ? r.time_s : r.time_real_s
 
-# LINUX ONLY: Read the process's minor page faults and CPU times, on windows tthis returns nothing
+# LINUX ONLY: Read the process's minor page faults and CPU times, on windows this returns nothing
 function procstat()
     isfile("/proc/self/stat") || return nothing
     p = split(split(read("/proc/self/stat", String), ") ")[end])
@@ -163,79 +113,73 @@ function blas_name()
     end
 end
 
-# Create a fresh allocator from the string given by --alocator
+# Create a fresh allocator from the string ALLOCATOR
 make_alloc(kind) = kind == "reuse" ? CE.ReuseAllocator() : CE.ManualAllocator()
 
-# This function runs ONE case with ONE allocator in a fresh processor
-# prints a results line on stdout
-function run_child(o)
-    # spec is the case name: e.g. current:2. akind is "manual" or "reuse"
-    spec, akind = o["case"], o["allocator"]
-    # Reps = number of timed repetitions (default = 2)
-    reps = parse(Int, get(o, "reps", "2"))
-    # max number of slices to run (default = all slices), 
-    maxs = haskey(o, "slices") ? parse(Int, o["slices"]) : typemax(Int)
 
-    # Set the BLAS thread count only if requested
-    haskey(o, "blas-threads") && BLAS.set_num_threads(parse(Int, o["blas-threads"]))
-    
-    # Read the contengra TSV (name, cuts, tree) or an empty list if there is none\
-    # And return a vector of named tuples: Vector{NamedTuple}:  orders = (name = "current/unsliced", cuts = Symbol[], tree = (1, (2, (3, ...))), ctg_flops = 2.272612e12, ctg_peak = 2.602e9, slices = 1)
-    orders = haskey(o, "orders") ? CE.onesite_read_orders(o["orders"]) : NamedTuple[]
-    
+# CHILD: runs ONE plan in a fresh processor and prints a result line on stdout
+# o = the options of the child: plan = NAME of the plan (SOURCE#N), dims = chi_env,chi_peps,D (for the mock environment; the real environment brings its own)
+function run_child(o)
+    name = o["plan"]
+    dims = parse.(Int, split(o["dims"], ','))
+    akind = ALLOCATOR
+
     # Build the mock/real environment
-    env, M = load_env(o)
+    env, M = load_env(dims)
     # define the vector of 54 bond dimensions, read from the actual tensors
     d = CE.onesite_dims(env, M)
 
-    # Decode the case name
-    kernel, mtree, cuts = resolve_case(spec, d, orders)
-    # if orders: than we put mtree to nothing, and then we use the reorderd kernel as the model 
-    if mtree === nothing; mtree = kernel; end                      # generated kernel: the model tree is the kernel's tree
-    
+    # The plan: its tree, re-ordered such that the peak of the sliced network is minimal, and its cuts
+    orders = plan_rows(d)
+    i = findfirst(r -> r.name == name, orders)
+    i === nothing && error("no plan named $name for these dimensions in $PLAN_PATH")
+    cuts = orders[i].cuts
+    kernel = CE.onesite_reorder(orders[i].tree, d; cuts)          # a generated kernel: the model tree is the kernel's tree
+
     # Turn each cut label into label=>dimension: e.g. [:L5 => 8, :L4 => 5, :A8 => 5]
     cutp = CE.onesite_full_cuts(env, M, cuts)
     # Define the resulting number of slices: products of piece count
     ns = CE.onesite_nslices(env, M, cutp)
 
-    # Define the model cost of this case (flops, peak elements, slices)
+    # Define the model cost of this plan (flops, peak elements, slices)
     # And define base as the model cost of the current tree unsliced
-    cost = CE.onesite_cost(mtree, d; cuts); base = CE.onesite_cost(CE.TREE_CURRENT, d)
-    
+    cost = CE.onesite_cost(kernel, d; cuts); base = CE.onesite_cost(CE.TREE_CURRENT, d)
+
     # Define the element size: 16 bytes for a single ComplexF64 element
     esize = sizeof(scalartype(M))
     # Now transform the cost.peak to a number in GiB
     mpeak = GiB(cost.peak * esize)
 
-    # Now we define a rule of thumb, for calculating wether or not we have currently enough free random
-    # rule of thumb: we need 1.6 x model peak (2.0x model peak if reuse) plus approx 1.6GiB for Julia/TensorKit
-    est = (akind == "reuse" ? 2.0 : 1.6) * mpeak + 1.6                       # rule of thumb from my sandbox runs; not a guarantee
+    # Now we use the same rule of thumb as contract_onesite_auto (CE.ONESITE_RAM_RULES) for calculating
+    # wether or not we have currently enough free RAM: predicted size of the process = baseline_gib + factor * model peak,
+    # with factor = rules.reuse or rules.manual
+    est = CE.ONESITE_RAM_RULES.baseline_gib + CE.ONESITE_RAM_RULES[Symbol(akind)] * mpeak # empirical rule of thumb; not a guarantee
+
     # Compare with currently free RAM
     free = GiB(Sys.free_memory())
 
     # Already construct the first six output columns
-    base_cols = (spec, join(cuts, ","), akind, round(Int, ns), cost.flops / base.flops, mpeak)
-    
+    base_cols = (name, join(cuts, ","), akind, round(Int, ns), cost.flops / base.flops, mpeak)
+
     # Memory guard: if we don't have enough ram
-    if est > 0.85 * free && !haskey(o, "force")
+    if est > 0.85 * free && !FORCE
         # Then it just prints a 7-field line and stops
-        println(join((base_cols..., "skipped: estimated $(round(est, digits = 1)) GiB > 85% of free $(round(free, digits = 1)) GiB (use --force)"), SEP))
+        println(join((base_cols..., "skipped: estimated $(round(est, digits = 1)) GiB > 85% of free $(round(free, digits = 1)) GiB (set FORCE = true)"), SEP))
         return
     end
 
-    # Resolve whether we have to make a new contraction tree/kernel (if kernel isa tuple), or if we can just use :current or :fast
-    kern = kernel isa Tuple ? CE.onesite_make_kernel(kernel) : kernel          # resolve ONCE (a generated kernel compiles on its first call)
-
+    # Resolve the kernel: generate and compile the contraction function of this tree ONCE (it compiles on its first call)
+    kern = CE.onesite_make_kernel(kernel)
 
     # every run goes through a TrackingAllocator (a few hundred dictionary operations per slice: negligible against seconds per slice)
-    # so that the kernel is compiled only once per case.
+    # so that the kernel is compiled only once per plan.
     # warm-up: compile everything.  mock env: tiny env (same Vector{Any} specialisation); real env: one slice of the real thing
-    
+
     # Now we print that the long compile phase has started
-    println(stderr, "[$spec / $akind] compiling (first call) ..."); flush(stderr)
-    
+    println(stderr, "[$name / $akind] compiling (first call) ..."); flush(stderr)
+
     # Warm up (not timed yet)
-    if haskey(o, "env-loader")
+    if ENV_LOADER !== nothing
         # If we use a real env: then we run one slice of the real thing (using typed tensor vectors)
         CE.contract_onesite_sliced(env, M, cutp; kernel = kern, allocator = CE.TrackingAllocator(make_alloc(akind)), max_slices = 1)
     else
@@ -255,17 +199,17 @@ function run_child(o)
     # ps0: LINUX only: page-faults and CPU snapshots. WINDOWS: nothing
     ps0 = procstat()
 
-    # For all reperations that were asked (default=2)
-    for r in 1:reps
+    # For all repetitions that were asked
+    for r in 1:REPS
         # Collect garbage first
         GC.gc()
         # Time the full sliced contraction, z keeps the contraction value (for correctness check)
-        push!(ts, @elapsed z = CE.contract_onesite_sliced(env, M, cutp; kernel = kern, allocator = ta, max_slices = maxs))
+        push!(ts, @elapsed z = CE.contract_onesite_sliced(env, M, cutp; kernel = kern, allocator = ta))
         # Print some info
-        println(stderr, "[$spec / $akind] rep $r: $(round(ts[end], digits = 2)) s"); flush(stderr)
+        println(stderr, "[$name / $akind] rep $r: $(round(ts[end], digits = 2)) s"); flush(stderr)
     end
 
-    # Take a snapchot after the loop and the peak RSS after it
+    # Take a snapshot after the loop and the peak RSS after it
     ps1 = procstat()
     rss1 = GiB(Sys.maxrss())
 
@@ -275,191 +219,185 @@ function run_child(o)
     pool = ta.inner isa CE.ReuseAllocator ? GiB(ta.inner.peak_os_bytes) : NaN
     # free the pool (if reuse)
     ta.inner isa CE.ReuseAllocator && CE.release!(ta.inner)
-    
-    # fill = True if all slices ran
-    full = maxs >= ns
+
     # tmin = best timing for single rep
     tmin = minimum(ts)
-    # if only the first maxs slices ran, then we extrapolate tmin to ns slices
-    tt = full ? tmin : tmin / min(maxs, ns) * ns
 
-    # LINUX only, WINDOW: NAN
-    rf = ps0 === nothing ? NaN : (ps1.minflt - ps0.minflt) / reps
-    rs = ps0 === nothing ? NaN : (ps1.sys - ps0.sys) / reps
-    
-    # Print the final result line as 17 tab seperated fields, same order as CSV header:
-    # six base columns, time, time per slice, tracked, rss, rss before, pool, sys, minflt, flag, re, im.
-    println(join((base_cols..., tt, tt / ns, tracked, rss1, rss0, pool, rs, rf, full ? "" : "extrapolated",
-                  real(z), imag(z)), SEP))
-end
+    # LINUX only, WINDOWS: NAN
+    rf = ps0 === nothing ? NaN : (ps1.minflt - ps0.minflt) / REPS
+    rs = ps0 === nothing ? NaN : (ps1.sys - ps0.sys) / REPS
 
-# Turns --cases and --select into a flat list of case names
-# e.g. --cases=current:0,fast:1 -> ["current:0", "fast:1"]
-# e.g. --orders=development/orders_6_4_4.tsv --select="slice\+reconf/T26" -> ["orders:current/slice+reconf/T26", "orders:ctg-flops/slice+reconf/T26", "orders:myfast/slice+reconf/T26", ...]
-# e.g. --cases=current:2 --orders=... --select="slice\+reconf/T26" -> ["current:2", "orders:current/slice+reconf/T26", "orders:ctg-flops/slice+reconf/T26", ...]
-function expand_cases(o, orders)
-    specs = String[]
-    # For all --cases (if no take default=urrent:2,current:3,fast:3, EXCEPT if --select is given then default=empty)
-    #  keepempty = false drops empty pieces
-    for c in split(get(o, "cases", haskey(o, "select") ? "" : "current:2,current:3,fast:3"), ','; keepempty = false)
-        # if c==all then append all 8 built-in cases
-        # if not, then add string(c) to specs
-        c == "all" ? append!(specs, ["current:$k" for k in 0:3], ["fast:$k" for k in 0:3]) : push!(specs, String(c))
-    end
-
-    # If --select
-    if haskey(o, "select")
-        # Check every TSV row, to see whose name matches with regex
-        rx = Regex(o["select"])
-        # add to specs: orders:NAME
-        append!(specs, ["orders:" * r.name for r in orders if occursin(rx, r.name)])
-    end
-    return specs
+    # Print the final result line as 16 tab separated fields: six base columns, time, time per slice, tracked, rss, rss before, pool, sys, minflt, re, im.
+    println(join((base_cols..., tmin, tmin / ns, tracked, rss1, rss0, pool, rs, rf, real(z), imag(z)), SEP))
 end
 
 
-# Main function, if in child mode: runs one case
-# Otherwise it is parent: prints the system info, model tablee, spawns one child per (case,allocator)
-# collects the lines, writes the CSV and table
-function main()
-    # Define Dict o: holding the command-line options of the current process, input is ARGS
-    # e.g. julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl --dims=6,4,4 --reps=3 --list
-    # ARGS = ["--dims=6,4,4", "--reps=3", "--list"], o = Dict("dims" => "6,4,4", "reps" => "3", "list" => "true")
-    o = parse_cli(ARGS)
-    
-    # Check if the process is a child: this only happens if it contains --child, this only gets added by the script itself
-    # This function is ran first as parent, then once for every (case,allocator) as a child
-    # if child, then we run run_child(o)
-    haskey(o, "child") && return run_child(o)
+# PARENT: runs one plan in a fresh julia process (run_child) and returns its answer as a named tuple.
+# msg == "" means a complete result; otherwise the plan was skipped by the child (memory) or the child failed, and msg says why.
+function bench_row(name, g)
+    # Build the command line that will start a new Julia process
+    # it uses same: Julia, project, thread count as us.
+    # it adds --child, so now it will get filtered out above
+    # it also adds: the plan name and the dimensions
+    cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) --threads=$(Threads.nthreads()) $(abspath(PROGRAM_FILE)) --child --plan=$name --dims=$(g[1]),$(g[2]),$(g[3])`
 
-    # if there are orders, read the order TSV and build the case list
-    orders = haskey(o, "orders") ? CE.onesite_read_orders(o["orders"]) : NamedTuple[]
-    # Add these cases to specs
-    specs = expand_cases(o, orders)
-    # Define the used allocators (default = both)
-    akinds = get(o, "allocator", "both") == "both" ? ["manual", "reuse"] : [o["allocator"]]
-    
-    # Print an environment header
+    # Now we start the worker, wait until it is done and return what is printed
+    out = try
+        strip(read(cmd, String))
+    # If the worker crashes (e.g. running out of memory)
+    catch e
+        # Then we store: "failed: <error>" and the benchmark can continue
+        "failed: " * sprint(showerror, e)
+    end
+
+    # We only keep the last printed line of the worker's answer (can also be an error message or the memory skip message)
+    line = String(last(split(out, '\n')))
+    # We split it (SEP = tab) into separate fields f
+    f = split(line, SEP)
+
+    nan = NaN
+    empty_row(msg) = (name = name, cuts = "", alloc = ALLOCATOR, slices = "", flops_rel = nan, peak = nan, time = nan, per_slice = nan, tracked = nan,
+                      rss = nan, rss0 = nan, pool = nan, sys = nan, minflt = nan, re = nan, im = nan, msg = msg)
+    # A full result has 16 fields
+    if length(f) == 16
+        v = parse.(Float64, f[5:16])
+        return (name = name, cuts = String(f[2]), alloc = String(f[3]), slices = String(f[4]), flops_rel = v[1], peak = v[2], time = v[3], per_slice = v[4],
+                tracked = v[5], rss = v[6], rss0 = v[7], pool = v[8], sys = v[9], minflt = v[10], re = v[11], im = v[12], msg = "")
+    # Exactly 7 fields: the child skipped the plan because of memory
+    elseif length(f) == 7
+        return merge(empty_row(String(f[7])), (cuts = String(f[2]), slices = String(f[4])))
+    end
+    # Otherwise the child crashed (we keep the last line it printed as the message)
+    return empty_row(line)
+end
+
+# Print the table of rows on screen; chk[i] = relative deviation of the value of row i from the reference (NaN: no check)
+function print_table(rows, chk)
+    # Print the table header
+    @printf("\n%-24s %-24s %6s %9s %9s %10s %9s %9s %9s %8s\n", "plan", "cuts", "slices", "flops/cur", "model GiB", "time s", "tracked", "rss GiB", "pool GiB", "check")
+
+    # Loop over all rows
+    for (i, r) in enumerate(rows)
+        # If the row crashed/was skipped than there is no time; we only print the plan, cuts and the message
+        if r.msg != ""
+            @printf("%-24s %-24s %s\n", r.name, r.cuts[1:min(end, 24)], r.msg); continue
+        end
+
+        # Now we print the finished row with the check value
+        @printf("%-24s %-24s %6s %9.3f %9.3f %10.2f %9.3f %9.3f %9.3f %8.1e\n", r.name, r.cuts[1:min(end, 24)], r.slices, r.flops_rel, r.peak, r.time, r.tracked, r.rss, r.pool, chk[i])
+    end
+end
+
+# Print an environment header
+function print_system_info()
     println("Julia ", VERSION, ", threads ", Threads.nthreads(), ", BLAS threads ", BLAS.get_num_threads(), " (", blas_name(), ")",
             ", total memory ", round(GiB(Sys.total_memory()), digits = 1), " GiB, free ", round(GiB(Sys.free_memory()), digits = 1), " GiB")
-    println("TensorKit ", pkgversion(TensorKit), ", TensorOperations ", pkgversion(CE.TensorOperations), "   cases: ", join(specs, ", "))
-    
-    # if --list: only prints the cost-model prediction of every case (flops, peak memory, slices, estimated RSS); contracts nothing
-    if haskey(o, "list")
-        # Build the env only to get dimensions d, and calculate its BASE cost given d and current tree
-        env, M = load_env(o); d = CE.onesite_dims(env, M); base = CE.onesite_cost(CE.TREE_CURRENT, d)
-        
-        # Print a header
-        @printf("%-34s %-28s %8s %10s %12s\n", "case", "cuts", "slices", "flops/cur", "model peak GiB")
-        # Print one model row per case: slices, relative flops, model peak, estimated RSS '1.6x + 1.6 Gb rule)
-        for s in specs
-            kernel, mt, cuts = resolve_case(s, d, orders); mt === nothing && (mt = kernel)
-            c = CE.onesite_cost(mt, d; cuts)
-            @printf("%-34s %-28s %8d %10.4f %12.4f   est. RSS %.1f GiB\n", s, join(cuts, ",")[1:min(end, 28)], round(Int, c.slices), c.flops / base.flops,
-                    GiB(c.peak * sizeof(scalartype(M))), 1.6 * GiB(c.peak * sizeof(scalartype(M))) + 1.6)
-        end
-        return
-    end
+    println("TensorKit ", pkgversion(TensorKit), ", TensorOperations ", pkgversion(CE.TensorOperations),
+            "   environment: ", ENV_LOADER === nothing ? "mock (dense, random)" : "real (" * ENV_LOADER * ")", ", allocator ", ALLOCATOR, ", reps ", REPS)
+end
 
-    # preparing the child calls
-    # pass goes from Dict o back to the string we inputted in terminal (but we skip some options, which we decide ourselves)
-    pass = ["--$k=$v" for (k, v) in o if !(k in ("case", "allocator", "child", "cases", "select", "list"))]
-    # Small check if --force exists
-    haskey(o, "force") && !any(startswith("--force"), pass) && push!(pass, "--force")
-    
-    # Create a results file:
-    csv = get(o, "csv", joinpath(@__DIR__, "..", "data", "benchmarks", "benchmark_contract_onesite.csv"))
+# Round to 6 significant digits (NaN and 0 stay as they are), for the plan file
+rnd(x) = (isfinite(x) && x != 0) ? round(x; sigdigits = 6) : x
 
-    # Define the header/list of 17 columns
-    hdr = ["case", "cuts", "allocator", "slices", "model_flops_rel", "model_peak_gib", "time_s", "time_per_slice_s", "tracked_gib",
-           "rss_gib", "rss_before_gib", "pool_gib", "sys_s", "minflt", "extrapolated", "re", "im"]
-    # Defien an  empty list that will collect all results 
-    rows = Vector{Vector{String}}()
 
-    # Running every child in its own worker
-    # We loop over every case and allocator
-    for s in specs, a in akinds
-        # Build the command line that will start a new Julia process
-        # it uses same: Julia, project, thread count as us.
-        # it adds --child, so now it will get filtered out above
-        # it also add: case, allocator and forwarded options 'pass'
-        cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) --threads=$(Threads.nthreads()) $(abspath(PROGRAM_FILE)) --child --case=$s --allocator=$a $pass`
-        
-        # Print which case is starting
-        println(stderr, "==> ", s, " / ", a); flush(stderr)
+# Main function, if in child mode: runs one plan
+# Otherwise it is the parent: times all plans of the plan file that have no time yet, and writes the measurements back
+function main()
+    # Define Dict o: holding the command-line options of the current process; only a child has them
+    o = parse_cli(ARGS)
+    # Check if the process is a child: this only happens if it contains --child, this only gets added by the script itself
+    # This function is ran first as parent, then once for every plan as a child
+    haskey(o, "child") && return run_child(o)
 
-        # Now we start the worker, wait untill it is done and return what is printed
-        out = try
-            strip(read(cmd, String))
-        # If the worker crashes (e.g. running out of memory)
-        catch e
-            # Then we store: "failed: <error>" and the benchmark can continue
-            join(("failed: " * sprint(showerror, e),), SEP)
-        end
+    envkind = ENV_LOADER === nothing ? :mock : :real
+    timecol = envkind === :mock ? "time_s" : "time_real_s"
+    plans = CE.onesite_read_plans(PLAN_PATH)
+    isempty(plans) && error("no plans in $PLAN_PATH: make them first with development/find_orders_ome.jl")
 
-        # We only keep the last printed line of worker's answer (can also be error message or memory skip message)
-        line = last(split(out, '\n'))
-        # We split it (SEP=tab seperated) into seperate fields f
-        f = split(line, SEP)
-
-        # If we have less than 6 fields: the worker crashed
-        if length(f) < 6        
-            # We store only case name, allocator and error text
-            push!(rows, [s, "", a, "", "", "", "", "", "", "", "", "", "", "", line, "", ""])
-        # If exactly 7: then the worker skipped the case, because of memory
-        elseif length(f) == 7
-            # We keep the first six fields and the "skipped: ..." message                     
-            push!(rows, [f[1], f[2], f[3], f[4], f[5], f[6], "", "", "", "", "", "", "", "", f[7], "", ""])
-        # Otherwise we have a full result
-        else
-            push!(rows, String.(f))
+    # The groups of dimensions that are timed: all of them for the mock environment; for the real environment only the one with its dimensions
+    groups = unique((r.chi_env, r.chi_peps, r.D) for r in plans)
+    if ENV_LOADER !== nothing
+        env, M = load_env(nothing)
+        d_env = CE.onesite_dims(env, M)
+        groups = filter(g -> CE.onesite_dims(g...) == d_env, groups)
+        if isempty(groups)
+            println("no plan in $PLAN_PATH has the bond dimensions of the environment of $ENV_LOADER: make plans for these dimensions with development/find_orders_ome.jl")
+            return
         end
     end
 
-    isempty(dirname(csv)) || mkpath(dirname(csv))
-    # Now we write the CSV file, using the rows
-    open(csv, "w") do io
-        # First we write the title line hdr
-        println(io, join(hdr, ","))
-        # Then for each row we put the answers their (we also replace , with ; in the answers to not break the CSV)
-        # e.g. cut list (L5, L4) to (L5; L4)
-        foreach(r -> println(io, join(replace.(r, "," => ";"), ",")), rows)
+    # The jobs: the plans of these groups that have no time in the column of this run
+    jobs = NamedTuple[]
+    for g in groups, r in plan_rows(CE.onesite_dims(g...))
+        isfinite(run_time(r)) && continue
+        push!(jobs, (dims = g, name = r.name, plan = r))
     end
+    println("plan file: ", PLAN_PATH, "  (", length(plans), " plans, ", length(jobs), " to time: those without ", timecol, ")")
+    print_system_info()
+    isempty(jobs) && (println("nothing to do (all selected plans have a $timecol; to time a plan again, empty its $timecol cell in the csv)"); return)
 
-    # Now we print the table on screen
-    # ref will hold the reference balue (will be first finished full run)
-    ref = nothing
-    # Print the table header
-    @printf("\n%-28s %-24s %-6s %6s %9s %9s %10s %9s %9s %9s %8s\n", "case", "cuts", "alloc", "slices", "flops/cur", "model GiB", "time s", "tracked", "rss GiB", "pool GiB", "check")
-    
-    # Loop over all roows
-    for r in rows
-        # If the row crashed/was skipped than the time column is also emptu
-        if length(r) < 17 || r[7] == ""
-            #" In that case we only print the case, cuts, allocator and message
-            @printf("%-28s %-24s %-6s %s\n", r[1], r[2][1:min(end, 24)], r[3], r[15]); continue
+    # row record one result per plan, chk holds one number per row
+    rows = NamedTuple[]; chk = Float64[]
+    # ref maps dim triple to contraction value of the first plan that finished for those dims
+    refs = Dict{Any,ComplexF64}()   
+    # This is the main loop for the parent process: goes through the plans that needs timing one by one
+    # For each plan it does 1 of 3: skip it, run it, record a failure.
+    for (n, j) in enumerate(jobs)
+        # g = dim triple, r = plan row
+        g = j.dims; r = j.plan
+        # Show progress
+        println(stderr, "\n[$n/$(length(jobs))] (chi_env, chi_peps, D) = $g, $(j.name), $(length(r.cuts)) cuts"); flush(stderr)
+        # Identify the row in the CSV corresponding to current job
+        key = (chi_env = g[1], chi_peps = g[2], D = g[3], tree = r.tree, cuts = r.cuts)
+
+        # Skip a plan that needs more memory than is free, without starting a process (the child has the same guard)
+        d = CE.onesite_dims(g...)
+        cost = CE.onesite_cost(CE.onesite_reorder(r.tree, d; cuts = r.cuts), d; cuts = r.cuts)
+        # We assume 16 bytes per element (ComplexF64), child checks explicitely again for real scalar size
+        est = CE.ONESITE_RAM_RULES.baseline_gib + CE.ONESITE_RAM_RULES[Symbol(ALLOCATOR)] * GiB(cost.peak * sizeof(ComplexF64))
+        # Compare estimated needed ram with currently free ram
+        free = GiB(Sys.free_memory())
+        if est > 0.85 * free && !FORCE
+            # Add message and NaN everywhere else
+            msg = "skipped: estimated $(round(est, digits = 1)) GiB > 85% of free $(round(free, digits = 1)) GiB (set FORCE = true)"
+            push!(rows, (name = j.name, cuts = join(r.cuts, ","), alloc = ALLOCATOR, slices = string(round(Int, cost.slices)), msg = msg,
+                         flops_rel = NaN, peak = NaN, time = NaN, per_slice = NaN, tracked = NaN, rss = NaN, rss0 = NaN, pool = NaN, sys = NaN, minflt = NaN, re = NaN, im = NaN))
+            push!(chk, NaN)
+            println(stderr, "    ", msg)
+
+            # Only write the note (= msg) to the .csv file
+            CE.onesite_update_plans(PLAN_PATH, [merge(key, (note = msg,))]; env = envkind)
+            continue
         end
 
-        # If row has full results:
-        # Now we recreate the contraction number as real and imaginary parts
-        z = complex(parse(Float64, r[16]), parse(Float64, r[17]))
-        
-        # r[15] contains the extrapolated result (in case of not all slices ran)
-        # full = True means, case ran fully
-        full = r[15] == ""
-        
-        # Now we perform a check: see if all answers for z correspond to each other
-        # we only use full results, and we define ref as the result of the first finished run
-        # Then we calculate the relative difference from the reference (this should be tiny)
-        chk = full ? (ref === nothing ? (ref = z; 0.0) : abs(z - ref) / abs(ref)) : NaN
-        
-        # Now we prin the finished row with the check value and if applicable 'extrapolated'
-        @printf("%-28s %-24s %-6s %6s %9.3f %9.3f %10.2f %9.3f %9.3f %9.3f %8.1e %s\n", r[1], r[2][1:min(end, 24)], r[3], r[4], parse(Float64, r[5]), parse(Float64, r[6]),
-                parse(Float64, r[7]), parse(Float64, r[9]), parse(Float64, r[10]), parse(Float64, r[12]), chk, r[15])
+        # Run the contraction!
+        row = bench_row(j.name, g)
+        # Add result to rows
+        push!(rows, row)
+
+        # If there is a message, this means that child skipped the plan or crashed 
+        if row.msg != ""
+            push!(chk, NaN)
+            # failed or skipped by the child: the note says why
+            CE.onesite_update_plans(PLAN_PATH, [merge(key, (note = row.msg,))]; env = envkind)
+            continue
+        end
+
+        # check: relative deviation of the value from the first result of the same dimensions in this run
+        z = complex(row.re, row.im)
+        c = 0.0
+        # reminder: g is dimension triplet (which we loop over)
+        haskey(refs, g) ? (c = abs(z - refs[g]) / abs(refs[g])) : (refs[g] = z)
+        push!(chk, c)
+
+        # Write the measurements back into THE row of the plan file (time, allocator, rss_gib, pool_gib, sys_s, minflt, check, note)
+        CE.onesite_update_plans(PLAN_PATH, [merge(key, (time_s = rnd(row.time), allocator = row.alloc, rss_gib = rnd(row.rss), pool_gib = rnd(row.pool),
+                                                        sys_s = rnd(row.sys), minflt = rnd(row.minflt), check = rnd(c), note = ""))]; env = envkind)
+        println(stderr, "    ", timecol, " = ", rnd(row.time), ", written into the plan file")
     end
 
-    # If this prints, then the csv file was written
-    println("\nwrote ", csv)
+    print_table(rows, chk)
+    println("\nthe results were written into ", PLAN_PATH)
 end
 
 # This starts the whole thing

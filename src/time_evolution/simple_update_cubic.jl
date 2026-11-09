@@ -420,25 +420,6 @@ function _absorb_weights3D(
     return permute(ncon(tensors, indices), ((1,), ntuple(i -> i + 1, 6)))
 end
 
-"""
-    absorb_weight(t::PEPSTensor3D, site::CartesianIndex{3}, dir::Int, weights::SUWeight3D;
-                  sqrtwt::Bool=false, invwt::Bool=false)
-
-Absorb (or, with `invwt = true`, remove) the bond weight on direction `dir` of the vertex
-tensor `t` located at `site`. `dir` runs over `1:6` in the order
-`(UP, NORTH, EAST, DOWN, SOUTH, WEST)`.
-"""
-function absorb_weight(
-    t::PEPSTensor3D,
-    site::CartesianIndex{3},
-    dir::Int,
-    weights::SUWeight3D;
-    sqrtwt::Bool=false,
-    invwt::Bool=false,
-)
-    return _absorb_weights3D(t, weights, site, (dir,), (sqrtwt,), invwt)
-end
-
 #
 ## Bond update
 #

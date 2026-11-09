@@ -41,7 +41,7 @@ end
 # This is the usual entry point, given the 3D PEPO O tensor and the obs tensor, it builds the 3D CTMRG environment
 # Converges it and returns one value per requested observabke
 # ram_gib (= nothing) tells how much RAM we have to do this contraction (slicing)
-# onesite_kwargs can have (kmax, allocator, margin, force, rules) info which is used in contract_onesite_dispatch() 
+# onesite_kwargs can have (kmax, allocator, margin, force, rules, cuts, tree, plans) info which is used in contract_onesite_dispatch() 
 function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
@@ -69,9 +69,9 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
                 M
             end
             # Now we contract:
-            # We go to file contract_onesite_auto.jl (to find best cuts, given budget), 
-            # then we go to contract_onesite_sliced.jl (for performing the sliced contraction)
-            # Then we call the current contraction kernel (which is stored in contract_onesite_orders.jl, under name TREE_CURRENT)
+            # If ram_gib = nothing: contract_onesite(env, M), the unsliced TREE_CURRENT kernel
+            # Otherwise we go to contract_onesite_auto (file contract_onesite_slicing.jl), which finds a contraction tree and the best cuts, given the budget
+            # (brute force on TREE_CURRENT, or a ready-made plan of onesite_plans.csv), and performs the sliced contraction
             num = @timeit to "EV: contract_onesite numerator (M)" contract_onesite_dispatch(env, M, ram_gib; verbosity, onesite_kwargs...)
             den = @timeit to "EV: contract_onesite denominator (O)" contract_onesite_dispatch(env, O, ram_gib; verbosity = 0, onesite_kwargs...)
             m = num / den

@@ -207,9 +207,10 @@ function enlarged_side(env::CTMRG3D)
     return es
 end
 
-# The projectors are isometries U: one side of a new bond gets conj(U), the other side U, so
+# Normally (see Orus) the projectors are isometries U: one side of a new bond gets conj(U), the other side U, so
 # the bond carries the projector conj(U) * transpose(U), which is exact without truncation.
-# (Using U * sqrt(S) instead would insert conj(U) * S * transpose(U), biasing every absorption.)
+# Instead we use U * sqrt(S), this inserts conj(U) * S * transpose(U), biasing every absorption.
+# This helps with stability. Up to debate!
 function get_projectors_corner(ecs, trunc)
     Uys = []
     Uzs = []
@@ -295,7 +296,7 @@ function ctmrg_4steps(env::CTMRG3D; side::String = "")
     end
 end
 
-# One full iteration: all six sides are updated (4 West updates each).
+# One full iteration: all six sides are updated (nmax West updates each).
 function ctmrgstep(env::CTMRG3D)
     for side in ("W", "S", "E", "N")
         ctmrg_4steps(env; side)
@@ -370,7 +371,7 @@ end
 #   opt = true        1.52e12    119.2 GiB (χ⁴D⁹)       238.4 GiB
 #   this order        2.27e12     23.8 GiB (χ⁴D⁸)        38.8 GiB
 #
-# Contraction order is defined in TREE_CURRENT in contract_onesite_orders.jl
+# Contraction order is defined in TREE_CURRENT in contract_onesite_slicing.jl
 
 # This function below is the most costly function we have, two times (numerator/denomantaror) run 
 # per observation we want to perform
