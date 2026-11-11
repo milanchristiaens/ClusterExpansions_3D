@@ -1,5 +1,4 @@
 # test/contract_onesite_slicing.jl -- tests (TINY sizes, no timings) for src/utility/contract_onesite_slicing.jl, on a mock environment (no CTMRG3D needed).
-# This one file replaces the two old test files contract_onesite_sliced.jl and contract_onesite_auto.jl.
 # NOTE: the first call of every distinct 27-tensor kernel compiles for minutes (TREE_CURRENT, TREE_FAST and one generated tree are compiled here;
 # every other test re-uses them, the generated kernels are cached); `julia -O1` helps.
 

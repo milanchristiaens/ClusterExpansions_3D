@@ -502,8 +502,7 @@ end
 #   Then n_targets trees that are also punished for tensors larger than 2^(sc_max - 2j) elements (j = 1..n_targets): less memory, more flops.
 # Returns a Vector of (tree, source, tc); source is "ome-flops" (flops only) or "ome-scN" (target 2^N elements). Trees with outer products are thrown away. The search is random: another run can give other trees.
 # ntrials / niters are the TreeSA settings (more = better trees, slower). Takes a few seconds per tree at (8,5,5).
-function onesite_find_trees(d::Vector{Float64}; n_targets::Int = 1, ntrials::Int = 4, niters::Int = 40, verbosity::Int = 0)
-    # The network as an einsum: one input tensor per row of ONESITE_TENSORS, no output indices (closed network = scalar)
+function onesite_find_trees(d::Vector{Float64}; n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4, niters::Int = 40, verbosity::Int = 0)    # The network as an einsum: one input tensor per row of ONESITE_TENSORS, no output indices (closed network = scalar)
     code = OME.EinCode([copy(labs) for (_, _, labs) in ONESITE_TENSORS], Symbol[])
     sizes = Dict{Symbol,Int}(l => round(Int, d[i]) for (i, l) in enumerate(ONESITE_LABELS))
 
@@ -529,8 +528,8 @@ function onesite_find_trees(d::Vector{Float64}; n_targets::Int = 1, ntrials::Int
     verbosity > 0 && @info "onesite_find_trees: flops-only tree has 2^$(round(sc_max; digits = 1)) elements in its largest tensor"
 
     # 2. with a memory target
-    for j in 1:n_targets
-        target = sc_max - 2j
+        for j in 1:n_targets
+        target = round(Int, sc_max) - sc_step * j     # an integer, so the name ome-sc<target> is exactly the target we search with
         # Stop early if target falls below 2^10 elements
         target < 10 && break
         keep!(search(1.0, target), "ome-sc$(round(Int, target))")
@@ -546,12 +545,11 @@ end
 # contract_onesite_auto when it checks a plan, so use the same values there).
 # The rows have no measured time yet (time_s = NaN): development/benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
 function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32, 64, 128, 256, 512), bytes::Int = 16, allocator::Symbol = :reuse,
-                            kmax::Int = 4, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, ntrials::Int = 4,
+                            kmax::Int = 4, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
                             niters::Int = 40, verbosity::Int = 1)
     d = onesite_dims(χenv, χpeps, D)
     candidates = NamedTuple[(tree = TREE_CURRENT, source = "TREE_CURRENT"), (tree = TREE_FAST, source = "TREE_FAST")]
-    for t in onesite_find_trees(d; n_targets, ntrials, niters, verbosity)
-        # Is there a candidate c whose tree matches with the found tree t? If no put t into candidate list
+    for t in onesite_find_trees(d; n_targets, sc_step, ntrials, niters, verbosity)        # Is there a candidate c whose tree matches with the found tree t? If no put t into candidate list
         any(c -> c.tree == t.tree, candidates) || push!(candidates, (tree = t.tree, source = t.source))
     end
     verbosity > 0 && @info "onesite_find_plans: $(length(candidates)) candidate trees for (χenv, χpeps, D) = ($χenv, $χpeps, $D)"

@@ -43,7 +43,8 @@ const KMAX      = 4                             # at most this many cut bonds (b
 const BYTES     = 16                            # bytes per element: 16 = ComplexF64, 8 = Float64
 const ALLOCATOR = :reuse                        # the allocator the memory rule is applied for (:reuse or :manual)
 const MARGIN    = 0.8                           # a plan counts as fitting if predicted RAM <= MARGIN * budget
-const N_TARGETS = 1                             # number of extra trees with a memory target (target = sc_max - 2j, j = 1..N_TARGETS)
+const N_TARGETS = 1                             # number of extra trees with a memory target (target = sc_max - SC_STEP * j, j = 1..N_TARGETS)
+const SC_STEP   = 6                             # the memory target is sc_max - SC_STEP (log2 of elements); with N_TARGETS = 1 this is the single target
 const NTRIALS   = 4                             # TreeSA settings (more = better trees, slower)
 const NITERS    = 40
 const PLAN_FILE = CE.ONESITE_PLAN_FILE          # plan file that rows are appended to (the same constant is in benchmark_contract_onesite.jl)
@@ -60,6 +61,7 @@ function main()
             kmax = KMAX,
             margin = MARGIN,
             n_targets = N_TARGETS,
+            sc_step = SC_STEP,
             ntrials = NTRIALS,
             niters = NITERS,
             verbosity = 1)

@@ -24,9 +24,9 @@ envspace = ℂ^chienv
 obs = SpinOperators.σᶻ(T, spin_symmetry)
 
 Δβ_iter = 0.005
-# Observations around the critical point βc ≈ 0.2217 (g = 0), where CTMRG should converge slowly.
+# Around the critical point βc ≈ 0.2217 (g = 0) CTMRG should converge slowly.
 # Each value must be a multiple of Δβ_iter.
-β_obs = [0.20, 0.22, 0.24]
+β_obs = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
 
 ce_verbosity = 2         # 2D cluster expansion
 ctm_verbosity = 3        # 1: step lines, 2: + one line per side, 3: + one line per West update (very long)

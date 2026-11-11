@@ -19,24 +19,52 @@ end
 
 
 # Find the pair of oblique projectors acting on the indices p1 of A1 and p2 of A2
+# P1 : V1 ⊗ V2 ← χ        (codomain = left legs, domain = middle bond)
+# P2 : χ ← W1 ⊗ W2        (codomain = middle bond, domain = right legs)
+# All non dual
 #=
-    ┌──┐      ┌──┐    
- ─◄─┤  │      │  ├◄── 
-    │P1├◄───◄─┤P2│    
- ─◄─┤  │      │  ├◄── 
-    └──┘      └──┘    
+       ┌──┐           ┌──┐
+ V1 ─◄─┤  │           │  ├─◄─ W1
+       │P1├─◄── χ ──◄─┤P2│
+ V2 ─◄─┤  │           │  ├─◄─ W2
+       └──┘           └──┘
 =#
 
 # Transpose of X: A ← B as a map B ← A on the same (non-dual) spaces, keeping the order of the legs
+# permute(X, (domainind(X), codomainind(X))) swaps the codomain and domain groups, keeping the order inside each group. Each leg keeps its arrow (outgoing vs. ingoing), so its space is dualised. The result is B' ← A'.
+# flip(..., 1:numind) reverses the arrow on every leg (applying the matching isomorphism), so every space becomes non-dual again. The result is B ← A.
+#=
+        ┌───┐            ┌───┐
+ W1' ─►─┤   │            │   ├─►─ V1'
+        │P2ᵖ├─►── χ' ──►─┤P1ᵖ│
+ W2' ─►─┤   │            │   ├─►─ V2'
+        └───┘            └───┘
+ P2ᵖ : W1'⊗W2' ← χ'      P1ᵖ : χ' ← V1'⊗V2'
+
+       ┌───┐           ┌───┐
+ W1 ─◄─┤   │           │   ├─◄─ V1
+       │P2ᵀ├─◄── χ ──◄─┤P1ᵀ│
+ W2 ─◄─┤   │           │   ├─◄─ V2
+       └───┘           └───┘
+ P2ᵀ : W1⊗W2 ← χ      P1ᵀ : χ ← V1⊗V2
+=#
 transpose_flip(X) = flip(permute(X, (domainind(X), codomainind(X))), Tuple(1:numind(X)))
 
-# Takagi factorisation of a symmetric mat = transpose_flip(mat) as mat ≈ W * S * transpose_flip(W'),
+# Takagi factorisation of a symmetric mat = transpose_flip(mat) as mat ≈ W * S * transpose_flip(W),
 # with W an isometry and S ≥ 0 the (truncated) singular values
 function takagi_trunc(mat; trunc)
+    # Take the SVD: M = USV†
     U, S, Vᴴ, ϵ = svd_trunc(mat; trunc)
+    # We also know that: M=M^T=(USV†)^T=V̄ S Uᵀ (second SVD of M)
+    # SVD is unique up to isometry Z that mixes vectors with same singular values: V̄ = U Z
 
     # For symmetric mat, conj(V) = U * Z with Z a symmetric unitary commuting with S
+    # So: Z = U† V̄. (because U^+ U = 1)
     Z = U' * transpose_flip(Vᴴ)
+
+    # Now substitute: M = U S V† = U S V̄ᵀ = U S Zᵀ Uᵀ = U S Z Uᵀ
+    # And now we split Z symmetrically: S Z = √Z S √Z (S and Z commute)
+    # M = (U√Z) S (U√Z)ᵀ = W S Wᵀ
     W = U * sqrt(Z)
     return W, S, ϵ
 end
@@ -143,6 +171,10 @@ function R1R2(lattice, A, ind1, ind2; check_space=true)
 end
 
 # computes the projector pair P1, P2 for one bond direction
+# We write the big expensive object as the full contraction of two halves:
+# Left half: M1 = Q1 R1 (QR on left half)
+# Right half: M2 = L2 Q2 (LQ on right half, ind2, R2=L2)
+# Full tensor: M = M₁ M₂ = Q₁ (R₁ R₂) Q₂, where svd(M) = Q₁ · svd(R₁R₂) · Q₂
 function find_P1P2(lattice, A, ind1, ind2, trunc; check_space=true, proj = :svd)
     if proj == :takagi
         # For symmetric tensors, the LQ on ind2 equals the transposed QR on ind1 up to a gauge, which is fixed here

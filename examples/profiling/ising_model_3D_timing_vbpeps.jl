@@ -29,6 +29,25 @@ Random.seed!(123456789)
 
 const to = ClusterExpansions.to # the timer that the package code writes to
 
+# Sanity check of the final cost f = -log(λ) of one observation: λ = partition function per site of the classical 3D Ising model (J = 1, g = 0, β = inverse temperature).
+# Rigorous bounds for the exact f:  -(log 2 + 3β) <= f <= -3β   (3β: all spins up; log 2 + 3β: every bond at its largest weight).
+# The all-up product state is in the variational family, so an optimized f above -3β means that the optimization failed.
+# Below βc the high-temperature series log 2 + 3 log cosh β + 3 tanh(β)^4 + ... is a good reference; we flag an f that lies more than 0.01 below it
+# (the margin 0.01 is our choice for the neglected higher terms, it is not derived).
+const βc_ising = 0.2216546   # critical β of the 3D Ising model (value from memory, only used to decide where the series reference is used)
+function check_cost(β, f)
+    msgs = String[]
+    f > -3β + 1.0e-6 && push!(msgs, "f > -3β = $(round(-3β; digits = 5)): worse than the all-up product state")
+    f < -(log(2) + 3β) - 1.0e-6 && push!(msgs, "f below the exact lower bound $(round(-(log(2) + 3β); digits = 5)): unphysical")
+    ref = ""
+    if β < βc_ising
+        fref = -(log(2) + 3 * log(cosh(β)) + 3 * tanh(β)^4)
+        ref = " (series $(round(fref; digits = 5)))"
+        f < fref - 0.01 && push!(msgs, "f more than 0.01 below the high-temperature series: unphysical")
+    end
+    return (isempty(msgs) ? "ok" : "CHECK: " * join(msgs, "; ")) * ref
+end
+
 # This function performs the evolution and the observations of CE+Vbeps
 function evolve_CE_vbpeps_timed(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry = Trivial, warm_start = false, bpeps_kwargs = (;))
     # We first build the virtual spaces
@@ -66,8 +85,11 @@ function evolve_CE_vbpeps_timed(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipep
 
         # Then perform the observation
         # if warm_start is true, it stores the tuple (ψ, env2, env3) of this result in state
+        t_obs = time()
         m = ClusterExpansions.@timeit to "expectation_value (vbPEPS and observable)" begin
             result = ClusterExpansions.bpeps_optimize(O, pepsspace, envspace; state0 = warm_start ? state : nothing, bpeps_kwargs...)
+            # one line per observation: β, final cost, number of cost-function calls of LBFGS, time of the optimization and the sanity check
+            println("OBS β = $(round(Δβ_obs * i; digits = 3)): f = $(result.cost), cost-function calls = $(result.numfg), time = $(round(time() - t_obs; digits = 1)) s, ", check_cost(Δβ_obs * i, result.cost))
             warm_start && (state = (result.psi, result.env2, result.env3))
             ClusterExpansions.bpeps_observables(O, [obs], result)[1]
         end
@@ -98,17 +120,18 @@ obs = SpinOperators.σᶻ(T, spin_symmetry)
 
 Δβ_iter = 0.005
 Δβ_obs = 0.05
-maxiter_obs = 1
+maxiter_obs = 10
 
 # Settings of the variational boundary PEPS: (boundary_alg_type = SimultaneousCTMRG, symmetrization = nothing).
 # Change e.g. to boundary_alg_type = C4vCTMRG, symmetrization = RotateReflect() for a C4v symmetric PEPO.
-warm_start = false
+warm_start = false          # every observation is independent, so the timing is the cost of one observation
 bpeps_kwargs = (;
     boundary_alg_type = SimultaneousCTMRG, symmetrization = nothing,
-    boundary_tol = 1.0e-8, boundary_maxiter = 300, boundary_verbosity = 1,
+    boundary_tol = 1.0e-8, boundary_maxiter = 400, boundary_verbosity = 1,
     gradient_tol = 1.0e-6, gradient_maxiter = 5, gradient_krylovdim = 20,
-    optimizer_memory = 16, optimizer_tol = 1.0e-8, optimizer_maxiter = 30,
-    maxiter_init = 10, differentiate_environment = true, optimizer_verbosity = 3,
+    optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 10,
+    maxiter_init = 20, differentiate_environment = true,    # gradient through the CTMRG (hook_pullback); the first run (false) is in data/profiling/false_cold
+    optimizer_verbosity = 2,
 )
 
 @info "Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads())"

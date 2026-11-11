@@ -9,7 +9,7 @@
 #   (3) bpeps_optimize runs (a few LBFGS steps, from the power-method start and warm-started), gives a finite cost, a finite observable, and the nested "bPEPS: ..." timers.
 # NOT tested here (a test that the LBFGS cost decreases would be unreliable): the 2D CTMRG of this small case converges to different fixed points for different random
 # starting environments, so the cost function is not reproducible enough for such a test.
-# Opt-in (not run by default, needs a long first Zygote compile and was never run by me): the gradient through the CTMRG (differentiate_environment = true),
+# Opt-in (not run by default, needs a long first Zygote compile): the gradient through the CTMRG (differentiate_environment = true),
 #   switch it on with the environment variable BPEPS_TEST_FIXEDPOINT=1, for example in PowerShell: $env:BPEPS_TEST_FIXEDPOINT = "1"
 # NOT tested here: the C4vCTMRG + RotateReflect path (needs a C4v symmetric PEPO), Z2-graded spaces.
 using TensorKit

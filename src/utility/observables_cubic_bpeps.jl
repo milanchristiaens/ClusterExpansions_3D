@@ -145,7 +145,7 @@ end
 #      dependence of the two network values on psi is differentiated (environments fixed). The omitted term is dE/denv * denv/dpsi. It is NOT
 #      negligible: this is an approximate gradient; cheap, and the automatic differentiation of it is correct
 #      (test/bpeps.jl), but LBFGS minimises a cost whose exact gradient it does not get. development/check_bpeps_gradient.jl prints these numbers.
-#    * true: the PEPSKit pattern (as in PEPSKit.fixedpoint): the network values are evaluated with the output of hook_pullback, so that the
+#    * true: the network values are evaluated with the output of hook_pullback, so that the
 #      gradient also contains the fixed-point (geometric sum / Arnoldi) term through the CTMRG. Much more expensive, and the first call compiles
 #      the pullback of a CTMRG iteration (Zygote: minutes on a normal machine). Not tested yet!
 # ----------------------------------------------------------------------------------------------------------------------
@@ -219,7 +219,7 @@ function generate_bpeps_cost_function(
         end
     end
 
-    # (b) This function isthe one that gets differentiated, so only _bpeps_tic/_bpeps_toc allowed
+    # (b) This function is the one that gets differentiated, so only _bpeps_tic/_bpeps_toc allowed
     function forward(ψ, env2, env3)
         n2 = InfiniteSquareNetwork(ψ)
         # Start timer
@@ -311,8 +311,13 @@ function bpeps_pepo_tensor(PEPO::AbstractTensorMap{A,S,2,6}, obs = nothing) wher
     return scalartype(M) <: Complex ? M : complex(M)
 end
 
+# Thrown by the finalize! callback of bpeps_optimize when max_seconds is exceeded; bpeps_optimize catches it and returns the last LBFGS iterate
+struct BpepsTimeLimit <: Exception end
+
 # Find the boundary PEPS of the 3D PEPO.
-# Returns (; psi, env2, env3, cost, numfg, normgradhistory); psi is an InfinitePEPS, env3 is the CTMRG environment of <psi|O|psi>.
+# Returns (; psi, env2, env3, cost, numfg, normgradhistory, timed_out); psi is an InfinitePEPS, env3 is the CTMRG environment of <psi|O|psi>.
+#   max_seconds: stop after the first LBFGS iteration that ends later than max_seconds after the start of this call (default Inf = no limit);
+#     then the last iterate is returned with timed_out = true, numfg = number of cost-function calls and normgradhistory = nothing
 #   bpepsspace, envspace: virtual space of the boundary PEPS (χpeps) and of the CTMRG environment (χenv)
 #   boundary_alg_type: SimultaneousCTMRG (default, no symmetry needed) or C4vCTMRG (with symmetrization = RotateReflect(); needs a C4v symmetric PEPO)
 #   state0: (psi, env2, env3) of an earlier call (warm start, e.g. the neighbouring β), instead of the power-method start
@@ -323,8 +328,11 @@ function bpeps_optimize(
         boundary_tol = 1.0e-8, boundary_maxiter = 400, boundary_verbosity = 0,
         gradient_tol = 1.0e-6, gradient_maxiter = 5, gradient_krylovdim = 20, gradient_eager = true,
         optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 75, optimizer_verbosity = 0,
-        maxiter_init = 20, state0 = nothing, differentiate_environment = false,
+        maxiter_init = 20, state0 = nothing, differentiate_environment = false, max_seconds = Inf,
     ) where {A,S}
+
+    # Start time, for max_seconds
+    t_start = time()
     # Construct the 2D PEPO tensor
     O = @timeit to "bPEPS: build O (trace physical legs)" bpeps_pepo_tensor(PEPO)
     T = InfinitePEPO(O)
@@ -359,15 +367,38 @@ function bpeps_optimize(
     # finalize! runs after each iteration and re-symmetrises ψ if a symmetry is requested
     retract, finalize! = bpeps_symmetrize_retract_and_finalize!(symmetrization, bpeps_retract)
 
+    # For max_seconds: count the cost-function calls, and remember the last iterate (x, f) that finalize! has seen
+    ncalls = Ref(0)
+    last_state = Ref{Any}(nothing)
+    counted_costfun(x) = (ncalls[] += 1; costfun(x))
+    function finalize_limited!(x, f, g, numiter)
+        x, f, g = finalize!(x, f, g, numiter)
+        last_state[] = (x, f)
+        # after a finished iteration (numiter > 0) we stop if the time is up
+        numiter > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
+        return x, f, g
+    end
+
     # Run the optimisation, the variable to optimise is (psi, env2, env3)
     # This returns the variable, the cost, ...
-    (psi, env2, env3), cost, _, numfg, normgradhistory = @timeit to "bPEPS: LBFGS optimization" optimize(
-        costfun, (psi0, env2_0, env3_0), optimizer_alg;
-        inner = PEPSKit.real_inner, retract, (transport!) = bpeps_transport!, (finalize!) = finalize!,
-    )
+    local psi, env2, env3, cost, numfg, normgradhistory
+    timed_out = false
+    try
+        (psi, env2, env3), cost, _, numfg, normgradhistory = @timeit to "bPEPS: LBFGS optimization" optimize(
+            counted_costfun, (psi0, env2_0, env3_0), optimizer_alg;
+            inner = PEPSKit.real_inner, retract, (transport!) = bpeps_transport!, (finalize!) = finalize_limited!,
+        )
+    catch err
+        err isa BpepsTimeLimit || rethrow()
+        # time is up: we return the last iterate
+        (psi, env2, env3), cost = last_state[]
+        numfg = ncalls[]
+        normgradhistory = nothing
+        timed_out = true
+    end
 
     # Return the NamedTuple
-    return (; psi, env2, env3, cost, numfg, normgradhistory)
+    return (; psi, env2, env3, cost, numfg, normgradhistory, timed_out)
 end
 
 # This measures ⟨obs⟩ = ⟨ψ|M|ψ⟩ / ⟨ψ|O|ψ⟩ on the converged state, where M is the obs and O is the original CE PEPO O tensor
