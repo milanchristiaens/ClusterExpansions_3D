@@ -1,0 +1,21 @@
+path,depth,ncalls,total_s,self_s,alloc_MiB,pct_parent,max_alloc_MiB
+"expectation_value (vbPEPS and observable)",0,10,1393.7638419,0.0938037,2.56458696155262e6,100.0,886732.0087776184
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization",1,10,1393.5812836,0.3844491,2.5645289476499557e6,99.98690177672057,886726.4542770386
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient)",2,270,1393.1968345,0.0094621,2.5644718519706726e6,99.97241286859085,16420.858474731445
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient) > bPEPS: n3 leading_boundary (CTMRG of <psi|O|psi>)",3,270,1124.1980976,1124.1980976,2.159577874961853e6,80.69197903420876,13297.424646377563
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient) > bPEPS: n2 leading_boundary (CTMRG of <psi|psi>)",3,270,267.3321466,267.3321466,403335.2481613159,19.188397502779424,3117.689296722412
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient) > bPEPS: backward pass (gradient of the network values)",3,270,1.1854451,1.1854451,1021.4980182647705,0.08508812758144406,3.7836523056030273
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient) > bPEPS: forward pass",3,270,0.4716304,0.013723,536.6481266021729,0.03385238814221552,1.9884366989135742
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient) > bPEPS: forward pass > bPEPS: network_value and cost",4,270,0.4579074,0.4579074,535.0036563873291,97.09030630765108,1.9816617965698242
+"expectation_value (vbPEPS and observable) > bPEPS: LBFGS optimization > bPEPS: cost function (value + gradient) > bPEPS: symmetrize gradient",3,270,5.27e-5,5.27e-5,0.0,3.7826672222459747e-6,0.0002899169921875
+"expectation_value (vbPEPS and observable) > bPEPS: initial state (power method, approximate_state)",1,10,0.0793309,0.0188864,37.84501647949219,0.005691846610962077,3.7867050170898438
+"expectation_value (vbPEPS and observable) > bPEPS: initial state (power method, approximate_state) > find_P1P2: QR left + QR right (R1R2)",2,400,0.0471617,0.0471617,21.8994140625,59.44934445468285,0.055389404296875
+"expectation_value (vbPEPS and observable) > bPEPS: initial state (power method, approximate_state) > find_P1P2: oblique_projector",2,400,0.0132828,0.0006304,9.101150512695312,16.743538772407724,0.024252891540527344
+"expectation_value (vbPEPS and observable) > bPEPS: initial state (power method, approximate_state) > find_P1P2: oblique_projector > oblique projector: svd_trunc",3,400,0.0094717,0.0094717,6.2190704345703125,71.30800734784835,0.015830039978027344
+"expectation_value (vbPEPS and observable) > bPEPS: initial state (power method, approximate_state) > find_P1P2: oblique_projector > oblique projector: build P1 P2",3,400,0.002352,0.002352,2.197265625,17.707109946697987,0.0057830810546875
+"expectation_value (vbPEPS and observable) > bPEPS: initial state (power method, approximate_state) > find_P1P2: oblique_projector > oblique projector: R1*R2",3,400,0.0008287,0.0008287,0.616455078125,6.238895413617611,0.0021820068359375
+"expectation_value (vbPEPS and observable) > bPEPS: observable denominator (O)",1,10,0.0038589,0.0038589,8.115100860595703,0.0002768689991799105,0.8118000030517578
+"expectation_value (vbPEPS and observable) > bPEPS: observable numerator (M)",1,10,0.0029366,0.0029366,8.12417984008789,0.00021069566534290217,0.8126850128173828
+"expectation_value (vbPEPS and observable) > bPEPS: initial CTMRG environments",1,10,0.0024784,0.0024784,1.3272705078125,0.00017782065551517017,0.13299560546875
+"expectation_value (vbPEPS and observable) > bPEPS: build O (trace physical legs)",1,10,0.0001267,0.0001267,0.01617431640625,9.090492678248895e-6,0.00225830078125
+"expectation_value (vbPEPS and observable) > bPEPS: symmetrize and normalize initial state",1,10,2.31e-5,2.31e-5,0.008087158203125,1.6573826429956548e-6,0.0010986328125
