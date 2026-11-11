@@ -1,3 +1,6 @@
+# ctmrg3D_helpers.jl -- HELPER file of ctmrg3D_main.jl (the entry point: expectation_value, leading_boundary).
+# Here: the CTMRG3D struct and its initialisation, the rotations, the CTMRG steps (ctmrgstep), contract_onesite and transfer_matrix.
+
 # Implementation of the 3C-CTMRG algorithm from Orus 2012 (Phys. Rev. B 85, 205117 – Published 10 May, 2012)
 #
 # ============================================================================================

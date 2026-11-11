@@ -1,16 +1,16 @@
-# Make the timing plots from the CSV files of ising_model_3D_timing.jl and
-# ising_model_3D_timing_vbpeps.jl, without rerunning the simulation.
+# Make the timing plots from the CSV files of ../ising_model_3D_CE_CTMRG_profiling.jl and
+# ../ising_model_3D_CE_vbPEPS_profiling.jl, without rerunning the simulation.
 
 include(joinpath(@__DIR__, "timing_plots.jl"))
 
-csvdir = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling"))  # where ising_model_3D_timing.jl writes
+csvdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling"))  # <repo>/data/profiling, where the profiling scripts write
 
 # The runs we know: (tag used for file names, label used for plot titles). Only the
 # runs whose CSV file exists are plotted.
 runs = [("CE", "CE + CTMRG3D"), ("SU", "SU + CTMRG3D"), ("CE_vbpeps", "CE + vbPEPS")]
 filter!(r -> isfile(joinpath(csvdir, "timing_$(r[1]).csv")), runs)
-isempty(runs) && error("no timing_*.csv in $csvdir: run ising_model_3D_timing.jl or
-                        ising_model_3D_timing_vbpeps.jl first")
+isempty(runs) && error("no timing_*.csv in $csvdir: run ising_model_3D_CE_CTMRG_profiling.jl or
+                        ising_model_3D_CE_vbPEPS_profiling.jl first")
 
 # Read the CSV files first
 all_rows = Dict(tag => read_timer_csv(joinpath(csvdir, "timing_$tag.csv")) for (tag, _)

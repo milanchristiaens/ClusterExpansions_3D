@@ -4,7 +4,7 @@
 # MAIN ENTRY:   contract_onesite_auto(env, M; ram_gib, ...)
 #   computes the same number as contract_onesite(env, M), but it picks (a) a contraction order (tree) and (b) a few bonds to "cut"
 #   (= slice) such that the predicted memory fits in `ram_gib`, then runs the slices one after the other.
-#   `contract_onesite_dispatch(env, M, ram_gib)` is what `expectation_value` (ctmrg_cubic.jl) calls: ram_gib = nothing -> plain contract_onesite.
+#   `contract_onesite_dispatch(env, M, ram_gib)` is what `expectation_value` (ctmrg3D_main.jl) calls: ram_gib = nothing -> plain contract_onesite.
 #
 # IDEA OF SLICING (Gray & Kourtis, Quantum 5, 410 (2021), Sec. 4.7.1): the closed 27-tensor network is a sum over every bond.
 #   Pick a few bonds, split each bond space into n pieces, contract the network once per combination of pieces (each contraction
@@ -256,7 +256,7 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
     end
 end
 
-# Here we let one key word, ram_gib, decide wether to use the old contract_onesite function (see ctmrg3D.jl) or the sliced contract_onesite_auto function
+# Here we let one key word, ram_gib, decide wether to use the old contract_onesite function (see ctmrg3D_helpers.jl) or the sliced contract_onesite_auto function
 contract_onesite_dispatch(env, M, ram_gib::Nothing; kwargs...) = contract_onesite(env, M)
 contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_auto(env, M; ram_gib, kwargs...)
 
@@ -577,7 +577,7 @@ end
 # ======================================================================================================================
 
 # Each row is: kind tensor (corner, face, ...), index of that kind, leg labels in the correct leg order (see leg-order table at the
-# top of ctmrg3D.jl; the kernels below are generated from this table, so it is the single source of truth together with TREE_CURRENT)
+# top of ctmrg3D_helpers.jl; the kernels below are generated from this table, so it is the single source of truth together with TREE_CURRENT)
 # e.g. (:E, 1, [:U1, :U4, :U2, :A2]) = env.E[1][U1 U4; U2 A2]
 const ONESITE_TENSORS = Tuple{Symbol,Int,Vector{Symbol}}[
     (:C, 1, [:A1, :U3, :U1]),                       
@@ -979,7 +979,7 @@ end
 
 
 # The two static kernels are generated HERE (at load time) from the data above, so a contraction order is defined only once:
-#   contract_onesite_kernel(C, E, A, M; allocator)        = TREE_CURRENT   (`contract_onesite(env, M)` in ctmrg3D.jl calls this)
+#   contract_onesite_kernel(C, E, A, M; allocator)        = TREE_CURRENT   (`contract_onesite(env, M)` in ctmrg3D_helpers.jl calls this)
 #   contract_onesite_kernel_fast(C, E, A, M; allocator)   = TREE_FAST      (only to be used together with cuts: it needs much more memory unsliced)
 include_string(@__MODULE__, onesite_kernel_source(TREE_CURRENT; name = :contract_onesite_kernel))
 include_string(@__MODULE__, onesite_kernel_source(TREE_FAST; name = :contract_onesite_kernel_fast))
@@ -1488,7 +1488,7 @@ end
 #      8 corners C
 #   = 36 tensors and 75 bonds  (3x3x3: 27 tensors and 54 bonds).
 #   OPEN QUESTION (CTMRG side): the environment stores the C, E, A tensors for ONE site. The ones at the two middle positions (x = 2, 3) have to be
-#   built from it; this is the part that needs a change in ctmrg3D.jl/ctmrg_cubic.jl, and it is not done.
+#   built from it; this is the part that needs a change in ctmrg3D_helpers.jl/ctmrg3D_main.jl, and it is not done.
 # What has to be done on the contraction side (all with the tools of this file):
 #   1. A table ONESITE2_TENSORS with the 36 rows (kind, index, leg labels), built like ONESITE_TENSORS; the bond classes env / peps / D stay the same.
 #   2. The cost model uses bit masks with one bit per bond: 75 bonds do not fit in a UInt64, use UInt128. _os_ev, _os_best_order, _os_each_combo,

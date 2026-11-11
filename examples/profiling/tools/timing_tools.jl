@@ -1,5 +1,5 @@
 # Helper functions to read the TimerOutput `to` back into rows, print an overview and write a CSV file.
-# Used by ising_model_3D_timing.jl (CE/SU + CTMRG3D) and ising_model_3D_timing_vbpeps.jl (CE + variational boundary PEPS).
+# Used by ising_model_3D_CE_CTMRG_profiling.jl (CE + CTMRG3D) and ising_model_3D_CE_vbPEPS_profiling.jl (CE + variational boundary PEPS).
 # Needs: using TimerOutputs, ClusterExpansions
 
 ## Reading the TimerOutput back (TimerOutputs only prints it, so we extract our own rows)

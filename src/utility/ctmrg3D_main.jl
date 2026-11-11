@@ -1,3 +1,6 @@
+# ctmrg3D_main.jl -- MAIN file of the 3D CTMRG: the entry point MPSKit.expectation_value (builds O, converges the environment, contracts the observables) and leading_boundary.
+# It calls the functions of its helper file ctmrg3D_helpers.jl (struct CTMRG3D, rotations, CTMRG steps, contract_onesite, ...), which is included right after this file.
+
 abstract type CTMRG3D_alg end
 
 """
@@ -8,7 +11,7 @@ abstract type CTMRG3D_alg end
 tot = 27
 """
 
-# Positions and leg order of the environment tensors: see the conventions at the top of ctmrg3D.jl.
+# Positions and leg order of the environment tensors: see the conventions at the top of ctmrg3D_helpers.jl.
 # corners: all arrows outgoing
 # edges: all arrows ingoing
 # As: all arrows outgoing

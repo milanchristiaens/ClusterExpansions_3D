@@ -77,7 +77,7 @@ end
     m = tr(block(rho * sx, Trivial())) / Z
     @test real(m) ≈ tanh(β * g) atol = 1e-8
 
-    # the `cubic_pepo` conversion (feeding into the existing ctmrg_cubic.jl machinery) must
+    # the `cubic_pepo` conversion (feeding into the existing ctmrg3D_main.jl machinery) must
     # give the same answer via the exact same "twist-trace" contraction pattern it uses.
     pepo = cubic_pepo(peps, dm)
     Otens = pepo[Tuple(site)...]

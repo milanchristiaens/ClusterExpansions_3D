@@ -1,4 +1,4 @@
-# Tests of the 3D CTMRG (src/utility/ctmrg3D.jl, ctmrg_cubic.jl) that need no cluster expansion: rotations of the 27 tensors and exactly solvable PEPOs.
+# Tests of the 3D CTMRG (src/utility/ctmrg3D_helpers.jl, ctmrg3D_main.jl) that need no cluster expansion: rotations of the 27 tensors and exactly solvable PEPOs.
 # Offered as an ADDITION (not in runtests.jl): add it with
 #     @time @safetestset "CTMRG3D" begin include("ctmrg3d.jl") end
 # Everything here is small (chi_env <= 4), most of the time is compilation of contract_onesite.
@@ -106,7 +106,7 @@ end
     end
     # the three orientations are the same physical problem
     @test maximum(ms) - minimum(ms) < 1.0e-8
-    # Error of the environment with the U*sqrt(S) projectors (src/utility/ctmrg3D.jl, get_projectors_corner/_edge): 1.5e-3 at chi = 3, 4, 5, independent of chi, while a plain
+    # Error of the environment with the U*sqrt(S) projectors (src/utility/ctmrg3D_helpers.jl, get_projectors_corner/_edge): 1.5e-3 at chi = 3, 4, 5, independent of chi, while a plain
     # isometry corner transfer matrix reaches 1e-9 at chi = 3 (numpy check). This is a measurement of the present state, NOT a statement that this is the right value.
     # In a night test with U*S^p instead of U*sqrt(S) (monkey patch, development/night/e16-e18): this plane test is exact (8e-10) only for p = 0 (plain isometry), while for the genuine
     # 3D PEPO of test/bpeps.jl p = 0 does not converge and p >= 0.85 agrees with the bPEPS value to 1e-16 (p = 0.5: -3.7e-5). So no single exponent is right in both; if you change the

@@ -7,14 +7,14 @@
 # where both 2D networks (λ2: PEPS-PEPS, λ3: PEPS-PEPO-PEPS) are contracted with a 2D CTMRG of PEPSKit (bond dimension χenv) and the gradient is
 # found with a fixed-point (Arnoldi) gradient through the CTMRG. Afterwards the observables are 2D CTMRG contractions with one PEPO tensor replaced.
 #
-# MAIN ENTRY:  bpeps_expectation_value(PEPO, obss, bpepsspace, envspace; ...)   -- the analogue of MPSKit.expectation_value (CTMRG3D) in ctmrg_cubic.jl
+# MAIN ENTRY:  bpeps_expectation_value(PEPO, obss, bpepsspace, envspace; ...)   -- the analogue of MPSKit.expectation_value (CTMRG3D) in ctmrg3D_main.jl
 #              (it calls bpeps_optimize and then bpeps_observables, you can also call these two yourself, e.g. to keep the state for a next beta)
 #
 # Names: the functions have the prefix bpeps_ so that they do not clash with the retract/transport functions of PEPSKit (peps_retract, peps_transport!)
 #
 # Leg convention of the 2D PEPO O (PEPSKit): O[(DOWN, UP); (N, E, S, W)] = the 3D PEPO with its two physical legs traced (twist(PEPO, 2) for fermions);
 # DOWN and UP of the 3D PEPO are the "physical" legs of the 2D problem.
-# Timers: nested timers "bPEPS: ..." write to the timer `to` of ClusterExpansions (see examples/profiling/ising_model_3D_timing_vbpeps.jl).
+# Timers: nested timers "bPEPS: ..." write to the timer `to` of ClusterExpansions (see examples/profiling/ising_model_3D_CE_vbPEPS_profiling.jl).
 # ======================================================================================================================
 
 

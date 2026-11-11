@@ -1,4 +1,4 @@
-# Comparison of 4 vbPEPS cases for the 3D Ising model (CE + variational boundary PEPS):
+# Comparison of 4 vbPEPS cases for the 3D Ising model (CE + variational boundary PEPS), g = 0:
 #
 #     warm start (false / true)  x  differentiate_environment (false / true)
 #
@@ -32,6 +32,8 @@ using LinearAlgebra
 BLAS.set_num_threads(1)
 
 const to = ClusterExpansions.to # the timer that the package code writes to
+# All output (and the folder REPLOT_DIR below) is in <repo>/data/profiling/; this file is in <repo>/examples/profiling/comparing/
+const DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling"))
 
 # ======================================================================================================================
 # Settings
@@ -45,7 +47,7 @@ const chipeps = 2
 const chienv = 8
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter).
-const BETAS = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
+const β_obs = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
 
 const SEED_BASE = 1000              # observation i uses Random.seed!(SEED_BASE + i), the same in all 4 cases
 
@@ -129,23 +131,23 @@ function check_cost(β, f)
 end
 
 # timer_rows and write_timer_csv (read the TimerOutput back and write the CSV)
-include(joinpath(@__DIR__, "timing_tools.jl"))
+include(joinpath(@__DIR__, "..", "tools", "timing_tools.jl"))
 
 # read_timer_csv, shorten, total_time and self_time_by_name (plot helpers of the timing scripts)
-include(joinpath(@__DIR__, "timing_plots.jl"))
+include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 
 # ======================================================================================================================
 # CE: the PEPOs for all β, built once (every case uses exactly these)
 # ======================================================================================================================
 function build_pepos()
-    @assert issorted(BETAS) "BETAS must be increasing"
+    @assert issorted(β_obs) "β_obs must be increasing"
     trunc_alg = NoEnvTruncation(truncrank(D_CE))
     ce_alg = ising_operators(J, g, 0.0; T = BigFloat, symmetry = nothing)
     ΔO = ClusterExpansions.evolution_operator_cubic(ce_alg, Δβ_iter; T_conv = Float64)
     O = ClusterExpansions.evolution_operator_cubic(ce_alg, 0.0; T_conv = Float64)
     Os = Any[]
     β_now = 0.0
-    for β in BETAS
+    for β in β_obs
         # number of time steps from the previous β to this one
         nsteps = round(Int, (β - β_now) / Δβ_iter)
         @assert abs(nsteps - (β - β_now) / Δβ_iter) < 1.0e-8 "β = $β is not a multiple of Δβ_iter = $Δβ_iter"
@@ -199,7 +201,7 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
 
     # Loop over all observations (at different β, using different O's)
     for i in eachindex(Os)
-        β = BETAS[i]
+        β = β_obs[i]
         # Use same random seed in the different cases
         Random.seed!(SEED_BASE + i)
         # time we allow this observation: at most MAX_SECONDS_OBS, and lower if the case budget runs out
@@ -402,7 +404,7 @@ function make_spread_plot(rows, outdir)
     return nothing
 end
 
-# Timing plots: the same plots as timing_CE_phases.png and timing_CE_self.png of ising_model_3D_timing.jl, but with 4 bars (one per case) per section.
+# Timing plots: the same plots as timing_CE_phases.png and timing_CE_self.png of ising_model_3D_CE_CTMRG_profiling.jl, but with 4 bars (one per case) per section.
 # They read timing_<case>.csv of the run folder (written after every case). The times are summed over all observations of a case.
 # The percentage in brackets is relative to the total time of the observations of that case, followed by the number of calls.
 
@@ -509,7 +511,7 @@ end
 function main()
     # Replot mode if run was already done, then it just reprints/replots the stored results
     if !isempty(REPLOT_DIR)
-        plotdir = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling", REPLOT_DIR))
+        plotdir = joinpath(DATA_DIR, REPLOT_DIR)
         rows = read_results(joinpath(plotdir, "results.csv"))
         print_summary(rows)
         make_all_plots(rows, plotdir)
@@ -518,7 +520,7 @@ function main()
 
     # Create the output folder and csv path using current date/time
     t_run = time()
-    outdir = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling", "vbpeps_compare_" * Libc.strftime("%Y%m%d_%H%M", time())))
+    outdir = joinpath(DATA_DIR, "vbpeps_compare_" * Libc.strftime("%Y%m%d_%H%M", time()))
     mkpath(outdir)
     resultspath = joinpath(outdir, "results.csv")
 
@@ -528,7 +530,7 @@ function main()
     # Write Julia version, threads and all settings to the file 
     open(joinpath(outdir, "settings.txt"), "w") do io
         println(io, "Julia $(VERSION), threads = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads())")
-        println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, BETAS = $BETAS")
+        println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, β_obs = $β_obs")
         println(io, "SEED_BASE = $SEED_BASE, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
         println(io, "base_kwargs = $base_kwargs")
         println(io, "cases = $CASES")

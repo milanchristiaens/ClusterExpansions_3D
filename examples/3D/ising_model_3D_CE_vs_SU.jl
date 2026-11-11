@@ -1,3 +1,7 @@
+# 3D Ising model: magnetization against β for CE + CTMRG3D and SU + CTMRG3D, together with the critical β from QMC.
+# Use this example to see that the cluster expansion (CE) reproduces the simple update (SU) result and the phase transition.
+# More output while running: ../verbosity/        Timings of one algorithm: ../profiling/
+
 using TensorKit
 using TensorKitTensors
 using MPSKit
@@ -10,26 +14,35 @@ using LinearAlgebra
 Random.seed!(123456789)
 setprecision(128)
 
-const βc_exact = 0.2216546 # voor g = 0.0
-
+## Settings (the same names and the same β grid in all 3D examples)
 T = Float64
 spin_symmetry = Trivial
 J = 1.0
-g = 2.0
+g = 0.0                  # 0.0, 2.0 or 4.5 (we only know the critical β for these values, see the end of the file)
 
-function evolve_CE(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry = Trivial)
+Δβ_iter = 0.005          # time step of the evolution
+# β values at which we observe. Increasing; every value must be a multiple of Δβ_iter.
+# SU evolves a state at τ = β/2 (purification), so there every step in β/2 must be a multiple of Δβ_iter.
+β_obs = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
+
+# Bond dimension of the density operator, and the two environment bond dimensions of CTMRG3D (these are quite low)
+D_CE = 4
+D_SU = 2
+chipeps = 4
+chienv = 6
+
+# Which observable do you want to calculate?
+obs = SpinOperators.σᶻ(T, spin_symmetry)
+
+
+function evolve_CE(obs, β_obs, Δβ_iter, D, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry = Trivial)
     if spin_symmetry == Trivial
         pepsspace = ℂ^chipeps
         envspace = ℂ^chienv
-        vspace = ℂ^D
     else
         pepsspace = Vect[Z2Irrep](0 => chipeps - div(chipeps,2), 1 => div(chipeps,2))
         envspace = Vect[Z2Irrep](0 => chienv - div(chienv,2), 1 => div(chienv,2))
-        vspace = Vect[Z2Irrep](0 => D - div(D,2), 1 => div(D,2))
     end
-            
-    nsteps = round(Int, Δβ_obs / Δβ_iter)
-    @assert abs(nsteps - Δβ_obs / Δβ_iter) < 1e-10 "Δβ_obs and Δβ_iter are incomptatible"
 
     # define time-evolution (truncation) algorithm
     trunc_alg = NoEnvTruncation(truncrank(D))
@@ -37,14 +50,18 @@ function evolve_CE(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J 
     # define cluster-expansion algorithm. p = 3 is default.
     ce_alg = ising_operators(J, g, 0.0; T = BigFloat, symmetry = "Oh")
     ΔO = evolution_operator_cubic(ce_alg, Δβ_iter; T_conv = Float64);
-    
+
     # start with density operator at β = 0
     O = evolution_operator_cubic(ce_alg, 0.0; T_conv = Float64);
 
+    βs_all = [0.0; β_obs]    # start point + observation points
     ms = []
-    for i = 1:maxiter_obs
-        @info "At step $i / $(maxiter_obs)"
-        # Do the time evolution
+    for i in eachindex(β_obs)
+        @info "At step $i / $(length(β_obs)), β = $(β_obs[i])"
+        # Do the time evolution from the previous β to this one
+        Δ = βs_all[i+1] - βs_all[i]
+        nsteps = round(Int, Δ / Δβ_iter)
+        @assert abs(nsteps - Δ / Δβ_iter) < 1e-10 "β_obs values must be multiples of Δβ_iter"
         for _ = 1:nsteps
             O, = approximate_state((O,ΔO), trunc_alg; rot_invariance = false)
         end
@@ -53,11 +70,10 @@ function evolve_CE(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J 
         push!(ms, m)
         @info "magn is $(ms[end])"
     end
-    βs = [Δβ_obs*i for i in 1:maxiter_obs]
-    return βs, ms
+    return β_obs, ms
 end
 
-function evolve_SU(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry = Trivial, T = Float64)
+function evolve_SU(obs, β_obs, Δβ_iter, D, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry = Trivial, T = Float64)
     # Some necessary stuff for SU
     P = SpinOperators.spin_space(spin_symmetry)
     dm = DensityMatrixSpace(T, P)
@@ -75,17 +91,19 @@ function evolve_SU(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J 
         envspace = Vect[Z2Irrep](0 => chienv - div(chienv,2), 1 => div(chienv,2))
         vspace = Vect[Z2Irrep](0 => D - div(D,2), 1 => div(D,2))
     end
-            
-    nsteps = round(Int, Δβ_obs / Δβ_iter)
-    @assert abs(nsteps - Δβ_obs / Δβ_iter) < 1e-10 "Δβ_obs and Δβ_iter are incomptatible"
 
     # Start with infinite temperature
     peps = infinite_temperature_peps3D(dm, vspace; unitcell, noise=0.0)
 
+    # The purification doubles β: the state at τ is the density operator at β = 2τ, so we observe at τ = β/2
+    τs_all = [0.0; β_obs ./ 2]
     ms = []
-    for i = 1:maxiter_obs
-        @info "At step $i / $(maxiter_obs)"
-        # Do the SU time evolution
+    for i in eachindex(β_obs)
+        @info "At step $i / $(length(β_obs)), β = $(β_obs[i])"
+        # Do the SU time evolution from the previous τ to this one
+        Δτ = τs_all[i+1] - τs_all[i]
+        nsteps = round(Int, Δτ / Δβ_iter)
+        @assert abs(nsteps - Δτ / Δβ_iter) < 1e-10 "β_obs/2 steps must be multiples of Δβ_iter"
         peps, wtdiff = simpleupdate3D(
             peps, H, [Δβ_iter];
             tol=-Inf, maxiter=nsteps, verbosity=0, trscheme=FixedSpaceTruncation(),
@@ -99,27 +117,12 @@ function evolve_SU(obs, Δβ_iter, Δβ_obs, maxiter_obs, D, chipeps, chienv; J 
         @info "magn is $(ms[end])"
 
     end
-    βs = [2*Δβ_obs*i for i in 1:maxiter_obs] # Factor 2 is due to the purification
-    return βs, ms
+    return β_obs, ms
 end
 
-# values of the bond dimension of the density operator, and the two environment bond dimensions of CTMRG (these are quite low)
-D_CE = 4
-D_SU = 2
-chipeps = 4
-chienv = 6
 
-# Which observable do you want to calculate?
-obs = SpinOperators.σᶻ(T, spin_symmetry)
-
-# parameters for time evolution
-Δβ_iter = 0.005
-Δβ_obs = 0.01
-# maxiter_obs = 34
-maxiter_obs = 6
-
-βs, ms = evolve_CE(obs, Δβ_iter, Δβ_obs, maxiter_obs, D_CE, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry)
-βs_SU, ms_SU = evolve_SU(obs, Δβ_iter, Δβ_obs, maxiter_obs / 2, D_SU, chipeps, chienv; J = 1.0, g = 0.0, spin_symmetry)
+βs, ms = evolve_CE(obs, β_obs, Δβ_iter, D_CE, chipeps, chienv; J, g, spin_symmetry)
+βs_SU, ms_SU = evolve_SU(obs, β_obs, Δβ_iter, D_SU, chipeps, chienv; J, g, spin_symmetry, T)
 
 # The exact results for the critical temperature
 βc = if g == 0.0

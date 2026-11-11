@@ -1,4 +1,4 @@
-# Plot helpers for the timing rows of ising_model_3D_timing.jl.
+# Plot helpers for the timing rows of ising_model_3D_CE_CTMRG_profiling.jl.
 #
 # They work on "rows": named tuples with the fields path, name, depth, ncalls, total, self, alloc_MiB, pct_parent,
 # either straight from timer_rows(to) or read back from a CSV file with read_timer_csv (no rerun needed).
@@ -214,7 +214,7 @@ function plot_max_alloc_per_call(rows, label; top = 25, under = "", leaves_only 
     is_leaf = [i == length(rows) || rows[i + 1].depth <= r.depth for (i, r) in enumerate(rows)]
     keep = [(!leaves_only || is_leaf[i]) && (isempty(under) || occursin(under, r.path)) && !isnan(r.max_alloc_MiB) for (i, r) in enumerate(rows)]
     sel = rows[keep]
-    isempty(sel) && error("No sections with max_alloc_MiB data (and \"$under\" in their path): rerun ising_model_3D_timing.jl with the new code to get the extra CSV column")
+    isempty(sel) && error("No sections with max_alloc_MiB data (and \"$under\" in their path): rerun ising_model_3D_CE_CTMRG_profiling.jl with the new code to get the extra CSV column")
 
     # Merge same-named sections: (largest call, number of calls, total allocation)
     acc = Dict{String, Tuple{Float64, Int, Float64}}()

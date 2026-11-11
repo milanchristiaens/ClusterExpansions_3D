@@ -733,7 +733,7 @@ end
 
 Convert a converged density-operator PEPS (fused ket-bra physical leg) into the cubic-lattice
 PEPO convention used elsewhere in this package (see e.g. `evolution_operator_cubic` and
-`ctmrg_cubic.jl`): a `{T,S,2,6}` tensor per site with physical legs `(ket, bra')` -- a plain
+`ctmrg3D_main.jl`): a `{T,S,2,6}` tensor per site with physical legs `(ket, bra')` -- a plain
 copy of `P` and its dual -- and the same six virtual legs `(U, N, E, D, S, W)`.
 
 This lets a finite-temperature state obtained from [`simpleupdate3D`](@ref) (with a
