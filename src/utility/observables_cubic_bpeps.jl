@@ -14,7 +14,7 @@
 #
 # Leg convention of the 2D PEPO O (PEPSKit): O[(DOWN, UP); (N, E, S, W)] = the 3D PEPO with its two physical legs traced (twist(PEPO, 2) for fermions);
 # DOWN and UP of the 3D PEPO are the "physical" legs of the 2D problem.
-# Timers: nested timers "bPEPS: ..." write to the timer `to` of ClusterExpansions (see examples/profiling/ising_model_3D_CE_vbPEPS_profiling.jl).
+# Timers: nested timers "bPEPS: ..." write to the timer `to` of ClusterExpansions (see development/profiling/ising_model_3D_CE_vbPEPS_profiling.jl).
 # ======================================================================================================================
 
 
@@ -144,7 +144,7 @@ end
 #    * false (default): the two environments are converged with leading_boundary OUTSIDE of the automatic differentiation, and only the explicit
 #      dependence of the two network values on psi is differentiated (environments fixed). The omitted term is dE/denv * denv/dpsi. It is NOT
 #      negligible: this is an approximate gradient; cheap, and the automatic differentiation of it is correct
-#      (test/bpeps.jl), but LBFGS minimises a cost whose exact gradient it does not get. development/check_bpeps_gradient.jl prints these numbers.
+#      (test/bpeps.jl), but LBFGS minimises a cost whose exact gradient it does not get. development/checks/check_bpeps_gradient.jl prints these numbers.
 #    * true: the network values are evaluated with the output of hook_pullback, so that the
 #      gradient also contains the fixed-point (geometric sum / Arnoldi) term through the CTMRG. Much more expensive, and the first call compiles
 #      the pullback of a CTMRG iteration (Zygote: minutes on a normal machine). Not tested yet!

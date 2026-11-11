@@ -1,47 +1,10 @@
-# Plot helpers for the timing rows of ising_model_3D_CE_CTMRG_profiling.jl.
+# timing_plots.jl -- all timing plots: the 5 plots of one run (make_timing_plots) and the grouped plots of the compare scripts (one bar per case).
 #
 # They work on "rows": named tuples with the fields path, name, depth, ncalls, total, self, alloc_MiB, pct_parent,
-# either straight from timer_rows(to) or read back from a CSV file with read_timer_csv (no rerun needed).
+# either straight from timer_rows(to) or read back from a CSV file with read_timer_csv (no rerun needed). timer_rows and read_timer_csv are in timing_io.jl.
 
 using Plots
 using Plots.PlotMeasures # for `mm`, used for plot margins
-
-# Read a CSV written by write_timer_csv back into rows (same fields as timer_rows gives)
-function read_timer_csv(path)
-    # Create empty list that will hold one named tuple per CSV line
-    rows = NamedTuple[]
-    
-    # Loop over lines in the CSV file
-    for (i, line) in enumerate(eachline(path))
-        (i == 1 || isempty(strip(line))) && continue   # skip the header and empty lines
-        
-        # e.g. One line of CSV: "TOTAL CE run > expectation_value (CTMRG3D and observable)",1,5,60.25,0.01,99.0,26.0
-        # m then splits it as follows: (.*) is group 1 followed by (.*) group 2
-        # m.captures[1]   # "TOTAL CE run > expectation_value (CTMRG3D and observable)"
-        # m.captures[2]   # "1,5,60.25,0.01,99.0,26.0"
-        m = match(r"^\"(.*)\",(.*)$", line)             # the path is in quotes, because it can contain commas
-        m === nothing && error("Cannot parse line $i of $path: $line")
-        
-        # Now we split all numbers up between ','
-        f = split(m.captures[2], ',')
-        length(f) in (6, 7) || error("Expected 6 or 7 numbers after the path in line $i of $path, got $(length(f)): $line")        # Take the path text and turn into string
-        p = String(m.captures[1])
-        
-        # Now put this data into a row
-        push!(rows, (;
-            path = p,
-            name = String(last(split(p, " > "))),       # the last part of the path is the section name
-            depth = parse(Int, f[1]),
-            ncalls = parse(Int, f[2]),
-            total = parse(Float64, f[3]),
-            self = parse(Float64, f[4]),
-            alloc_MiB = parse(Float64, f[5]),
-            pct_parent = parse(Float64, f[6]),
-            max_alloc_MiB = length(f) == 7 ? parse(Float64, f[7]) : NaN,   # old CSV files without this column give NaN
-        ))
-    end
-    return rows
-end
 
 # Shorten a long section name so that it fits next to the bars
 shorten(s, n = 55) = length(s) <= n ? s : first(s, n - 1) * "…"
@@ -231,4 +194,124 @@ function plot_max_alloc_per_call(rows, label; top = 25, under = "", leaves_only 
     ttl = "$label: top $(length(flat)) sections by largest allocation of ONE call" * (isempty(under) ? "" : ", inside \"$under\"")
     return hbars(names, [r.max_alloc for r in flat], labels; title = ttl,
         xlabel = "largest allocation of one call [MiB], GC-counted   (then mean per call and number of calls)", color = :tomato)
+end
+
+
+# ======================================================================================================================
+# Plots of the compare scripts (one bar per case)
+# ======================================================================================================================
+# Grouped timing plots of the compare scripts: the same plots as phases and self of make_timing_plots, but with one bar per case in every group.
+# They read timing_<case>.csv of the run folder (written after every case). The times are summed over all observations of a case.
+# The percentage in brackets is relative to the total time of the observations of that case, followed by the number of calls.
+
+# timing_<case>.csv of the cases that have one: (name, label, color, rows). case_specs = [(name = "false_cold", label = "fixed env, cold", color = :steelblue), ...]; the order is the order of the bars.
+function read_case_timings(outdir, case_specs)
+    cases = NamedTuple[]
+    for c in case_specs
+        path = joinpath(outdir, "timing_$(c.name).csv")
+        if isfile(path)
+            push!(cases, (; name = c.name, label = c.label, color = c.color, rows = read_timer_csv(path)))
+        else
+            @warn "No $path: case $(c.name) is left out of the timing plots"
+        end
+    end
+    isempty(cases) && error("No timing_<case>.csv in $outdir")
+    return cases
+end
+
+# Horizontal bars like hbars (timing_plots.jl), but with one bar per case in every group.
+# values[c][i], labels[c][i] = bar of case c in group i; the first group is at the top.
+function hbars_grouped(names, values, labels, cases; title = "", xlabel = "", figsize = (1500, 900))
+    nc = length(cases)
+    n = length(names)
+    xmax = max(maximum(maximum(v) for v in values), 1.0e-9)
+    maxlen = maximum(length, names)
+    bw = 0.8 / nc                                   # height of one bar
+    y0(i, c) = i - 0.4 + (c - 1) * bw               # lower edge of the bar of case c in group i
+    anns = [(values[c][i] + 0.01 * xmax, y0(i, c) + bw / 2, Plots.text(labels[c][i], 7, :left)) for c in 1:nc for i in 1:n]
+    plt = plot(;
+        title, xlabel, legend = :bottomright, size = figsize,
+        yticks = (1:n, names), ylims = (0.4, n + 0.6), yflip = true,
+        xlims = (0, 1.5 * xmax), grid = :x,
+        left_margin = (1.8 * maxlen + 4) * mm, bottom_margin = 8mm, ytickfontsize = 9,
+        annotations = anns,
+    )
+    for c in 1:nc, i in 1:n
+        lo = y0(i, c)
+        plot!(plt, Plots.Shape([0, values[c][i], values[c][i], 0], [lo, lo, lo + bw, lo + bw]); fillcolor = cases[c].color, linecolor = cases[c].color, label = i == 1 ? cases[c].label : "")
+    end
+    return plt
+end
+
+# "12.3 s (5.1%)  40x", nothing for a section that a case does not have
+bar_label(t, grand, n) = n == 0 ? "" : "$(round(t; sigdigits = 3)) s ($(round(100 * t / grand; digits = 1))%)  $(n)x"
+
+# Main phases of the run (sections at depth 1, so the direct parts of "expectation_value ..."), by total time. Last group: time that is in no depth-1 section.
+function make_timing_phases_plot(outdir, case_specs; label = "", file_prefix = "compare")
+    cases = read_case_timings(outdir, case_specs)
+    rest_name = "(rest: code outside the sections above)"
+    grands = [total_time(c.rows) for c in cases]
+    # per case: section name => (total time, number of calls)
+    secs = [Dict{String, Tuple{Float64, Int}}() for _ in cases]
+    for (k, c) in enumerate(cases), r in c.rows
+        r.depth == 1 || continue
+        t, n = get(secs[k], r.name, (0.0, 0))
+        secs[k][r.name] = (t + r.total, n + r.ncalls)
+    end
+    rests = [grands[k] - sum((t for (t, _) in values(secs[k])); init = 0.0) for k in eachindex(cases)]
+    names = unique(vcat([collect(keys(d)) for d in secs]...))
+    sort!(names; by = nm -> -sum(get(d, nm, (0.0, 0))[1] for d in secs))     # largest total time (summed over the cases) first
+    any(rests[k] > 0.01 * grands[k] for k in eachindex(cases)) && push!(names, rest_name)
+    values_ = [[nm == rest_name ? rests[k] : get(secs[k], nm, (0.0, 0))[1] for nm in names] for k in eachindex(cases)]
+    calls = [[nm == rest_name ? 1 : get(secs[k], nm, (0.0, 0))[2] for nm in names] for k in eachindex(cases)]
+    labels = [[bar_label(values_[k][i], grands[k], calls[k][i]) for i in eachindex(names)] for k in eachindex(cases)]
+    plt = hbars_grouped(shorten.(names), values_, labels, cases; title = "$label: main phases of the observations",
+        xlabel = "total time [s]  (% of case total, calls)",        figsize = (1500, 220 + 110 * length(names)))
+    savefig(plt, joinpath(outdir, "$(file_prefix)_timing_phases.png"))
+    return nothing
+end
+
+# The `top` sections with the largest self time (summed over the cases); same-named sections are merged like in plot_self_time.
+function make_timing_self_plot(outdir, case_specs; label = "", file_prefix = "compare", top = 4)
+    cases = read_case_timings(outdir, case_specs)
+    grands = [total_time(c.rows) for c in cases]
+    flats = [Dict(r.name => (r.ncalls, r.self) for r in self_time_by_name(c.rows)) for c in cases]      # name => (calls, self time)
+    names = unique(vcat([collect(keys(f)) for f in flats]...))
+    sort!(names; by = nm -> -sum(get(f, nm, (0, 0.0))[2] for f in flats))
+    names = names[1:min(top, length(names))]
+    values_ = [[get(f, nm, (0, 0.0))[2] for nm in names] for f in flats]
+    calls = [[get(f, nm, (0, 0.0))[1] for nm in names] for f in flats]
+    labels = [[bar_label(values_[k][i], grands[k], calls[k][i]) for i in eachindex(names)] for k in eachindex(cases)]
+    plt = hbars_grouped(shorten.(names), values_, labels, cases; title = "$label: top $(length(names)) sections by self time",
+        xlabel = "self time [s]  (% of case total, calls)",        figsize = (1500, 220 + 110 * length(names)))
+    savefig(plt, joinpath(outdir, "$(file_prefix)_timing_self.png"))
+    return nothing
+end
+
+
+# The 5 timing plots of ONE run, saved in outdir as timing_<tag>_<name>.png and shown:
+#   phases, self (top sections by self time), <under_name> (the same, only inside the sections whose path contains `under`), alloc_per_call, alloc_max_per_call.
+# rows: from timer_rows(to) or read_timer_csv; label: used in the titles (for example "CE + CTMRG3D"); tag: used in the file names (for example "CE").
+# under / under_name: "leading_boundary" / "ctmrg" for CTMRG3D, "bPEPS" / "bpeps" for the variational boundary PEPS. With under = "" that plot is left out.
+# Every plot is made in its own try, so that a plot that cannot be made (for example an old CSV without the max_alloc column) does not stop the others.
+function make_timing_plots(rows, label, outdir, tag; under = "", under_name = "", top = 10, top_under = 25, show_plots = true)
+    plots = Pair{String, Function}[
+        "phases" => (() -> plot_phases(rows, label)),
+        "self" => (() -> plot_self_time(rows, label; top)),
+    ]
+    isempty(under) || push!(plots, under_name => (() -> plot_self_time(rows, label; under, top = top_under)))
+    push!(plots, "alloc_per_call" => (() -> plot_alloc_per_call(rows, label; top)))
+    push!(plots, "alloc_max_per_call" => (() -> plot_max_alloc_per_call(rows, label; top)))
+    for (name, makeplot) in plots
+        file = joinpath(outdir, "timing_$(tag)_$(name).png")
+        try
+            plt = makeplot()
+            show_plots && display(plt)
+            savefig(plt, file)
+            @info "Plot saved: $file"
+        catch err
+            @error "Plot $name failed" exception = (err, catch_backtrace())
+        end
+    end
+    return nothing
 end

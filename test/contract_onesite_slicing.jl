@@ -156,7 +156,7 @@ end
     @test CE.onesite_write_plans(path, rows) == 0
     @test CE.onesite_read_plans(path)[2].time_s == 123.5
 
-    # The measurements that development/benchmark_contract_onesite.jl writes back (21-column layout: time_s, time_real_s, allocator ... note).
+    # The measurements that development/contraction_plans/benchmark_contract_onesite.jl writes back (21-column layout: time_s, time_real_s, allocator ... note).
     # A row that was never measured has empty columns; older lines with 13 or 20 columns are still read (time_real_s is then empty).
     r0 = CE.onesite_read_plans(path)[1]
     @test isnan(r0.rss_gib) && r0.note == "" && isnan(r0.time_real_s) && length(split(readlines(path)[2], ';')) == 21

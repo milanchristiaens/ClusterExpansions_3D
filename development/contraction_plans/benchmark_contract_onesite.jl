@@ -1,17 +1,17 @@
-# This file times the plans of the plan file src/utility/onesite_plans.csv (written by development/find_orders_ome.jl): the sliced contraction
+# This file times the plans of the plan file src/utility/onesite_plans.csv (written by development/contraction_plans/find_orders_ome.jl): the sliced contraction
 # `contract_onesite` with a given contraction tree and given cut bonds.
 # Each plan runs in a FRESH child julia process, so that `Sys.maxrss()` (peak resident memory) belongs to that plan only and no allocator pool survives.
 #
 # USAGE:
 #   -O1 keeps the just-in-time compilation of the 27-tensor kernels shorter than the default -O2, -t 8 = 8 threads):
-#   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl
+#   julia +1.12 -O1 -t 8 --project=. development/contraction_plans/benchmark_contract_onesite.jl
 #
 # WHAT IT DOES
 #   Every plan of the plan file that has no time yet is timed, one after the other, grouped by dimensions (chi_env, chi_peps, D).
 #   After each plan the measurements are written back into the same row of the plan file (CE.onesite_update_plans). Nothing else is written.
 #   - ENV_LOADER = nothing (default): the contraction runs on a MOCK environment, random dense tensors with the dimensions of the plan, for ALL plans of the file.
 #     The time goes into the column time_s.
-#   - ENV_LOADER = "development/env_loader_example.jl": the contraction runs on the REAL environment that this file builds (see env_loader_example.jl). Only the plans
+#   - ENV_LOADER = "development/contraction_plans/env_loader_example.jl": the contraction runs on the REAL environment that this file builds (see env_loader_example.jl). Only the plans
 #     for the dimensions of that environment are timed (the others are skipped). The time goes into the column time_real_s.
 #     contract_onesite_auto uses time_real_s if it is filled, otherwise time_s.
 #   The seven columns allocator, rss_gib, pool_gib, sys_s, minflt, check, note belong to the real run if there is one, otherwise to the mock run.
@@ -31,7 +31,7 @@ const CE = ClusterExpansions
 # SETTINGS:
 # ======================================================================================================================
 const PLAN_FILE  = CE.ONESITE_PLAN_FILE   # plan file that is read and updated (the same constant is in find_orders_ome.jl)
-const ENV_LOADER = nothing                # nothing = mock environment (time_s); "development/env_loader_example.jl" = real environment (time_real_s)
+const ENV_LOADER = nothing                # nothing = mock environment (time_s); "development/contraction_plans/env_loader_example.jl" = real environment (time_real_s)
 const REPS       = 1                      # timed repetitions of the contraction after the warm-up (the minimum is written)
 const ALLOCATOR  = "reuse"                # "reuse" (the allocator of contract_onesite_auto) or "manual"
 const FORCE      = false                  # true = run also if the estimated memory exceeds 85 % of the free memory
@@ -312,7 +312,7 @@ function main()
     envkind = ENV_LOADER === nothing ? :mock : :real
     timecol = envkind === :mock ? "time_s" : "time_real_s"
     plans = CE.onesite_read_plans(PLAN_PATH)
-    isempty(plans) && error("no plans in $PLAN_PATH: make them first with development/find_orders_ome.jl")
+    isempty(plans) && error("no plans in $PLAN_PATH: make them first with development/contraction_plans/find_orders_ome.jl")
 
     # The groups of dimensions that are timed: all of them for the mock environment; for the real environment only the one with its dimensions
     groups = unique((r.chi_env, r.chi_peps, r.D) for r in plans)
@@ -321,7 +321,7 @@ function main()
         d_env = CE.onesite_dims(env, M)
         groups = filter(g -> CE.onesite_dims(g...) == d_env, groups)
         if isempty(groups)
-            println("no plan in $PLAN_PATH has the bond dimensions of the environment of $ENV_LOADER: make plans for these dimensions with development/find_orders_ome.jl")
+            println("no plan in $PLAN_PATH has the bond dimensions of the environment of $ENV_LOADER: make plans for these dimensions with development/contraction_plans/find_orders_ome.jl")
             return
         end
     end

@@ -1,5 +1,0 @@
-Julia 1.12.7, threads = 4, BLAS threads = 1
-J = 1.0, g = 0.0, D_CE = 2, chipeps = 2, chienv = 8, Δβ_iter = 0.005, BETAS = [0.05, 0.1, 0.15, 0.2, 0.25, 0.3, 0.35, 0.4, 0.45, 0.5]
-SEED_BASE = 1000, RUN_BUDGET_S = 2400.0, MAX_SECONDS_OBS = 420.0, MIN_SECONDS_OBS = 30.0
-base_kwargs = (boundary_alg_type = SimultaneousCTMRG, symmetrization = nothing, boundary_tol = 1.0e-10, boundary_maxiter = 1500, boundary_verbosity = 1, gradient_tol = 1.0e-6, gradient_maxiter = 5, gradient_krylovdim = 20, optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 10, maxiter_init = 20, optimizer_verbosity = 2)
-cases = Tuple{String, Bool, Bool}[("false_cold", 0, 0), ("false_warm", 1, 0), ("true_cold", 0, 1), ("true_warm", 1, 1)]

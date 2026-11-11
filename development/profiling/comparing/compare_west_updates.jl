@@ -2,7 +2,7 @@
 # magnetization, needed CTMRG iterations, number of partial_ctmrgstep calls and timings.
 # One extra case: :auto with PEPO bond dimension D = 5.
 #
-# Output: table on screen + CSV in data/benchmarks/.
+# Output: table on screen + CSV in data/profiling/comparing/compare_west_updates/.
 
 using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, TimerOutputs, Random, LinearAlgebra, Printf
 using ClusterExpansions: contract_onesite_dispatch
@@ -159,7 +159,7 @@ for β in β_obs
 end
 
 # Saving the CSV
-outdir = normpath(joinpath(@__DIR__, "..", "data", "benchmarks"))
+outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "compare_west_updates"))
 mkpath(outdir)
 csvpath = joinpath(outdir, "west_updates_comparison.csv")
 open(csvpath, "w") do io

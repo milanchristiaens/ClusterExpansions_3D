@@ -5,7 +5,7 @@
 #   (2) the gradient of the cost function with fixed environments (differentiate_environment = false, the default) agrees with a finite difference of the cost
 #       with frozen environments: this tests the automatic differentiation of the network values. It does NOT test that this gradient is the gradient of the
 #       total cost (environments re-converged): that is only approximately true, see the comment in observables_cubic_bpeps.jl (section 4) and
-#       development/check_bpeps_gradient.jl, which prints the numbers,
+#       development/checks/check_bpeps_gradient.jl, which prints the numbers,
 #   (3) bpeps_optimize runs (a few LBFGS steps, from the power-method start and warm-started), gives a finite cost, a finite observable, and the nested "bPEPS: ..." timers.
 # NOT tested here (a test that the LBFGS cost decreases would be unreliable): the 2D CTMRG of this small case converges to different fixed points for different random
 # starting environments, so the cost function is not reproducible enough for such a test.

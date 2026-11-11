@@ -21,11 +21,11 @@
 #   4. the slices are contracted with an allocator that re-uses its temporaries                                         (contract_onesite_sliced, ReuseAllocator)
 #
 # WHERE THE PLAN FILE COMES FROM (OMEinsumContractionOrders.jl)
-#   development/find_orders_ome.jl (settings at the top of that file: dimensions, RAM budgets, kmax, ...) calls onesite_find_plans, which asks
+#   development/contraction_plans/find_orders_ome.jl (settings at the top of that file: dimensions, RAM budgets, kmax, ...) calls onesite_find_plans, which asks
 #   OMEinsumContractionOrders.jl (TreeSA) for several contraction trees, finds the best cuts of every tree by brute force, and appends the winners
 #   per RAM budget to onesite_plans.csv (or to another file: PLAN_FILE in that file).
 #   Predicted flops are only a proxy for the run time (a tree with fewer flops can run slower), so the rows are timed by running
-#   development/benchmark_contract_onesite.jl: it times every row that has no time yet and writes the measured seconds back into the same csv
+#   development/contraction_plans/benchmark_contract_onesite.jl: it times every row that has no time yet and writes the measured seconds back into the same csv
 #   (onesite_update_plans): into time_s when it runs on the dense MOCK environment, into time_real_s when it runs on a REAL environment (ENV_LOADER in
 #   that file). The other measurements (allocator, rss_gib, pool_gib, sys_s, minflt, check, note) belong to the real run if there is one, otherwise to the mock run.
 #   By default (select = :measured) contract_onesite_auto only uses rows that have a time (time_real_s if filled, otherwise time_s, see onesite_plan_time).
@@ -164,7 +164,7 @@ end
 #                               made for exactly these bond dimensions and predicted to fit:
 #      select = :measured (default): only plans with a measured time (onesite_plan_time) count, the fastest of them replaces the brute-force plan
 #      select = :model             : all plans count, the one with the fewest PREDICTED flops wins (the model ignores GEMM efficiency and data
-#                                    volume, a tree with fewer flops can (AND OFTEN WILL!) run slower: check with development/benchmark_contract_onesite.jl)
+#                                    volume, a tree with fewer flops can (AND OFTEN WILL!) run slower: check with development/contraction_plans/benchmark_contract_onesite.jl)
 function onesite_choose_plan(d::Vector{Float64}; ram_gib::Real, bytes::Integer = 16, allocator::Symbol = :reuse, cuts = nothing,
                              tree = TREE_CURRENT, plans = ONESITE_PLAN_FILE, select::Symbol = :measured, kmax::Int = 4,
                              margin::Real = 0.8, rules = ONESITE_RAM_RULES)
@@ -232,7 +232,7 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
         # Give error
         error("contract_onesite_auto: no cut set with at most $(cuts === nothing ? kmax : length(cuts)) cuts is predicted to fit ",
               "$(round(margin * ram_gib; digits = 2)) GiB (best: cuts $(plan.cuts), predicted $(round(plan.est_gib; digits = 2)) GiB). ",
-              "Give more `ram_gib`, a larger `kmax` (<= 5), or find better plans with development/find_orders_ome.jl; `force = true` runs anyway.")
+              "Give more `ram_gib`, a larger `kmax` (<= 5), or find better plans with development/contraction_plans/find_orders_ome.jl; `force = true` runs anyway.")
     end
 
     # if the memory cost is too high and we DO force it
@@ -273,7 +273,7 @@ contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_a
 # The time that counts for contract_onesite_auto is time_real_s if it is filled, otherwise time_s (onesite_plan_time).
 # The columns k ... bytes are written by onesite_find_plans for the human reader:
 # number of cuts, number of slices, predicted flops, predicted peak of the intermediates (GiB), the RAM budget (GiB) and bytes per element it was made for.
-+ # The columns after time_real_s are written by development/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
++ # The columns after time_real_s are written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
 # allocator the time was measured with (reuse/manual), rss_gib = peak resident memory of the process, pool_gib = what the ReuseAllocator asked the OS for,
 # sys_s = system CPU seconds and minflt = minor page faults per repetition (Linux only), check = relative deviation of the value from the first row
 # measured for the same dimensions in that benchmark run (0 for that first row; should be ~1e-10 or smaller), note = free text (e.g. "skipped: ...").
@@ -398,7 +398,7 @@ function _os_plan_fields(f::Vector{String})
     return g
 end
 
-# Fill in the measurements of development/benchmark_contract_onesite.jl in the plan file.
+# Fill in the measurements of development/contraction_plans/benchmark_contract_onesite.jl in the plan file.
 # `updates` = named tuples with the key of a row (chi_env, chi_peps, D, tree, cuts) and the columns to set: time_s, allocator, rss_gib, pool_gib, sys_s, minflt, check, note.
 # `env = :mock`: `time_s` of the update is written into column time_s (dense mock environment); `env = :real`: it is written into column time_real_s (real environment).
 # The seven columns (allocator ... note) belong to the real run if there is one: an `env = :real` update always writes them, a :mock update only if time_real_s of that row is still empty.
@@ -543,7 +543,7 @@ end
 # at most kmax of them); candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
 # Parameters of the cost model that you can vary: bytes (16 = ComplexF64, 8 = Float64), allocator, margin, rules; (all of them are used again by
 # contract_onesite_auto when it checks a plan, so use the same values there).
-# The rows have no measured time yet (time_s = NaN): development/benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
+# The rows have no measured time yet (time_s = NaN): development/contraction_plans/benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
 function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32, 64, 128, 256, 512), bytes::Int = 16, allocator::Symbol = :reuse,
                             kmax::Int = 4, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
                             niters::Int = 40, verbosity::Int = 1)
@@ -888,7 +888,7 @@ end
 # cap = Inf: search for set that minimises the peak memory
 # cap = finite: search for set with the fewest total flops among those whose peak is at most cap
 function onesite_best_cuts(@nospecialize(tree), d::Vector{Float64}, k::Int; cap::Real = Inf, order::Symbol = :written)
-    # more than 5 cuts is too many combinations for brute force (use fewer cuts, or a plan from development/find_orders_ome.jl)
+    # more than 5 cuts is too many combinations for brute force (use fewer cuts, or a plan from development/contraction_plans/find_orders_ome.jl)
     k <= 5 || error("k > 5 would take very long (C(54,6) = 25.8 million cut sets); use at most 5 cuts")
     
     # nl = 54 = number of bonds, best = best candidate so far, bestkey is its score

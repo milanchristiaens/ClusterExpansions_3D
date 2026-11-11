@@ -1,7 +1,7 @@
 # This is a template that needs changing, the goal is to run the contraction benchmark on a 'real' environment and PEPO O and obs M tensor
 
-# Used by development/benchmark_contract_onesite.jl: set   const ENV_LOADER = "development/env_loader_example.jl"   in the SETTINGS block of that file,
-# then run   julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl
+# Used by development/contraction_plans/benchmark_contract_onesite.jl: set   const ENV_LOADER = "development/contraction_plans/env_loader_example.jl"   in the SETTINGS block of that file,
+# then run   julia +1.12 -O1 -t 8 --project=. development/contraction_plans/benchmark_contract_onesite.jl
 # The benchmark then times the plans of the plan file that were made for the bond dimensions of THIS environment on the real tensors,
 # and writes the times into the column time_real_s (the plans for other dimensions are skipped).
 # It must define `onesite_load_env()` returning `(env, M)`: a converged-or-not CTMRG3D environment and the tensor M (6 legs, (0,6))
@@ -17,7 +17,7 @@ using ClusterExpansions
 # This function builds the env and the tensor M and returns both to the benchmark
 function onesite_load_env()
     # Change the following to the correct PEPO: a tensor with 2 physical and 6 virtual legs (AbstractTensorMap{<:Any,<:Any,2,6})
-    PEPO = error("EDIT 1 in development/env_loader_example.jl: build or load the PEPO (e.g. the one used in your 3D CTMRG test)")
+    PEPO = error("EDIT 1 in development/contraction_plans/env_loader_example.jl: build or load the PEPO (e.g. the one used in your 3D CTMRG test)")
     
     # Change/input the spaces of chi_peps and chi_env
     bpepsspace = error("EDIT 2: chi_peps space, e.g. ℂ^5 or a graded space")

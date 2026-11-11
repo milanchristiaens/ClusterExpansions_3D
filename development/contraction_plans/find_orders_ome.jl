@@ -12,7 +12,7 @@
 #   Rows that are already in the file are never changed (so measured times are never lost); if you change the settings, the new plans are added next to the old ones.
 #   The search is random (TreeSA): another run can give other trees.
 #
-# NEXT STEP: development/benchmark_contract_onesite.jl times every plan that has no time yet and writes the times back into the plan file.
+# NEXT STEP: development/contraction_plans/benchmark_contract_onesite.jl times every plan that has no time yet and writes the times back into the plan file.
 #   The predicted flops are only a PROXY for the wall time (a tree with fewer flops can run slower, we saw ~1.4x for TREE_FAST).
 #   contract_onesite_auto only uses a plan of the file if it has a measured time (select = :measured, the default).
 
@@ -76,7 +76,7 @@ function main()
 
     println("\n$nplans plans found for $(length(DEFAULT_DIMS)) combinations, $nnew of them were new and appended to $PLAN_FILE")
     println("Next: time all plans that have no time yet (the times are written back into the plan file):")
-    println("  julia +1.12 -O1 -t 8 --project=. development/benchmark_contract_onesite.jl")
+    println("  julia +1.12 -O1 -t 8 --project=. development/contraction_plans/benchmark_contract_onesite.jl")
     println("  (if you changed PLAN_FILE here, change it in benchmark_contract_onesite.jl too)")
 end
 

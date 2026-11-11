@@ -1,6 +1,6 @@
 # 3D Ising model: magnetization against β for CE + CTMRG3D and SU + CTMRG3D, together with the critical β from QMC.
 # Use this example to see that the cluster expansion (CE) reproduces the simple update (SU) result and the phase transition.
-# More output while running: ../verbosity/        Timings of one algorithm: ../profiling/
+# More output while running: ../../development/verbosity/        Timings of one algorithm: ../../development/profiling/
 
 using TensorKit
 using TensorKitTensors
