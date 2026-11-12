@@ -7,7 +7,9 @@
 # Each observation is appended to results.csv (and closed) immediately, so a crash halfway keeps all earlier data.
 # Everything goes to a new run folder  data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/<date>_<time>/  (see tools/timing_io.jl)  :
 #     settings.txt, results.csv, timing_<case>.csv (TimerOutputs rows of each case),
-#     compare_vbpeps.png (|m|, f and time against β), compare_vbpeps_spread.png (|m| of the cases around their mean), compare_vbpeps_timing_phases.png and compare_vbpeps_timing_self.png (timings per section, 4 bars per section)
+#     compare_vbpeps_magnetization.png (left: |m| against β; right: |m| of every case minus the mean of the cases),
+#     compare_vbpeps_cost_time.png (left: time per observation against β; right: cost f against β),
+#     compare_vbpeps_timing_phases.png and compare_vbpeps_timing_self.png (timings per section, 4 bars per section)
 #
 # With REPLOT_DIR (see the settings) we only redo all plots from the results of an earlier run, without running anything.
 # The helper functions (check_cost, build_pepos, results.csv, spread plot, timing plots) are in ../tools/ (compare_tools.jl, timing_io.jl, timing_plots.jl).
@@ -39,7 +41,7 @@ const to = ClusterExpansions.to # the timer that the package code writes to
 # The helper functions of this script, in ../tools/:
 #   timing_io.jl:    timer_rows, write_timer_csv, read_timer_csv, new_run_dir, existing_run_dir
 #   timing_plots.jl: make_timing_phases_plot, make_timing_self_plot, ...
-#   compare_tools.jl: check_cost, build_pepos, append_row, read_results, make_spread_plot, ...
+#   compare_tools.jl: check_cost, build_pepos, append_row, read_results, plot_spread, ...
 include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
@@ -91,8 +93,8 @@ const REPLOT_DIR = "20261111_1248"
 
 # Settings of the spread plot (|m| of every case minus the mean |m| of the cases, per β)
 const SPREAD_EXCLUDE_CASES = String[]       # cases that we leave out completely, for example ["true_warm"]
-const SPREAD_EXCLUDE_FLAGGED = true         # leave out observations that failed or whose check is not "ok" (unphysical f)
-const SPREAD_EXCLUDE_TIMED_OUT = true      # leave out observations that were stopped by the time limit
+const SPREAD_EXCLUDE_FLAGGED = false         # leave out observations that failed or whose check is not "ok" (unphysical f)
+const SPREAD_EXCLUDE_TIMED_OUT = false      # leave out observations that were stopped by the time limit
 const SPREAD_OUTLIER_TOL = 0.1             # leave out a point whose |m| differs more than this from the median |m| of the cases at the same β
 
 # Settings of the timing plots (4 bars per section, one per case)
@@ -210,30 +212,65 @@ function print_summary(rows)
     return nothing
 end
 
-function make_plots(rows, outdir)
-    colour(diff) = diff ? :crimson : :royalblue      # colour: differentiate_environment
-    style(warm) = warm ? :dash : :solid              # line style: warm start (dashed) or cold start (solid)
-    p_m = plot(; xlabel = "β", ylabel = "|⟨σᶻ⟩|", title = "magnetization (g = 0: 0 below βc)", legend = :topleft)
-    p_f = plot(; xlabel = "β", ylabel = "f = -log(λ)", title = "cost (bound: f ≤ -3β)", legend = false)
-    p_t = plot(; xlabel = "β", ylabel = "time per observation (s)", title = "time", yscale = :log10, legend = false)
+# One line per case in the panel p: y(r) of every observation r of the case, sorted by β, and a cross where the observation timed out.
+# Colour: differentiate_environment, line style: warm start (dashed) or cold start (solid). labelled = true puts the cases in the legend of this panel.
+colour(diff) = diff ? :crimson : :royalblue
+style(warm) = warm ? :dash : :solid
+function plot_cases!(p, rows, y; labelled = false)
     for (name, warm, diff) in CASES
         sub = sort(filter(r -> r.case == name, rows); by = r -> r.β)
         isempty(sub) && continue
         βs = [r.β for r in sub]
-        label = "$(diff ? "diff env" : "fixed env"), $(warm ? "warm" : "cold")"
-        for (p, ys, lab) in ((p_m, [hypot(r.m_re, r.m_im) for r in sub], label), (p_f, [r.f for r in sub], ""), (p_t, [max(r.time_s, 1.0e-1) for r in sub], ""))
-            plot!(p, βs, ys; color = colour(diff), linestyle = style(warm), marker = :circle, markersize = 4, label = lab)
-            idx = findall(r -> r.timed_out, sub)
-            isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = colour(diff), markershape = :xcross, markersize = 9, markerstrokewidth = 2, label = "")
-        end
+        ys = [y(r) for r in sub]
+        plot!(p, βs, ys; color = colour(diff), linestyle = style(warm), marker = :circle, markersize = 4, label = labelled ? case_label(warm, diff) : "")
+        idx = findall(r -> r.timed_out, sub)
+        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = colour(diff), markershape = :xcross, markersize = 9, markerstrokewidth = 2, label = "")
     end
+    return p
+end
+
+# The three panels. The difference panel (|m| of every case minus the mean of the cases) is plot_spread in compare_tools.jl.
+function plot_magnetization(rows)
+    p = plot(; xlabel = "β", ylabel = "|⟨σᶻ⟩|", title = "magnetization (g = 0: 0 below βc)", legend = :topleft)
+    plot_cases!(p, rows, r -> hypot(r.m_re, r.m_im); labelled = true)
+    vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")
+    return p
+end
+
+function plot_time(rows)
+    p = plot(; xlabel = "β", ylabel = "time per observation (s)", title = "time", yscale = :log10, legend = :outertopright)
+    plot_cases!(p, rows, r -> max(r.time_s, 1.0e-1); labelled = true)
+    return p
+end
+
+function plot_cost(rows)
+    p = plot(; xlabel = "β", ylabel = "f = -log(λ)", title = "cost (bounds: -(ln 2 + 3β) ≤ f ≤ -3β)", legend = false)
+    plot_cases!(p, rows, r -> r.f)
     βline = sort(unique(r.β for r in rows))
-    plot!(p_f, βline, -3 .* βline; color = :black, linestyle = :dot, label = "")
-    vline!(p_m, [βc_ising]; color = :gray, linestyle = :dot, label = "")
-    vline!(p_f, [βc_ising]; color = :gray, linestyle = :dot, label = "")
-    plt = plot(p_m, p_f, p_t; layout = (1, 3), size = (1600, 480), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
-        plot_title = "vbPEPS: χpeps = $chipeps, χenv = $chienv, D_CE = $D_CE, g = $g (cross = timed out; dotted gray = βc)")
-    savefig(plt, joinpath(outdir, "compare_vbpeps.png"))
+    plot!(p, βline, -3 .* βline; color = :black, linestyle = :dot, label = "")
+        plot!(p, βline, -(log(2) .+ 3 .* βline); color = :black, linestyle = :dot, label = "")
+    vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")
+    return p
+end
+
+# The two figures (each with two panels next to each other)
+figure_title() = "vbPEPS: χpeps = $chipeps, χenv = $chienv, D_CE = $D_CE, g = $g (cross = timed out; dotted gray = βc)"
+
+# Figure 1: magnetization (left) and the difference of |m| of every case to the mean of the cases (right)
+function make_magnetization_figure(rows, outdir, spread_specs)
+    p_dev = plot_spread(rows, spread_specs; exclude_cases = SPREAD_EXCLUDE_CASES, exclude_flagged = SPREAD_EXCLUDE_FLAGGED, exclude_timed_out = SPREAD_EXCLUDE_TIMED_OUT,
+        outlier_tol = SPREAD_OUTLIER_TOL)
+    plt = plot(plot_magnetization(rows), p_dev; layout = (1, 2), size = (1600, 560), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
+        plot_title = figure_title())
+    savefig(plt, joinpath(outdir, "compare_vbpeps_magnetization.png"))
+    return nothing
+end
+
+# Figure 2: time per observation (left) and cost f (right)
+function make_cost_time_figure(rows, outdir)
+    plt = plot(plot_time(rows), plot_cost(rows); layout = (1, 2), size = (1600, 560), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
+        plot_title = figure_title())
+    savefig(plt, joinpath(outdir, "compare_vbpeps_cost_time.png"))
     return nothing
 end
 
@@ -243,11 +280,10 @@ case_label(warm, diff) = "$(diff ? "diff env" : "fixed env"), $(warm ? "warm" : 
 # All plots; each one in its own try, so that a failing plot does not stop the others
 function make_all_plots(rows, outdir)
     spread_specs = [(; name, label = case_label(warm, diff), color = diff ? :crimson : :royalblue, linestyle = warm ? :dash : :solid) for (name, warm, diff) in CASES]
-    timing_specs = [(name, case_label(warm, diff), CASE_COLORS[name]) for (name, warm, diff) in CASES]
+    timing_specs = [(; name, label = case_label(warm, diff), color = CASE_COLORS[name]) for (name, warm, diff) in CASES]
     plots = [
-        "compare_vbpeps.png" => () -> make_plots(rows, outdir),
-        "compare_vbpeps_spread.png" => () -> make_spread_plot(rows, outdir, spread_specs; file = "compare_vbpeps_spread.png",
-            exclude_cases = SPREAD_EXCLUDE_CASES, exclude_flagged = SPREAD_EXCLUDE_FLAGGED, exclude_timed_out = SPREAD_EXCLUDE_TIMED_OUT, outlier_tol = SPREAD_OUTLIER_TOL),
+        "compare_vbpeps_magnetization.png" => () -> make_magnetization_figure(rows, outdir, spread_specs),
+        "compare_vbpeps_cost_time.png" => () -> make_cost_time_figure(rows, outdir),
         "compare_vbpeps_timing_phases.png" => () -> make_timing_phases_plot(outdir, timing_specs; label = "vbPEPS, 4 cases", file_prefix = "compare_vbpeps"),
         "compare_vbpeps_timing_self.png" => () -> make_timing_self_plot(outdir, timing_specs; label = "vbPEPS, 4 cases", file_prefix = "compare_vbpeps", top = TIMING_TOP),
     ]

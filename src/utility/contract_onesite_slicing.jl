@@ -37,7 +37,7 @@
 # FILE MAP
 #    1. MAIN ENTRY            ONESITE_RAM_RULES, onesite_plan_of, onesite_choose_cuts, onesite_choose_plan, contract_onesite_auto, contract_onesite_dispatch
 #    2. PLAN FILE + OMEco     onesite_read_plans / onesite_write_plans, onesite_find_trees, onesite_find_plans
-#    3. THE NETWORK           table of the 27 tensors, 54 bonds, dimensions, TREE_CURRENT, TREE_FAST
+#    3. THE NETWORK           table of the 27 tensors, 54 bonds, dimensions, TREE_CURRENT, OPT_TRUE
 #    4. COST MODEL            onesite_cost (flops, peak memory, slices), onesite_reorder
 #    5. TREES AS TEXT         onesite_parse_tree
 #    6. BRUTE-FORCE CUTS      onesite_best_cuts
@@ -273,7 +273,7 @@ contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_a
 # The time that counts for contract_onesite_auto is time_real_s if it is filled, otherwise time_s (onesite_plan_time).
 # The columns k ... bytes are written by onesite_find_plans for the human reader:
 # number of cuts, number of slices, predicted flops, predicted peak of the intermediates (GiB), the RAM budget (GiB) and bytes per element it was made for.
-+ # The columns after time_real_s are written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
+# The columns after time_real_s are written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
 # allocator the time was measured with (reuse/manual), rss_gib = peak resident memory of the process, pool_gib = what the ReuseAllocator asked the OS for,
 # sys_s = system CPU seconds and minflt = minor page faults per repetition (Linux only), check = relative deviation of the value from the first row
 # measured for the same dimensions in that benchmark run (0 for that first row; should be ~1e-10 or smaller), note = free text (e.g. "skipped: ...").
@@ -539,7 +539,7 @@ end
 
 
 # Make plans (tree + cuts) for bond dimensions (χenv, χpeps, D) and a list of RAM budgets, and return them as rows for onesite_write_plans.
-# Candidates: TREE_CURRENT, TREE_FAST and the trees of onesite_find_trees.  For each budget, every candidate gets its best cuts (brute force,
+# Candidates: TREE_CURRENT, OPT_TRUE and the trees of onesite_find_trees.  For each budget, every candidate gets its best cuts (brute force,
 # at most kmax of them); candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
 # Parameters of the cost model that you can vary: bytes (16 = ComplexF64, 8 = Float64), allocator, margin, rules; (all of them are used again by
 # contract_onesite_auto when it checks a plan, so use the same values there).
@@ -548,7 +548,7 @@ function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32,
                             kmax::Int = 4, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
                             niters::Int = 40, verbosity::Int = 1)
     d = onesite_dims(χenv, χpeps, D)
-    candidates = NamedTuple[(tree = TREE_CURRENT, source = "TREE_CURRENT"), (tree = TREE_FAST, source = "TREE_FAST")]
+    candidates = NamedTuple[(tree = TREE_CURRENT, source = "TREE_CURRENT"), (tree = OPT_TRUE, source = "OPT_TRUE")]
     for t in onesite_find_trees(d; n_targets, sc_step, ntrials, niters, verbosity)        # Is there a candidate c whose tree matches with the found tree t? If no put t into candidate list
         any(c -> c.tree == t.tree, candidates) || push!(candidates, (tree = t.tree, source = t.source))
     end
@@ -682,8 +682,8 @@ end
 # Now we define the two reference trees for the full code, we write them as nested tuples ((a, b) = "contract a with b", `a` is evaluated first by @tensor)
 "Current contraction used in `contract_onesite`: memory-lean (38.8 GiB for unsliced 8,5,5; the children of two products are ordered so the big block is evaluated first)"
 const TREE_CURRENT = (1, (2, (3, ((((16, (17, (18, 19))), (20, (21, (22, (23, (24, (25, (26, 27)))))))), ((10, 11), (12, (13, (14, 15))))), ((4, 5), (6, (7, (8, 9))))))))
-"Contraction found by opt=true: less FLOPS needed (doesn't automatically mean faster though!!), but super memory intensive (238 GiB for unsliced 8,5,5)"
-const TREE_FAST = (((((20, (((24, ((((25, 19), 27), ((17, 15), (((23, 11), 22), 14))), (((4, (13, 1)), 16), (18, 5)))), 8), (9, 26))), 6), 21), ((12, 10), (2, 3))), 7)
+"The tree that plain `@tensor opt=true` gives without dimensions: fewer flops, not automatically faster, super memory intensive (238 GiB for unsliced 8,5,5)"
+const OPT_TRUE = (((((20, (((24, ((((25, 19), 27), ((17, 15), (((23, 11), 22), 14))), (((4, (13, 1)), 16), (18, 5)))), 8), (9, 26))), 6), 21), ((12, 10), (2, 3))), 7)
 
 
 # ======================================================================================================================
@@ -980,9 +980,9 @@ end
 
 # The two static kernels are generated HERE (at load time) from the data above, so a contraction order is defined only once:
 #   contract_onesite_kernel(C, E, A, M; allocator)        = TREE_CURRENT   (`contract_onesite(env, M)` in ctmrg3D_helpers.jl calls this)
-#   contract_onesite_kernel_fast(C, E, A, M; allocator)   = TREE_FAST      (only to be used together with cuts: it needs much more memory unsliced)
+#   contract_onesite_kernel_opt_true(C, E, A, M; allocator)   = OPT_TRUE      (only to be used together with cuts: it needs much more memory unsliced)
 include_string(@__MODULE__, onesite_kernel_source(TREE_CURRENT; name = :contract_onesite_kernel))
-include_string(@__MODULE__, onesite_kernel_source(TREE_FAST; name = :contract_onesite_kernel_fast))
+include_string(@__MODULE__, onesite_kernel_source(OPT_TRUE; name = :contract_onesite_kernel_opt_true))
 
 
 # This will give every generated function a unique name
@@ -992,10 +992,10 @@ const _os_KERNEL_CACHE = Dict{Any,Any}()
 
 
 # This turns a tree into a callable kernel (C, E, A, M; allocator) -> scalar, without writing a file
-# TREE_CURRENT and TREE_FAST give the two precompiled functions above, every other tree is generated at run time and cached.
+# TREE_CURRENT and OPT_TRUE give the two precompiled functions above, every other tree is generated at run time and cached.
 function onesite_make_kernel(@nospecialize(tree))
     tree == TREE_CURRENT && return contract_onesite_kernel
-    tree == TREE_FAST && return contract_onesite_kernel_fast
+    tree == OPT_TRUE && return contract_onesite_kernel_opt_true
 
     # If tree already compiled (and in cache) return the function, otherwise go to code below
     return get!(_os_KERNEL_CACHE, tree) do
@@ -1310,16 +1310,16 @@ end
 function _os_resolve_kernel(kernel)
     # If kernel is already a function, it just returns it
     kernel isa Function && return kernel
-    # if kernel is :current or :fast then it returns the above defined functions
+    # if kernel is :current or :opt_true then it returns the above defined functions
     kernel === :current && return contract_onesite_kernel
-    kernel === :fast && return contract_onesite_kernel_fast
+    kernel === :opt_true && return contract_onesite_kernel_opt_true
 
     # If kernel is the contraction tree (nested pairs of leaf ids): call onesite_make_kernel(kernel)
     # This makes a new function
     kernel isa Tuple && return onesite_make_kernel(kernel)
 
     # All rest raises error
-    error("kernel must be a function, :current, :fast or a contraction tree; got $(typeof(kernel))")
+    error("kernel must be a function, :current, :opt_true or a contraction tree; got $(typeof(kernel))")
 end
 
 # Convert bond label (which we want to slice) into pairs (label -> n) where n is the bond dimension

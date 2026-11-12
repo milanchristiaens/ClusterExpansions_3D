@@ -1,5 +1,5 @@
 # test/contract_onesite_slicing.jl -- tests (TINY sizes, no timings) for src/utility/contract_onesite_slicing.jl, on a mock environment (no CTMRG3D needed).
-# NOTE: the first call of every distinct 27-tensor kernel compiles for minutes (TREE_CURRENT, TREE_FAST and one generated tree are compiled here;
+# NOTE: the first call of every distinct 27-tensor kernel compiles for minutes (TREE_CURRENT, OPT_TRUE and one generated tree are compiled here;
 # every other test re-uses them, the generated kernels are cached); `julia -O1` helps.
 
 using Test, TensorKit, LinearAlgebra
@@ -13,9 +13,9 @@ const SELFCHECK = [
     ("current + L5", CE.TREE_CURRENT, Symbol[:L5], 2276800938496.0, 326600000.0, 8.0),
     ("current + L5,L4", CE.TREE_CURRENT, Symbol[:L5, :L4], 2295962042880.0, 66600000.0, 40.0),
     ("current + L5,L4,A8", CE.TREE_CURRENT, Symbol[:L5, :L4, :A8], 2323064230400.0, 14600000.0, 200.0),
-    ("fast (no cuts)", CE.TREE_FAST, Symbol[], 1512621097600.0, 16000000000.0, 1.0),
-    ("fast + U10,U6,U9", CE.TREE_FAST, Symbol[:U10, :U6, :U9], 1553400616000.0, 80000000.0, 200.0),
-    ("fast + U1,U10", CE.TREE_FAST, Symbol[:U1, :U10], 1549349683200.0, 250000000.0, 64.0),
+    ("opt_true (no cuts)", CE.OPT_TRUE, Symbol[], 1512621097600.0, 16000000000.0, 1.0),
+    ("opt_true + U10,U6,U9", CE.OPT_TRUE, Symbol[:U10, :U6, :U9], 1553400616000.0, 80000000.0, 200.0),
+    ("opt_true + U1,U10", CE.OPT_TRUE, Symbol[:U1, :U10], 1549349683200.0, 250000000.0, 64.0),
 ]
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -40,16 +40,16 @@ const SELFCHECK = [
     # Find sliced contraction under 1.2 GiB RAM cap, with lowest flops.
     @test CE.onesite_best_cuts(CE.TREE_CURRENT, d, 2; cap = 1.2 * 2^30 / 16).cuts == [:L4, :L5]
 
-    # Check that fast tree indeed results in lower flops, but higher memory cost in our model
-    @test CE.onesite_cost(CE.TREE_FAST, d).flops < CE.onesite_cost(CE.TREE_CURRENT, d).flops
-    @test CE.onesite_cost(CE.TREE_FAST, d).peak > CE.onesite_cost(CE.TREE_CURRENT, d).peak
+    # Check that OPT_TRUE tree indeed results in lower flops, but higher memory cost in our model
+    @test CE.onesite_cost(CE.OPT_TRUE, d).flops < CE.onesite_cost(CE.TREE_CURRENT, d).flops
+    @test CE.onesite_cost(CE.OPT_TRUE, d).peak > CE.onesite_cost(CE.TREE_CURRENT, d).peak
 
     # Trees as text: leaves missing is an error, converting a tree to a string and back gives the same tree
     @test_throws ErrorException CE.onesite_parse_tree("((1, 2), 3)")
-    @test CE.onesite_parse_tree(string(CE.TREE_FAST)) == CE.TREE_FAST
+    @test CE.onesite_parse_tree(string(CE.OPT_TRUE)) == CE.OPT_TRUE
 
     # Reordering the children keeps the flops, and gives exactly the peak of the best order (and never a larger one than the written order)
-    for (tree, cuts) in ((CE.TREE_CURRENT, [:L5, :L4]), (CE.TREE_FAST, [:U1, :U10]), (CE.TREE_CURRENT, Symbol[]))
+    for (tree, cuts) in ((CE.TREE_CURRENT, [:L5, :L4]), (CE.OPT_TRUE, [:U1, :U10]), (CE.TREE_CURRENT, Symbol[]))
         t2 = CE.onesite_reorder(tree, d; cuts)
         cb = CE.onesite_cost(tree, d; cuts, order = :best)
         c2 = CE.onesite_cost(t2, d; cuts)
@@ -112,7 +112,7 @@ end
         @test log2(CE.onesite_cost(f.tree, d).flops) ≈ f.tc rtol = 1e-9
     end
 
-    # Plans for a few budgets (candidates: TREE_CURRENT, TREE_FAST and the found trees)
+    # Plans for a few budgets (candidates: TREE_CURRENT, OPT_TRUE and the found trees)
     rows = CE.onesite_find_plans(8, 5, 5; ram_gibs = (16, 256), n_targets = 1, ntrials = 1, niters = 5, verbosity = 0)
     @test !isempty(rows)
     for r in rows
@@ -134,14 +134,14 @@ end
     @test length(CE.onesite_plans_for(d, path)) == length(rows)
 
     # Choosing: select = :measured ignores plans without time_s, so the brute-force plan on TREE_CURRENT is used;
-    # select = :model takes the plan with the fewest predicted flops, which beats TREE_CURRENT here (TREE_FAST has fewer flops)
+    # select = :model takes the plan with the fewest predicted flops, which beats TREE_CURRENT here (OPT_TRUE has fewer flops)
     pm = CE.onesite_choose_plan(d; ram_gib = 64, plans = path)
     @test startswith(pm.source, "TREE_CURRENT") && pm.k == 1
     pf = CE.onesite_choose_plan(d; ram_gib = 64, plans = path, select = :model)
     @test startswith(pf.source, "plan file") && pf.fits && pf.flops < pm.flops
     # plans = nothing ignores the file, a given tree or given cuts too
     @test startswith(CE.onesite_choose_plan(d; ram_gib = 64, plans = nothing, select = :model).source, "TREE_CURRENT")
-    @test startswith(CE.onesite_choose_plan(d; ram_gib = 64, plans = path, select = :model, tree = CE.TREE_FAST).source, "given tree")
+    @test startswith(CE.onesite_choose_plan(d; ram_gib = 64, plans = path, select = :model, tree = CE.OPT_TRUE).source, "given tree")
     @test CE.onesite_choose_plan(d; ram_gib = 64, plans = path, select = :model, cuts = [:L5]).cuts == [:L5]
     @test_throws ErrorException CE.onesite_choose_plan(d; ram_gib = 64, select = :other)
 
@@ -222,18 +222,18 @@ end
 
     # the two precompiled trees give the precompiled kernels, and they agree with each other
     @test CE.onesite_make_kernel(CE.TREE_CURRENT) === CE.contract_onesite_kernel
-    @test CE.onesite_make_kernel(CE.TREE_FAST) === CE.contract_onesite_kernel_fast
-    @test CE.contract_onesite_kernel_fast(env.C, env.E, env.A, M) ≈ z0
+    @test CE.onesite_make_kernel(CE.OPT_TRUE) === CE.contract_onesite_kernel_opt_true
+    @test CE.contract_onesite_kernel_opt_true(env.C, env.E, env.A, M) ≈ z0
 
-    # For different cuts (on current tree and fast tree),
+    # For different cuts (on current tree and OPT_TRUE tree),
     # test whether the result corresponds to z
     for cuts in ([:L5 => 3], [:L5 => 3, :L4 => 2], [:U1 => 3, :U10 => 3, :U6 => 2])
         @test CE.check_slicing(env, M, cuts)[1]
-        @test CE.check_slicing(env, M, cuts; kernel = :fast)[1]
+        @test CE.check_slicing(env, M, cuts; kernel = :opt_true)[1]
     end
 
     # Test the reordening of the children, and use it as kernel tr (a tree that has to be generated and compiled), and check if it corresponds to z
-    tr = CE.onesite_reorder(CE.TREE_FAST, CE.onesite_dims(3, 2, 2); cuts = [:U1, :U10])
+    tr = CE.onesite_reorder(CE.OPT_TRUE, CE.onesite_dims(3, 2, 2); cuts = [:U1, :U10])
     @test CE.check_slicing(env, M, [:U1 => 3, :U10 => 3]; kernel = tr)[1]
     # a generated kernel is made only once per tree
     @test CE.onesite_make_kernel(tr) === CE.onesite_make_kernel(tr)
@@ -288,7 +288,7 @@ end
 
     # Check if slicing this results in same answer as unsliced contraction
     @test CE.check_slicing(env, M, [:L5 => 4, :L4 => 3])[1]
-    @test CE.check_slicing(env, M, [:U1 => 4, :U10 => 2]; kernel = :fast)[1]
+    @test CE.check_slicing(env, M, [:U1 => 4, :U10 => 2]; kernel = :opt_true)[1]
 end
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -329,9 +329,9 @@ end
     # nothing fits and no force: error
     @test_throws ErrorException CE.contract_onesite_auto(env, M; ram_gib = 1.0e-9, rules = rules0, kmax = 1, verbosity = 0)
 
-    # A plan from a plan file (the reordered fast tree + 2 cuts, the generated kernel of the previous testset is used again):
+    # A plan from a plan file (the reordered OPT_TRUE tree + 2 cuts, the generated kernel of the previous testset is used again):
     # with kmax = 0 the brute-force plan has no cuts, which does not fit a budget that just fits the plan of the file, so the plan of the file is used
-    tr = CE.onesite_reorder(CE.TREE_FAST, d; cuts = [:U1, :U10])
+    tr = CE.onesite_reorder(CE.OPT_TRUE, d; cuts = [:U1, :U10])
     prow = CE.onesite_plan_of(d, [:U1, :U10]; ram_gib = 1.0e3, rules = rules0, tree = tr)
     ram_row = prow.est_gib / 0.8 * 1.05
     @test CE.onesite_cost(CE.TREE_CURRENT, d).peak * 16 / 2^30 * 2.7 > ram_row * 0.8            # TREE_CURRENT without cuts does not fit that budget

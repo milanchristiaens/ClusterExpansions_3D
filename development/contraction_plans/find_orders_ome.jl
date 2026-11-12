@@ -4,7 +4,7 @@
 #
 # WHAT IT DOES
 #   For every combination (chi_env, chi_peps, D) of DEFAULT_DIMS it asks
-#   OMEinsumContractionOrders for contraction trees. The candidates are always TREE_CURRENT and TREE_FAST (the two fixed trees of the code), the tree with the fewest
+#   OMEinsumContractionOrders for contraction trees. The candidates are always TREE_CURRENT and OPT_TRUE (the two fixed trees of the code), the tree with the fewest
 #   flops ("ome-flops") and N_TARGETS trees that also have to keep their largest tensor small ("ome-scN"). For every RAM budget in RAM_GIBS every candidate gets its
 #   best cut bonds (brute force over all sets of at most KMAX bonds); a candidate that does not fit the budget is dropped, and the same plan for several budgets is
 #   kept once (for the smallest budget).
@@ -13,7 +13,7 @@
 #   The search is random (TreeSA): another run can give other trees.
 #
 # NEXT STEP: development/contraction_plans/benchmark_contract_onesite.jl times every plan that has no time yet and writes the times back into the plan file.
-#   The predicted flops are only a PROXY for the wall time (a tree with fewer flops can run slower, we saw ~1.4x for TREE_FAST).
+#   The predicted flops are only a PROXY for the wall time (a tree with fewer flops can run slower, we saw ~1.4x for OPT_TRUE).
 #   contract_onesite_auto only uses a plan of the file if it has a measured time (select = :measured, the default).
 
 using ClusterExpansions
@@ -45,8 +45,8 @@ const ALLOCATOR = :reuse                        # the allocator the memory rule 
 const MARGIN    = 0.8                           # a plan counts as fitting if predicted RAM <= MARGIN * budget
 const N_TARGETS = 1                             # number of extra trees with a memory target (target = sc_max - SC_STEP * j, j = 1..N_TARGETS)
 const SC_STEP   = 6                             # the memory target is sc_max - SC_STEP (log2 of elements); with N_TARGETS = 1 this is the single target
-const NTRIALS   = 4                             # TreeSA settings (more = better trees, slower)
-const NITERS    = 40
+const NTRIALS   = 10                             # TreeSA settings (more = better trees, slower)
+const NITERS    = 100
 const PLAN_FILE = CE.ONESITE_PLAN_FILE          # plan file that rows are appended to (the same constant is in benchmark_contract_onesite.jl)
 # ======================================================================================================================
 

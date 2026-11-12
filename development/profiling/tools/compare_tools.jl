@@ -4,7 +4,7 @@
 #   βc_ising, check_cost            sanity check of the cost f of a vbPEPS optimization
 #   build_pepos                     the CE PEPOs at all β of a list, built once
 #   CSV_HEADER, append_row, read_results   results.csv of a compare run (its columns are those of the 4 vbPEPS cases: warm_start, differentiate_environment)
-#   median_of, spread_points, make_spread_plot   |m| of the cases around their mean
+#   median_of, spread_points, plot_spread   difference of |m| of every case to the mean |m| of the cases
 # The functions get their settings as arguments; they do not read the settings of the script that includes this file.
 # Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots
 # The timing plots of the compare scripts are in timing_plots.jl.
@@ -104,7 +104,7 @@ function read_results(path)
 end
 
 # ======================================================================================================================
-# Spread plot
+# Difference to the mean of the cases
 # ======================================================================================================================
 # Median of a vector
 function median_of(v)
@@ -148,22 +148,20 @@ function spread_points(rows; exclude_cases = String[], exclude_flagged = true, e
     return kept
 end
 
-# Upper panel: mean |m| of the cases that we use, with the range (min to max) as a band. Lower panel: |m| of every case minus this mean, so the y-axis can be zoomed in.
+# One panel: |m| of every case minus the mean |m| of the cases that we use (absolute difference, for all β, so it also works where |m| is almost 0). Returns the plot (the script puts it in a figure).
 # case_specs = [(name = "false_cold", label = "fixed env, cold", color = :royalblue, linestyle = :solid), ...]; spread_kwargs go to spread_points.
 # β with fewer than 2 remaining cases are not shown. The mean is over the cases that are left per β, so it can change from β to β when a case is left out.
-function make_spread_plot(rows, outdir, case_specs; file = "compare_spread.png", spread_kwargs...)
+function plot_spread(rows, case_specs; spread_kwargs...)
     kept = spread_points(rows; spread_kwargs...)
     absm(r) = hypot(r.m_re, r.m_im)
-    βs = Float64[]; means = Float64[]; los = Float64[]; his = Float64[]
+    βs = Float64[]; means = Float64[]
     for β in sort(unique(r.β for r in kept))
         v = [absm(r) for r in kept if r.β == β]
         length(v) < 2 && continue
-        push!(βs, β); push!(means, sum(v) / length(v)); push!(los, minimum(v)); push!(his, maximum(v))
+        push!(βs, β); push!(means, sum(v) / length(v))
     end
-    p_mean = plot(βs, means; ribbon = (means .- los, his .- means), fillalpha = 0.25, color = :black, marker = :circle, markersize = 4,
-        xlabel = "β", ylabel = "mean |⟨σᶻ⟩|", title = "mean of the cases used (band = min to max)", legend = false)
-    vline!(p_mean, [βc_ising]; color = :gray, linestyle = :dot)
-    
+    isempty(βs) && return plot(; title = "no β with at least 2 cases: no difference shown", xlabel = "β", legend = false)
+
     # |m| of every case minus the mean, per β
     series = NamedTuple[]
     for c in case_specs
@@ -173,15 +171,13 @@ function make_spread_plot(rows, outdir, case_specs; file = "compare_spread.png",
     end
     # We set the limits of the axes ourselves from the data (otherwise hline!/vline! on an empty plot fix the axes to 0..2)
     ymax = max(1.15 * maximum([maximum(abs, s.devs) for s in series]; init = 0.0), 1.0e-6)
-    p_dev = plot(; xlabel = "β", ylabel = "|m| of the case - mean", title = "difference to the mean (y-axis zoomed to ±$(round(ymax; sigdigits = 2)))", legend = :outertopright,
-        ylims = (-ymax, ymax), xlims = (minimum(βs) - 0.02, maximum(βs) + 0.02))
+    βall = [r.β for r in rows]
+    p = plot(; xlabel = "β", ylabel = "|m| of the case - mean", title = "difference to the mean (y-axis zoomed to ±$(round(ymax; sigdigits = 2)))", legend = false,
+        ylims = (-ymax, ymax), xlims = (minimum(βall) - 0.02, maximum(βall) + 0.02))
     for s in series
-        plot!(p_dev, s.βs, s.devs; color = s.color, linestyle = s.linestyle, marker = :circle, markersize = 4, label = s.label)
+        plot!(p, s.βs, s.devs; color = s.color, linestyle = s.linestyle, marker = :circle, markersize = 4, label = s.label)
     end
-    hline!(p_dev, [0.0]; color = :black, label = "")
-    vline!(p_dev, [βc_ising]; color = :gray, linestyle = :dot, label = "")
-
-    plt = plot(p_mean, p_dev; layout = (2, 1), size = (950, 750), left_margin = 8Plots.mm, bottom_margin = 5Plots.mm)
-    savefig(plt, joinpath(outdir, file))
-    return nothing
+    hline!(p, [0.0]; color = :black, label = "")
+    vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")
+    return p
 end
