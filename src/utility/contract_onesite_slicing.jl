@@ -36,7 +36,7 @@
 #
 # FILE MAP
 #    1. MAIN ENTRY            ONESITE_RAM_RULES, onesite_plan_of, onesite_choose_cuts, onesite_choose_plan, contract_onesite_auto, contract_onesite_dispatch
-#    2. PLAN FILE + OMEco     onesite_read_plans / onesite_write_plans, onesite_find_trees, onesite_find_plans
+#    2. PLAN FILE + OMEco     onesite_read_plans / onesite_write_plans / onesite_update_plans / onesite_add_allocator_copies, onesite_find_trees, onesite_find_plans
 #    3. THE NETWORK           table of the 27 tensors, 54 bonds, dimensions, TREE_CURRENT, OPT_TRUE
 #    4. COST MODEL            onesite_cost (flops, peak memory, slices), onesite_reorder
 #    5. TREES AS TEXT         onesite_parse_tree
@@ -182,7 +182,7 @@ function onesite_choose_plan(d::Vector{Float64}; ram_gib::Real, bytes::Integer =
     (plans === nothing || !default_tree) && return best
     chosen = nothing
     chosen_key = Inf
-    for r in onesite_plans_for(d, plans)
+    for r in onesite_plans_for(d, plans; allocator)
         # in :measured mode a plan without measured time is not used
         (select === :measured && !isfinite(onesite_plan_time(r))) && continue
         p = onesite_plan_of(d, r.cuts; kw..., tree = r.tree, source = "plan file: " * r.source)
@@ -210,6 +210,7 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
 
     # ram_gib: memory this PROCESS may use. Default=Sys.total_memory(), pass it explicitely if needed (e.g. = 64)
     # allocator: :reuse or :manual (:reuse = `ReuseAllocator`: 13-19 % faster than `:manual` in Windows runs)
+    #            (only the plan-file rows of this allocator are used)
     # cuts: force a cut set (vector of labels such as `[:A9, :L5]`) instead of choosing one; it is still checked against the budget.
     # tree: contraction order (nested pairs of leaf numbers, see TREE_CURRENT); default TREE_CURRENT. If you pass another tree, the plan file is ignored.
     # plans: csv file with ready-made plans (default src/utility/onesite_plans.csv), or `nothing` to ignore plan files.
@@ -273,8 +274,11 @@ contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_a
 # The time that counts for contract_onesite_auto is time_real_s if it is filled, otherwise time_s (onesite_plan_time).
 # The columns k ... bytes are written by onesite_find_plans for the human reader:
 # number of cuts, number of slices, predicted flops, predicted peak of the intermediates (GiB), the RAM budget (GiB) and bytes per element it was made for.
-# The columns after time_real_s are written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
-# allocator the time was measured with (reuse/manual), rss_gib = peak resident memory of the process, pool_gib = what the ReuseAllocator asked the OS for,
+# allocator (reuse/manual) is part of the identity of a row: a plan (dimensions, tree, cuts) can have one row per allocator, each with its own times, because a time
+# is only valid for the allocator it was measured with. contract_onesite_auto(...; allocator) only uses the rows of its allocator. An empty allocator column
+# (rows written before the allocator was part of the key) counts as reuse. onesite_add_allocator_copies adds the rows of another allocator (same tree and cuts).
+# The other columns after time_real_s are written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
+# rss_gib = peak resident memory of the process, pool_gib = what the ReuseAllocator asked the OS for,
 # sys_s = system CPU seconds and minflt = minor page faults per repetition (Linux only), check = relative deviation of the value from the first row
 # measured for the same dimensions in that benchmark run (0 for that first row; should be ~1e-10 or smaller), note = free text (e.g. "skipped: ...").
 # These seven columns belong to the real run if time_real_s is filled, otherwise to the mock run.
@@ -284,7 +288,7 @@ const ONESITE_PLAN_FILE = joinpath(@__DIR__, "onesite_plans.csv")
 const _os_PLAN_HEADER = "chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;bytes;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note"
 
 # Read the plan file, return a Vector of named tuples (chi_env, chi_peps, D, tree, cuts, source, time_s, time_real_s, allocator, rss_gib, pool_gib, sys_s, minflt, check, note).
-# A missing file gives an empty vector. The numbers are NaN and the texts "" if they are not filled in.
+# A missing file gives an empty vector. The numbers are NaN and the texts "" if they are not filled in (except allocator: empty = "reuse").
 function onesite_read_plans(path::AbstractString)
     out = NamedTuple[]
     isfile(path) || return out
@@ -312,7 +316,7 @@ function onesite_read_plans(path::AbstractString)
 
         push!(out, (chi_env = parse(Int, f[1]), chi_peps = parse(Int, f[2]), D = parse(Int, f[3]),
                     tree = onesite_parse_tree(strip(f[4])), cuts = cuts, source = String(strip(f[6])), time_s = num(13), time_real_s = o == 1 ? num(14) : NaN,
-                    allocator = txt(14 + o), rss_gib = num(15 + o), pool_gib = num(16 + o), sys_s = num(17 + o), minflt = num(18 + o), check = num(19 + o), note = txt(20 + o)))
+                    allocator = isempty(txt(14 + o)) ? "reuse" : txt(14 + o), rss_gib = num(15 + o), pool_gib = num(16 + o), sys_s = num(17 + o), minflt = num(18 + o), check = num(19 + o), note = txt(20 + o)))
     end
     return out
 end
@@ -336,14 +340,20 @@ function _os_cached_plans(path::AbstractString)
     return rows
 end
 
-# The plans of the file made for exactly these bond dimensions d (we look at everything stored in the cache)
-onesite_plans_for(d::Vector{Float64}, path::AbstractString) =
-    [r for r in _os_cached_plans(path) if onesite_dims(r.chi_env, r.chi_peps, r.D) == d]
+# The plans of the file made for exactly these bond dimensions d and this allocator (we look at everything stored in the cache)
+onesite_plans_for(d::Vector{Float64}, path::AbstractString; allocator::Symbol = :reuse) =
+    [r for r in _os_cached_plans(path) if onesite_dims(r.chi_env, r.chi_peps, r.D) == d && r.allocator == String(allocator)]
 
-# Add plans to the file (rows as returned by onesite_find_plans). A row whose dimensions, tree and cuts are already in the file is NOT added
+# The allocator of a line of the plan file (split at ';'): column 15 in the 21-column layout, column 14 in the old 20-column layout; empty = "reuse"
+function _os_line_allocator(f)
+    a = length(f) >= 21 ? strip(f[15]) : (length(f) >= 14 ? strip(f[14]) : "")
+    return isempty(a) ? "reuse" : String(a)
+end
+
+# Add plans to the file (rows as returned by onesite_find_plans). A row whose dimensions, tree, cuts and allocator are already in the file is NOT added
 # again (so a time_s that you filled in is never overwritten). Returns the number of rows that were added.
 function onesite_write_plans(path::AbstractString, rows)
-    key(chi_env, chi_peps, D, tree, cuts) = (chi_env, chi_peps, D, string(tree), Symbol[Symbol(c) for c in cuts])
+    key(chi_env, chi_peps, D, tree, cuts, alloc) = (chi_env, chi_peps, D, string(tree), Symbol[Symbol(c) for c in cuts], String(alloc))
 
     # The lines already in the file (the header is written again) and the keys of the plans in them
     old = String[]
@@ -355,7 +365,7 @@ function onesite_write_plans(path::AbstractString, rows)
             push!(old, line)
             if !startswith(s, "#")
                 f = split(line, ';')
-                push!(oldkeys, key(parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), onesite_parse_tree(strip(f[4])), split(f[5])))
+                push!(oldkeys, key(parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), onesite_parse_tree(strip(f[4])), split(f[5]), _os_line_allocator(f)))
             end
         end
     end
@@ -363,12 +373,13 @@ function onesite_write_plans(path::AbstractString, rows)
     # The new lines
     newlines = String[]
     for r in rows
-        k = key(r.chi_env, r.chi_peps, r.D, r.tree, r.cuts)
+        alloc = String(get(r, :allocator, "reuse"))
+        k = key(r.chi_env, r.chi_peps, r.D, r.tree, r.cuts, alloc)
         k in oldkeys && continue
         push!(oldkeys, k)
         time_s = hasproperty(r, :time_s) && isfinite(r.time_s) ? string(r.time_s) : ""
         push!(newlines, join((r.chi_env, r.chi_peps, r.D, string(r.tree), join(r.cuts, ' '), replace(String(r.source), ';' => ','),
-                              r.k, round(Int, r.slices), r.flops, round(r.peak_gib; digits = 3), r.ram_gib, r.bytes, time_s, "", "", "", "", "", "", "", ""), ';')) # time_real_s, empty columns: allocator ... note
+                              r.k, round(Int, r.slices), r.flops, round(r.peak_gib; digits = 3), r.ram_gib, r.bytes, time_s, "", alloc, "", "", "", "", "", ""), ';')) # time_real_s, allocator, empty columns: rss_gib ... note
     end
 
     open(path, "w") do io
@@ -399,7 +410,7 @@ function _os_plan_fields(f::Vector{String})
 end
 
 # Fill in the measurements of development/contraction_plans/benchmark_contract_onesite.jl in the plan file.
-# `updates` = named tuples with the key of a row (chi_env, chi_peps, D, tree, cuts) and the columns to set: time_s, allocator, rss_gib, pool_gib, sys_s, minflt, check, note.
+# `updates` = named tuples with the key of a row (chi_env, chi_peps, D, tree, cuts, allocator; a missing allocator = "reuse") and the columns to set: time_s, rss_gib, pool_gib, sys_s, minflt, check, note.
 # `env = :mock`: `time_s` of the update is written into column time_s (dense mock environment); `env = :real`: it is written into column time_real_s (real environment).
 # The seven columns (allocator ... note) belong to the real run if there is one: an `env = :real` update always writes them, a :mock update only if time_real_s of that row is still empty.
 # A property that is missing, or a number that is NaN, gives an empty column.
@@ -413,10 +424,10 @@ function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock
     isfile(path) || error("onesite_update_plans: $path does not exist")
     
     # Small local function: turns row's identity into tuple that can be compared
-    key(chi_env, chi_peps, D, tree, cuts) = (chi_env, chi_peps, D, string(tree), Symbol[Symbol(c) for c in cuts])
+    key(chi_env, chi_peps, D, tree, cuts, alloc) = (chi_env, chi_peps, D, string(tree), Symbol[Symbol(c) for c in cuts], String(alloc))
     
     # Build Dict from key (which we use to compare with rows in csv file) to the full update yuple
-    pending = Dict{Any,Any}(key(u.chi_env, u.chi_peps, u.D, u.tree, u.cuts) => u for u in updates)
+    pending = Dict{Any,Any}(key(u.chi_env, u.chi_peps, u.D, u.tree, u.cuts, get(u, :allocator, "reuse")) => u for u in updates)
     nup = length(pending)
 
     # a number as text (empty if NaN or missing), a free text without ';'
@@ -439,7 +450,7 @@ function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock
         # Split line at ; into string fields
         f = String.(split(line, ';'))
         # Build the key of this line in the file
-        k = key(parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), onesite_parse_tree(strip(f[4])), split(f[5]))
+        k = key(parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), onesite_parse_tree(strip(f[4])), split(f[5]), _os_line_allocator(f))
         
         # Check if there is an update for this row? (is key also in pending?)
         if haskey(pending, k)
@@ -455,8 +466,8 @@ function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock
             # If there is a time, write it in correct column (real/mock)
             if isfinite(t)
                 f[env === :real ? 14 : 13] = num(t)
-                # If update (allocator ... note) should belong to this run, rewrit the old columns
-                mine && (f[15:21] = [txt(get(u, :allocator, "")), num(get(u, :rss_gib, NaN)), num(get(u, :pool_gib, NaN)), num(get(u, :sys_s, NaN)),
+                # If update (allocator ... note) should belong to this run, rewrite the old columns
+                mine && (f[15:21] = [txt(get(u, :allocator, "reuse")), num(get(u, :rss_gib, NaN)), num(get(u, :pool_gib, NaN)), num(get(u, :sys_s, NaN)),
                                      num(get(u, :minflt, NaN)), num(get(u, :check, NaN)), txt(get(u, :note, ""))])
             # If no finite time (run was skipped/failed), only write note if mine (e.g. Note = "skipped: estimated 3.3 GiB > 85% of free 3.4 GiB (set FORCE = true)" or "failed: ...")
             else
@@ -487,6 +498,56 @@ function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock
     # Forget the cached copy of this file, next read sees the new content this way
     delete!(_os_PLAN_CACHE, String(path))
     return done
+end
+
+# For every plan (dimensions, tree, cuts) of the file that has no row for `allocator` yet, add a copy of its row with this allocator right below it:
+# the same tree, cuts and RAM budget (ram_gib), with empty times and measurements, so that development/contraction_plans/benchmark_contract_onesite.jl
+# can time the same plan with this allocator. The cuts of the copy are the ones that were chosen for the allocator of the original row
+# (with ONESITE_RAM_RULES: a reuse plan also fits its budget with :manual, since the manual factor is the smaller one).
+# Returns the number of rows that were added (0 if all plans have such a row already). The file is replaced in one step, like onesite_update_plans.
+function onesite_add_allocator_copies(path::AbstractString, allocator::Symbol)
+    _os_check_alloc(allocator)
+    isfile(path) || error("onesite_add_allocator_copies: $path does not exist")
+    a = String(allocator)
+    plankey(f) = (parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), string(onesite_parse_tree(strip(f[4]))), Symbol[Symbol(c) for c in split(f[5])])
+    isrow(s) = !(isempty(s) || startswith(s, "#") || startswith(s, "chi_env"))
+
+    # The plans that have a row for this allocator already (empty rows are counted as "reuse", see _os_line_allocator())
+    have = Set{Any}()
+    for line in eachline(path)
+        isrow(strip(line)) || continue
+        f = String.(split(line, ';'))
+        _os_line_allocator(f) == a && push!(have, plankey(f))
+    end
+
+    lines = String[]
+    added = 0
+    for line in eachline(path)
+        s = strip(line)
+        startswith(s, "chi_env") && continue
+        push!(lines, line)
+        isrow(s) || continue
+        f = String.(split(line, ';'))
+        k = plankey(f)
+        k in have && continue
+        # the copy: columns 1..12 of the original (tree, cuts, budget, ...), allocator, all times and measurements empty
+        g = _os_plan_fields(f)
+        g[13:21] .= ""
+        g[15] = a
+        push!(lines, join(g, ';'))
+        push!(have, k)
+        added += 1
+    end
+    added == 0 && return 0
+
+    tmp = string(path, ".tmp")
+    open(tmp, "w") do io
+        println(io, _os_PLAN_HEADER)
+        foreach(l -> println(io, l), lines)
+    end
+    mv(tmp, path; force = true)
+    delete!(_os_PLAN_CACHE, String(path))
+    return added
 end
 
 
@@ -566,7 +627,7 @@ function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32,
         any(r -> r.tree == p.tree && r.cuts == p.cuts, rows) && continue
         verbosity > 0 && @info "onesite_find_plans: $ram GiB, $(c.source): $(p.k) cuts $(p.cuts), $(round(Int, p.slices)) slices, predicted $(round(p.est_gib; digits = 1)) GiB, $(round(p.flops; sigdigits = 3)) flops"
         push!(rows, (chi_env = χenv, chi_peps = χpeps, D = D, tree = p.tree, cuts = p.cuts, source = c.source, k = p.k, slices = p.slices,
-                     flops = p.flops, peak_gib = p.peak_gib, ram_gib = ram, bytes = bytes, time_s = NaN))
+                     flops = p.flops, peak_gib = p.peak_gib, ram_gib = ram, bytes = bytes, time_s = NaN, allocator = String(allocator)))
     end
     return rows
 end

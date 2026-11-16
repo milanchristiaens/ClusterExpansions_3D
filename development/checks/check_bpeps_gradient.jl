@@ -1,4 +1,4 @@
-# Check of the gradient of the variational boundary PEPS (src/utility/observables_cubic_bpeps.jl): prints numbers, tests nothing.
+# Check of the gradient of the variational boundary PEPS (src/bpeps/bpeps_main.jl, bpeps_helpers.jl): prints numbers, tests nothing.
 #
 # For a small 3D Ising PEPO (the one of test/bpeps.jl: g = 2, β = 0.2, D = 2) and a PEPS ψ1 = ψ0 + 0.1 η away from the optimum it compares, for one random direction η2:
 #   * <grad, η2>                  the gradient of the cost function with fixed environments (differentiate_environment = false),

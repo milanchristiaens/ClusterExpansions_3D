@@ -68,7 +68,7 @@ end
     include("contract_onesite_slicing.jl")
 end
 
-# Variational boundary PEPS (observables_cubic_bpeps.jl) on a small 3D Ising PEPO: 2D
+# Variational boundary PEPS (src/bpeps/) on a small 3D Ising PEPO: 2D
 # PEPO tensor, gradient with fixed environments (automatic differentiation
 # against finite differences), LBFGS from a perturbed PEPS, observable, nested timers.
 # The gradient through the CTMRG is opt-in: BPEPS_TEST_FIXEDPOINT=1

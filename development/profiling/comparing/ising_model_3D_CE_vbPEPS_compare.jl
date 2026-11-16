@@ -4,20 +4,23 @@
 #
 # Everything uses the same CE PEPOs (built once, same for all cases) and the same random seed per observation (Random.seed!(SEED_BASE + i) before observation i),
 # so the cases differ only in the two settings above. For every case and every β we store: final cost f, number of cost-function calls, time, magnetization m.
-# Each observation is appended to results.csv (and closed) immediately, so a crash halfway keeps all earlier data.
-# Everything goes to a new run folder  data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/<date>_<time>/  (see tools/timing_io.jl)  :
-#     settings.txt, results.csv, timing_<case>.csv (TimerOutputs rows of each case),
+# Each observation is appended (and the file closed) immediately to the results file of all Ising compare runs,
+# data/profiling/comparing/ising_model_3D_CE_results.csv (algorithm = "vbPEPS", run = name of the run folder; see ISING_CSV_HEADER in ../tools/compare_tools.jl),
+# so a crash halfway keeps all earlier data.
+# The other files go to a new run folder data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/<date>_<time>/ (see tools/timing_io.jl) :
+#     settings.txt, timing_<case>.csv (TimerOutputs rows of each case),
 #     compare_vbpeps_magnetization.png (left: |m| against β; right: |m| of every case minus the mean of the cases),
 #     compare_vbpeps_cost_time.png (left: time per observation against β; right: cost f against β),
 #     compare_vbpeps_timing_phases.png and compare_vbpeps_timing_self.png (timings per section, 4 bars per section)
 #
 # With REPLOT_DIR (see the settings) we only redo all plots from the results of an earlier run, without running anything.
-# The helper functions (check_cost, build_pepos, results.csv, spread plot, timing plots) are in ../tools/ (compare_tools.jl, timing_io.jl, timing_plots.jl).
+# The helper functions (check_cost, build_pepos, results file, time limit, spread plot, timing plots) are in ../tools/ (compare_tools.jl, timing_io.jl, timing_plots.jl).
 #
 # Order: false/cold, false/warm, [compile of the `true` pullback, this was ~1h40 in an earlier run], true/cold, true/warm.
 # Compilation happens once per process (warm-up with tiny settings, not measured).
 #
-# Time limit: every case gets RUN_BUDGET_S seconds in total and every observation at most MAX_SECONDS_OBS seconds (see the settings).
+# Time limit: every case gets RUN_BUDGET_S seconds in total and every observation at most MAX_SECONDS_OBS seconds (see the settings, and obs_seconds_allowed
+# in ../tools/compare_tools.jl; the CTMRG3D compare script uses the same rule).
 # An observation that runs out of time stops after its current LBFGS iteration and is marked timed_out = true (a cross in the plot):
 # its f and m are then the values of the last iterate, not of a converged optimization.
 #
@@ -41,7 +44,7 @@ const to = ClusterExpansions.to # the timer that the package code writes to
 # The helper functions of this script, in ../tools/:
 #   timing_io.jl:    timer_rows, write_timer_csv, read_timer_csv, new_run_dir, existing_run_dir
 #   timing_plots.jl: make_timing_phases_plot, make_timing_self_plot, ...
-#   compare_tools.jl: check_cost, build_pepos, append_row, read_results, plot_spread, ...
+#   compare_tools.jl: check_cost, build_pepos, obs_seconds_allowed, ising_results_file, append_ising_row, read_ising_results, plot_spread, ...
 include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
@@ -53,19 +56,25 @@ const T = Float64
 const spin_symmetry = Trivial
 const J = 1.0
 const g = 0.0
-const D_CE = 2
-const chipeps = 2
-const chienv = 8
+const D_CE = 3      # the same as in ising_model_3D_CE_CTMRG_compare.jl (the same PEPO)
+const chipeps = 2   # smaller than D_CE: a coarse boundary PEPS, chosen to keep the cost per call affordable
+const chienv = 14   # above the bond of the three-layer network (chipeps * D_CE * chipeps = 12)
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter).
-const β_obs = [0.05, 0.10, 0.15, 0.20, 0.25, 0.30, 0.35, 0.40, 0.45, 0.50]
+# One point in each phase and four around βc ≈ 0.2217 (the transition of the finite-χ results is shifted and smeared, so we cover 0.19-0.25).
+#const β_obs = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]
+const β_obs = [0.21]
 
 const SEED_BASE = 1000              # observation i uses Random.seed!(SEED_BASE + i), the same in all 4 cases
 
 # Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one LBFGS iteration overshoot per observation).
-const RUN_BUDGET_S = 2400.0         # per case: 40 minutes
-const MAX_SECONDS_OBS = 420.0       # per observation (the per-observation limit is lowered further when the case budget is running out)
-const MIN_SECONDS_OBS = 30.0        # but every observation gets at least this
+# For a comparison with CTMRG3D at the same budget, ising_model_3D_CE_CTMRG_compare.jl must have the same three values.
+#const RUN_BUDGET_S = 3600.0         # per case: 1 hour
+#const MAX_SECONDS_OBS = 1200.0      # per observation, twice the fair share of 3600 s over 6 β (lowered further when the case budget is running out)
+const MIN_SECONDS_OBS = 60.0        # but every observation gets at least this
+const RUN_BUDGET_S = 600.0
+const MAX_SECONDS_OBS = 600.0
+
 
 # Settings of the vbPEPS (the same for all cases, except warm_start and differentiate_environment which are the 4 cases)
 const base_kwargs = (;
@@ -80,16 +89,17 @@ const base_kwargs = (;
 # (name, warm_start, differentiate_environment); the order matters: the `true` cases come last, because their compilation takes very long
 const CASES = [
     ("false_cold", false, false),
-    ("false_warm", true, false),
-    ("true_cold", false, true),
-    ("true_warm", true, true),
+#    ("false_warm", true, false),
+#    ("true_cold", false, true),
+#    ("true_warm", true, true),
 ]
 
 
+# If REPLOT_DIR is the NAME of a run folder (for example "20261116_1500") in data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/,
+# we only redo all the plots from the rows of that run in the results file and nothing else is run (no calculation, no compilation of the pullback).
+# Leave it "" for a normal run.
+const REPLOT_DIR = ""
 
-# If REPLOT_DIR is the NAME of a run folder (for example "20261111_1248" or "true_cold") in data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/ with a results.csv,
-# we only redo all the plots from it and nothing else is run (no calculation, no compilation of the pullback). Leave it "" for a normal run.
-const REPLOT_DIR = "20261111_1248"
 
 # Settings of the spread plot (|m| of every case minus the mean |m| of the cases, per β)
 const SPREAD_EXCLUDE_CASES = String[]       # cases that we leave out completely, for example ["true_warm"]
@@ -104,7 +114,7 @@ const CASE_COLORS = Dict("false_cold" => :steelblue, "false_warm" => :lightskybl
 # ======================================================================================================================
 # One case
 # ======================================================================================================================
-function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, outdir)
+function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, outdir, run)
     # name = e.g. "true_warm"
 
     @info "===== Case $name: warm_start = $warm, differentiate_environment = $diff, budget = $(RUN_BUDGET_S) s ====="
@@ -112,6 +122,8 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
     ClusterExpansions.reset_max_alloc!()
     kwargs = (; base_kwargs..., differentiate_environment = diff)
     state = nothing           # holds (psi, env2, env3) for the warm start
+    # the columns of the results file that are the same for every observation of this case
+    row_settings = (; algorithm = "vbPEPS", run, case = name, setting = diff ? "diff_env" : "fixed_env", warm, D_CE, chipeps, chienv, dβ = Δβ_iter, budget_s= RUN_BUDGET_S)
     t_case = time()
 
     # Loop over all observations (at different β, using different O's)
@@ -119,13 +131,11 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
         β = β_obs[i]
         # Use same random seed in the different cases
         Random.seed!(SEED_BASE + i)
-        # time we allow this observation: at most MAX_SECONDS_OBS, and lower if the case budget runs out
-        # RUN_BUDGET_S - (time() - t_case) = the budget left
-        # length(Os) - i + 1 = observations left (including this one)
-        # We allow twice the fair share (*2)
-        # We keep this budget between 30 s and 420 s.
-        allowed = clamp(2 * (RUN_BUDGET_S - (time() - t_case)) / (length(Os) - i + 1), MIN_SECONDS_OBS, MAX_SECONDS_OBS)
         
+        # time we allow this observation: twice the fair share of the case budget that is left, between MIN_SECONDS_OBS and MAX_SECONDS_OBS
+        # (length(Os) - i + 1 = observations left, including this one)
+        allowed = obs_seconds_allowed(RUN_BUDGET_S, t_case, length(Os) - i + 1; min_s = MIN_SECONDS_OBS, max_s = MAX_SECONDS_OBS)
+
         # Start of observation
         t_obs = time()
         try
@@ -143,7 +153,9 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
             
             # Print/save result
             println("OBS $name β = $(round(β; digits = 3)): f = $(res.result.cost), calls = $(res.result.numfg), time = $(round(dt; digits = 1)) s, timed out = $(res.result.timed_out), m = $(res.m), ", check)
-            append_row(resultspath, name, warm, diff, β, res.result.cost, res.result.numfg, dt, res.result.timed_out, ComplexF64(res.m), check)
+
+            append_ising_row(resultspath; row_settings..., β, m = ComplexF64(res.m), f = res.result.cost, iters = res.result.numfg, timed_out = res.result.timed_out,
+                             allowed_s = allowed, time_s = dt, check)
             
             # If warm, then update state to the current psi and env's (even if not enough time)
             warm && (state = (res.result.psi, res.result.env2, res.result.env3))
@@ -153,7 +165,9 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
             dt = time() - t_obs
             # Print/Save the result
             @error "OBS $name β = $(round(β; digits = 3)) failed" exception = (err, catch_backtrace())
-            append_row(resultspath, name, warm, diff, β, NaN, 0, dt, false, complex(NaN, NaN), "ERROR: " * first(sprint(showerror, err), 150))
+            append_ising_row(resultspath; row_settings..., β, m = complex(NaN, NaN), allowed_s = allowed, time_s = dt, 
+                             check = "ERROR: " * first(sprint(showerror, err), 150))
+
             # If warm, don't update state (reuse latest succesfull one)
         end
         # Force the log output to be writte now
@@ -187,7 +201,7 @@ function warmup(diff, Os, pepsspace, envspace, obs)
 end
 
 # ======================================================================================================================
-# Summary table and plots (from results.csv)
+# Summary table and plots (from the rows of this run in the results file)
 # ======================================================================================================================
 function print_summary(rows)
     println("\n===== Summary per case =====")
@@ -195,8 +209,8 @@ function print_summary(rows)
     for (name, _, _) in CASES
         sub = filter(r -> r.case == name, rows)
         isempty(sub) && continue
-        println(rpad(name, 12), rpad(length(sub), 7), rpad(round(sum(r.time_s for r in sub); digits = 1), 16), rpad(sum(r.ncalls for r in sub), 8),
-            rpad(count(r -> r.timed_out, sub), 11), count(r -> !isfinite(r.f), sub))
+        println(rpad(name, 12), rpad(length(sub), 7), rpad(round(sum(r.time_s for r in sub); digits = 1), 16), rpad(sum(r.iters for r in sub), 8),
+                rpad(count(r -> r.timed_out, sub), 11), count(r -> !isfinite(r.f), sub))
     end
     println("\n===== m (real part) per β =====")
     βs = sort(unique(r.β for r in rows))
@@ -292,7 +306,7 @@ function make_all_plots(rows, outdir)
             makeplot()
             @info "Plot saved: $(joinpath(outdir, file))"
         catch err
-            @error "Plot $file failed, the data is in results.csv (set REPLOT_DIR to retry)" exception = (err, catch_backtrace())
+            @error "Plot $file failed, the data is in $ISING_RESULTS_PATH (set REPLOT_DIR to retry)" exception = (err, catch_backtrace())
         end
     end
     return nothing
@@ -305,19 +319,18 @@ function main()
     # Replot mode if run was already done, then it just reprints/replots the stored results
     if !isempty(REPLOT_DIR)
         plotdir = existing_run_dir(@__FILE__, REPLOT_DIR)
-        rows = read_results(joinpath(plotdir, "results.csv"))
+        rows = read_ising_results(; algorithm = "vbPEPS", run = REPLOT_DIR)
+        isempty(rows) && error("no vbPEPS rows of run $REPLOT_DIR in $ISING_RESULTS_PATH")
         print_summary(rows)
         make_all_plots(rows, plotdir)
         return nothing
     end
 
-    # Create the output folder and csv path using current date/time
+    # Create the output folder (named by the current date/time; this name is the run in the results file) and the results file if it is not there yet
     t_run = time()
     outdir = new_run_dir(@__FILE__)
-    resultspath = joinpath(outdir, "results.csv")
-
-    # Create results.csv, with only the header
-    open(io -> println(io, CSV_HEADER), resultspath, "w")
+    run = basename(outdir)
+    resultspath = ising_results_file()
 
     # Write Julia version, threads and all settings to the file 
     open(joinpath(outdir, "settings.txt"), "w") do io
@@ -327,7 +340,7 @@ function main()
         println(io, "base_kwargs = $base_kwargs")
         println(io, "cases = $CASES")
     end
-    @info "Output directory: $outdir"
+    @info "Output directory: $outdir, results file: $resultspath (run = $run)"
     @info "Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads())"
 
     # Define the virtual spaces and the observables
@@ -354,13 +367,13 @@ function main()
             compiled[diff] = true
         end
         try
-            run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, outdir)
+            run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, outdir, run)
         catch err
             @error "Case $name failed" exception = (err, catch_backtrace())
         end
     end
 
-    rows = read_results(resultspath)
+    rows = read_ising_results(resultspath; algorithm = "vbPEPS", run)
     print_summary(rows)
     make_all_plots(rows, outdir)
     @info "Total time of the run: $(round((time() - t_run) / 3600; digits = 2)) h"

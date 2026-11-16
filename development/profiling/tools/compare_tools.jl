@@ -1,12 +1,15 @@
 # compare_tools.jl -- helpers for the compare scripts (comparing/) and for the vbPEPS profiling script.
-# Used by: comparing/ising_model_3D_CE_vbPEPS_compare.jl and ising_model_3D_CE_vbPEPS_profiling.jl (check_cost).
+# Used by: comparing/ising_model_3D_CE_vbPEPS_compare.jl, comparing/ising_model_3D_CE_CTMRG_compare.jl, comparing/ising_model_3D_CE_CTMRG_vs_vbPEPS.jl
+# and ising_model_3D_CE_vbPEPS_profiling.jl (check_cost).
 # Contents:
 #   βc_ising, check_cost            sanity check of the cost f of a vbPEPS optimization
 #   build_pepos                     the CE PEPOs at all β of a list, built once
-#   CSV_HEADER, append_row, read_results   results.csv of a compare run (its columns are those of the 4 vbPEPS cases: warm_start, differentiate_environment)
+#   obs_seconds_allowed             the time limit of one observation, from the time budget of a case (the same rule for vbPEPS and CTMRG3D)
+#   ISING_RESULTS_PATH, ISING_CSV_HEADER, ising_results_file, append_ising_row, read_ising_results
+#                                   one results file for all Ising compare runs of both algorithms (column algorithm = "vbPEPS" or "CTMRG3D")
 #   median_of, spread_points, plot_spread   difference of |m| of every case to the mean |m| of the cases
 # The functions get their settings as arguments; they do not read the settings of the script that includes this file.
-# Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots
+# Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots, LinearAlgebra
 # The timing plots of the compare scripts are in timing_plots.jl.
 
 # ======================================================================================================================
@@ -34,7 +37,7 @@
 # Below βc the high-temperature series is a reference; the margin 0.01 is our choice.
 # ======================================================================================================================
 
-const βc_ising = 0.2216546   # not sure
+const βc_ising = 0.2216546265 # 3D Ising, simple cubic: βc = 0.221654626(5), Ferrenberg, Xu & Landau, Phys. Rev. E 98, 043301 (2018)
 
 # This function performs a small check to see wether or not the converged f's are physical. Returns "ok" or "CHECK: ...".
 # reference = true: also writes the high-temperature series value into the text (below βc).
@@ -78,27 +81,92 @@ function build_pepos(β_obs, Δβ_iter, D, J, g)
 end
 
 # ======================================================================================================================
-# results.csv
+# Time limit of one observation
 # ======================================================================================================================
-const CSV_HEADER = "case,warm_start,differentiate_environment,beta,f,cost_function_calls,time_s,timed_out,m_re,m_im,check"
+# The time (s) that observation i of a case may use: twice the fair share of what is left of the case budget,
+# kept between min_s and max_s. budget_s = Inf (no case budget) gives max_s.
+# budget_s = time budget of the whole case, t_case = time() at the start of the case, n_left = observations left (this one included)
+# Both compare scripts use this rule, so that vbPEPS and CTMRG3D can be compared at the same budget.
+obs_seconds_allowed(budget_s, t_case, n_left; min_s, max_s) = clamp(2 * (budget_s - (time() - t_case)) / n_left, min_s, max_s)
 
-function append_row(path, case, warm, diff, β, f, ncalls, time_s, timed_out, m, check)
-    open(path, "a") do io    # the file is closed after every row, so the data is on disk
-        println(io, join((case, warm, diff, β, f, ncalls, round(time_s; digits = 2), timed_out, real(m), imag(m), replace(check, ',' => ' ', '\n' => ' ', '\r' => ' ')), ","))
+
+# ======================================================================================================================
+# The results file of all Ising compare runs (vbPEPS and CTMRG3D)
+# ======================================================================================================================
+# One file for all runs of both compare scripts: data/profiling/comparing/ising_model_3D_CE_results.csv. One row per (algorithm, run, case, β).
+# algorithm         "vbPEPS" or "CTMRG3D"
+# run               name of the run folder of the script (for example 20261116_1500): together with algorithm and case it identifies a row
+# case, setting     name of the case in its script; setting = "fixed_env" / "diff_env" (vbPEPS) or "svd" / "oblique" (CTMRG3D)
+# warm_start, beta, D_CE, chi_peps, chi_env, dbeta
+#                   the settings of the observation
+# m_re, m_im        ⟨σᶻ⟩
+# f                 vbPEPS: final cost (CTMRG3D: empty)
+# iterations        vbPEPS: cost-function calls, CTMRG3D: full CTMRG3D iterations
+# converged         CTMRG3D: last ϵ < tol (vbPEPS: empty)
+# eps_last          CTMRG3D: last ϵ (vbPEPS: empty)
+# timed_out         the time limit (allowed_s) stopped the optimization / the CTMRG3D iterations
+# allowed_s         the time limit given to this observation (obs_seconds_allowed)
+# budget_s          the time budget of the case
+# time_s            time of the whole observation (optimization or CTMRG3D iterations + contraction of the observable)
+# time_ctmrg_s, time_contract_s 
+#                   CTMRG3D: time of leading_boundary / of the two contract_onesite calls (vbPEPS: empty)
+# blas_threads      BLAS.get_num_threads() during the run
+# check             "ok", or what is wrong ("CHECK: ...", "not converged", "timed out", "ERROR: ...")
+# Empty fields are read as NaN (numbers) or missing (converged).
+const ISING_RESULTS_PATH = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "ising_model_3D_CE_results.csv"))
+const ISING_CSV_HEADER = "algorithm,run,case,setting,warm_start,beta,D_CE,chi_peps,chi_env,dbeta,m_re,m_im,f,iterations,converged,eps_last,timed_out," *
+"allowed_s,budget_s,time_s,time_ctmrg_s,time_contract_s,blas_threads,check"
+
+
+
+# The results file: created with the header if it is not there; an error if it has another header (a file of an older layout: rename or delete it)
+function ising_results_file(path = ISING_RESULTS_PATH)
+    if isfile(path)
+        h = readline(path)
+        h == ISING_CSV_HEADER || error(
+            "$path has another header than ISING_CSV_HEADER (an older layout?): rename or delete it.\n file: $h\n expected: $ISING_CSV_HEADER")
+    else
+        mkpath(dirname(path))
+        open(io -> println(io, ISING_CSV_HEADER), path, "w")
+    end
+    return paths
+end
+
+
+# Appends one row; the file is closed after every row, so the data is on disk. Fields that do not apply to the algorithm keep their default (written empty).
+function append_ising_row(path; algorithm, run, case, setting, warm, β, D_CE, chipeps, chienv, dβ, m, f = NaN, iters = 0, 
+                          converged = missing, eps = NaN, timed_out = false, allowed_s = Inf, budget_s = Inf, time_s, t_ctmrg = NaN, 
+                          t_contract = NaN, blas = LinearAlgebra.BLAS.get_num_threads(), check)
+    fld(x) = x === missing ? "" : (x isa AbstractFloat && isnan(x)) ? "" : x isa AbstractFloat ? string(round(x; sigdigits = 12)) : string(x)
+    vals = (algorithm, run, case, setting, warm, β, D_CE, chipeps, chienv, dβ, real(m), imag(m), f, iters, converged, eps, timed_out,
+            allowed_s, budget_s, time_s, t_ctmrg, t_contract, blas, replace(check, ',' => ' ', '\n' => ' ', '\r' => ' '))
+    open(path, "a") do io
+        println(io, join(map(fld, vals), ","))
     end
     return nothing
 end
 
-function read_results(path)
+# All rows of the file, optionally only those of one algorithm and/or one run
+function read_ising_results(path = ISING_RESULTS_PATH; algorithm = nothing, run = nothing)
+    num(s) = isempty(s) ? NaN : parse(Float64, s)
+    # Turn text of CSV into Bool, if not "true" or "false" return missing
+    bool(s) = s == "true" ? true : s == "false" ? false : missing
     rows = NamedTuple[]
+    
+    # If the file doesn't exist, return empty rows
+    isfile(path) || return rows
+
     for line in Iterators.drop(eachline(path), 1)
         isempty(strip(line)) && continue
-        p = split(line, ',')
-        push!(rows, (;
-            case = String(p[1]), warm = p[2] == "true", diff = p[3] == "true", β = parse(Float64, p[4]), f = parse(Float64, p[5]),
-            ncalls = parse(Int, p[6]), time_s = parse(Float64, p[7]), timed_out = p[8] == "true",
-            m_re = parse(Float64, p[9]), m_im = parse(Float64, p[10]), check = String(p[11]),
-        ))
+        p = split(line, ','; limit = 24)
+        r = (; algorithm = String(p[1]), run = String(p[2]), case = String(p[3]), setting = String(p[4]), warm = p[5] == "true", β = parse(Float64, p[6]),
+            D_CE = parse(Int, p[7]), chipeps = parse(Int, p[8]), chienv = parse(Int, p[9]), dβ = num(p[10]), m_re = num(p[11]), m_im = num(p[12]),
+            f = num(p[13]), iters = isempty(p[14]) ? 0 : parse(Int, p[14]), converged = bool(p[15]), eps = num(p[16]), timed_out = p[17] == "true",
+            allowed_s = num(p[18]), budget_s = num(p[19]), time_s = num(p[20]), t_ctmrg = num(p[21]), t_contract = num(p[22]),
+            blas = isempty(p[23]) ? 0 : parse(Int, p[23]), check = String(p[24]),
+            )
+        # Only save/read a result if algorithm and run matches (if they were given)
+        (algorithm === nothing || r.algorithm == algorithm) && (run === nothing || r.run == run) && push!(rows, r)
     end
     return rows
 end
@@ -115,13 +183,16 @@ end
 
 # The observations that we use in the spread plot: leaves out the cases, flagged / failed / timed out observations and outliers (see the keyword arguments).
 # Prints what is left out. The magnetization is |m| because the sign is arbitrary (Z2).
+# The vbPEPS compare run and the CTMRG3D compare run write different CSV columns:
+# A row fails if m is not finite; a vbPEPS row also if its cost f is not finite (CTMRG3D has no f).
+# rows without a field timed_out (which also correspond to CTMRG3D) are never timed out.
 function spread_points(rows; exclude_cases = String[], exclude_flagged = true, exclude_timed_out = true, outlier_tol = 0.1)
     reason(r) = if r.case in exclude_cases
         "case left out"
-    elseif !(isfinite(r.m_re) && isfinite(r.f))
+    elseif !(isfinite(r.m_re) && (r.algorithm != "vbPEPS" || isfinite(r.f)))
         "failed"
     elseif exclude_flagged && r.check != "ok"
-        "flagged (unphysical f)"
+        "flagged (check: $(r.check))"
     elseif exclude_timed_out && r.timed_out
         "timed out"
     else

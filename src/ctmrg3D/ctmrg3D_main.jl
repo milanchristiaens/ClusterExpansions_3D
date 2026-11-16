@@ -17,8 +17,11 @@ tot = 27
 # As: all arrows outgoing
 # tensor O: UP, NORTH, EAST, DOWN, SOUTH, WEST. All arrows ingoing
 
-# This function runs CTMRG sweeps on env, untill the corner spectrum stops changing, or untill maxiter is reached
+# This function runs CTMRG sweeps on env, untill the corner spectrum stops changing, or untill maxiter is reached,
+# or untill env.max_seconds is used up (checked after every full iteration, so the limit can be overshot by at most one iteration).
+# Returns (env, ϵs, timed_out); timed_out = true only if the time limit stopped it (env is then the environment of the last iteration, not converged).
 function MPSKit.leading_boundary(env::CTMRG3D_alg)
+    t_start = time()
     S_old = id(envspace(env))
     ϵs = []
     for i = 1:env.maxiter
@@ -31,21 +34,37 @@ function MPSKit.leading_boundary(env::CTMRG3D_alg)
             if env.verbosity > 1
                 @info "CTMRG3D converged after $i iterations with ϵ = $(ϵs[end])"
             end
-            return env, ϵs
+            return env, ϵs, false
+        end
+        if time() - t_start > env.max_seconds
+            if env.verbosity > 0
+                @warn "CTMRG3D stopped by the time limit ($(env.max_seconds) s) after $i iterations, not converged. ϵ = $(ϵs[end])"
+            end
+            return env, ϵs, true
+
         end
         S_old = copy(S_new)
     end
     if env.verbosity > 0
         @warn "CTMRG3D not converged after $(env.maxiter) iterations. ϵ = $(ϵs[end])"
     end
-    return env, ϵs
+    return env, ϵs, false
 end
 
 # This is the usual entry point, given the 3D PEPO O tensor and the obs tensor, it builds the 3D CTMRG environment
 # Converges it and returns one value per requested observabke
 # ram_gib (= nothing) tells how much RAM we have to do this contraction (slicing)
-# onesite_kwargs can have (kmax, allocator, margin, force, rules, cuts, tree, plans) info which is used in contract_onesite_dispatch() 
-function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
+# onesite_kwargs can have (kmax, allocator, margin, force, rules, cuts, tree, plans) info which is used in contract_onesite_dispatch()
+# projectors: :svd or :oblique
+# env0: nothing = cold start (init = :ones or :random, seed init_seed);
+#       an earlier converged CTMRG3D (e.g. of the previous β) = warm start from its C, E, A
+# max_seconds: time limit of the CTMRG3D iterations (leading_boundary) for a given β, Inf = none. The contractions of the observables come on top of it.
+# Contractions of observables are counted towards the case budget though!
+# return_env = true (used in compare scripts, also for cold starts): returns (expvals, env, ϵs, timed_out) instead of expvals, so that env can be the env0 of the next call
+# (timed_out = true if max_seconds stopped the iterations)
+function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, 
+                                 verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, projectors = :svd, env0 = nothing, init = :ones, init_seed = 1, 
+                                 max_seconds = Inf, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
         O = flip(permute(O, ((),(1,2,3,4,5,6))), [4 5 6])
@@ -54,8 +73,8 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
 
     trunc_bpeps = truncrank(dim(bpepsspace))
     trunc_env = truncrank(dim(envspace))
-    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol)
-    env, ϵs = @timeit to "EV: leading_boundary (CTMRG3D iterations)" leading_boundary(env);
+    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, env0, init, init_seed, max_seconds)
+    env, ϵs, timed_out = @timeit to "EV: leading_boundary (CTMRG3D iterations)" leading_boundary(env);
     expvals = []
     for obs = obss
         if obs == :spectrum
@@ -81,5 +100,5 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
         end
         push!(expvals, m)
     end
-    return expvals
+    return return_env ? (expvals, env, ϵs, timed_out) : expvals
 end

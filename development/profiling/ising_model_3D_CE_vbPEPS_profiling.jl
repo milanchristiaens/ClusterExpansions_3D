@@ -3,7 +3,7 @@
 #
 # Same physics, same β grid, same cluster-expansion (CE) time evolution and the same timers/plots as ising_model_3D_CE_CTMRG_profiling.jl;
 # the only difference is the observable: instead of MPSKit.expectation_value (CTMRG3D, 27 tensors) every observation is
-# bpeps_expectation_value (observables_cubic_bpeps.jl): LBFGS optimization of a boundary PEPS with a 2D CTMRG of PEPSKit, then the observable.
+# bpeps_expectation_value (src/bpeps/bpeps_main.jl): LBFGS optimization of a boundary PEPS with a 2D CTMRG of PEPSKit, then the observable.
 # The nested timers of the vbPEPS part are called "bPEPS: ..." (initial state, LBFGS > cost function > n2 / n3 leading_boundary (the two 2D CTMRG contractions), forward pass, backward pass, ...).
 #
 # Where the data goes: a new run folder data/profiling/ising_model_3D_CE_vbPEPS_profiling/<date>_<time>/ (see tools/timing_io.jl).

@@ -15,6 +15,10 @@
 #     for the dimensions of that environment are timed (the others are skipped). The time goes into the column time_real_s.
 #     contract_onesite_auto uses time_real_s if it is filled, otherwise time_s.
 #   The seven columns allocator, rss_gib, pool_gib, sys_s, minflt, check, note belong to the real run if there is one, otherwise to the mock run.
+#   ALLOCATORS: the allocator is part of the identity of a plan-file row (a plan can have a reuse row and a manual row, each with its own times).
+#     Before timing, every plan of the file gets a row for every allocator in ALLOCATORS that it does not have yet (same tree and cuts, no time:
+#     CE.onesite_add_allocator_copies), and the rows of all allocators in ALLOCATORS are timed, each with its own allocator. A plan is named SOURCE#N, where N
+#     counts the rows of the same dimensions AND allocator, so the reuse row and the manual row of a plan usually have the same name (results.csv has the allocator).
 #
 #   WHERE THE RESULTS GO
 #   - data/contraction_plans/benchmark_contract_onesite/<date>_<time>/   (a new run folder for every run, see tools/benchmark_plots.jl):
@@ -46,10 +50,10 @@ const PLAN_FILE  = CE.ONESITE_PLAN_FILE   # plan file that is read and updated (
 const ENV_LOADER = nothing                # nothing = mock environment (time_s); "development/contraction_plans/env_loader_example.jl" = real environment (time_real_s)
 const MOCK_SEED  = 1                      # seed of the random mock environment: the same seed gives the same environment for all plans of the same dimensions
 const REPS       = 2                      # timed repetitions of the contraction after the warm-up (the fastest is used; all are in results.csv)
-const ALLOCATOR  = "reuse"                # "reuse" (the allocator of contract_onesite_auto) or "manual"
+const ALLOCATORS = ["reuse", "manual"]    # the allocators whose rows are timed (missing rows are added first, see above): ["reuse"], ["manual"] or both
 const FORCE      = true                   # true = run also if the estimated memory exceeds 85 % of the free memory
 const RAM_BUDGET_GIB = 4                  # only plans made for a RAM budget (column ram_gib of the plan file) of at most this many GiB are timed (4 = laptop)
-const DIMS       = nothing                # nothing = all dimensions of the plan file; or a list such as [(8, 4, 3), (12, 4, 3)] for (chi_env, chi_peps, D)
+const DIMS = nothing                      # nothing = all dimensions of the plan file; or a list such as [(8, 4, 3), (12, 4, 3)] for (chi_env, chi_peps, D)
 const MAX_HOURS  = 10                     # no new group of dimensions is started if it is predicted not to finish within this many hours after the start (see above)
 const RUN_DIR    = "20261111_2104"        # "" = new run folder; the NAME of an existing run folder (for example "20261111_2230") = continue that run / make its plots again
 # ======================================================================================================================
@@ -124,14 +128,24 @@ function plan_ram_gibs(path)
     return out
 end
 
-# The rows of the plan file that were made for the bond dimensions d (the 54 numbers of CE.onesite_dims), as a Vector of (name, tree, cuts, source, ram_gib, time_s, time_real_s).
-# The name is SOURCE#N (N = number of the row among the rows for these dims, whatever their RAM budget), so parent and child process find the same row.
+# The rows of the plan file that were made for the bond dimensions d (the 54 numbers of CE.onesite_dims), as a Vector of (name, allocator, tree, cuts, source, ram_gib, time_s, time_real_s).
+# The name is SOURCE#N (N = number of the row among the rows for these dims with the same allocator, whatever their RAM budget), so parent and child process find the same row
+# (with the name AND the allocator).
 function plan_rows(d)
     all = CE.onesite_read_plans(PLAN_PATH)
+    # This reads column 11 (ram_gib) of every data row. onesite_read_plans does not return that column
     ram = plan_ram_gibs(PLAN_PATH)
-    keep = [i for (i, r) in enumerate(all) if CE.onesite_dims(r.chi_env, r.chi_peps, r.D) == d]
-    return [(name = string(all[i].source, "#", n), tree = all[i].tree, cuts = all[i].cuts, source = all[i].source, ram_gib = ram[i],
-             time_s = all[i].time_s, time_real_s = all[i].time_real_s) for (n, i) in enumerate(keep)]
+    out = NamedTuple[]
+
+    # For all allocator that occur in the file ("reuse" and "manual")
+    for a in unique(r.allocator for r in all)
+        # Collect the indices i of the rows which satisfy: that they have dimensions d and that they have allocator a
+        keep = [i for (i, r) in enumerate(all) if CE.onesite_dims(r.chi_env, r.chi_peps, r.D) == d && r.allocator == a]
+        append!(out, [(name = string(all[i].source, "#", n), allocator = a, tree = all[i].tree, cuts = all[i].cuts, source = all[i].source, ram_gib = ram[i],
+                       time_s = all[i].time_s, time_real_s = all[i].time_real_s, line = i) for (n, i) in enumerate(keep)])
+    end
+    # in the order of the file (so the reuse row and the manual copy right below it are timed one after the other)
+    return sort!(out; by = r -> r.line)
 end
 
 # LINUX ONLY: Read the process's minor page faults and CPU times, on windows this returns nothing
@@ -151,16 +165,16 @@ function blas_name()
     end
 end
 
-# Create a fresh allocator from the string ALLOCATOR
+# Create a fresh allocator from its name ("reuse" or "manual")
 make_alloc(kind) = kind == "reuse" ? CE.ReuseAllocator() : CE.ManualAllocator()
 
 
 # CHILD: runs ONE plan in a fresh processor and prints a result line on stdout
-# o = the options of the child: plan = NAME of the plan (SOURCE#N), dims = chi_env,chi_peps,D (for the mock environment; the real environment brings its own)
+# o = the options of the child: plan = NAME of the plan (SOURCE#N), alloc = its allocator, dims = chi_env,chi_peps,D (for the mock environment; the real environment brings its own)
 function run_child(o)
     name = o["plan"]
     dims = parse.(Int, split(o["dims"], ','))
-    akind = ALLOCATOR
+    akind = o["alloc"]
 
     # Build the mock/real environment
     env, M = load_env(dims)
@@ -171,8 +185,8 @@ function run_child(o)
 
     # The plan: its tree, re-ordered such that the peak of the sliced network is minimal, and its cuts
     orders = plan_rows(d)
-    i = findfirst(r -> r.name == name, orders)
-    i === nothing && error("no plan named $name for these dimensions in $PLAN_PATH")
+    i = findfirst(r -> r.name == name && r.allocator == akind, orders)
+    i === nothing && error("no plan named $name with allocator $akind for these dimensions in $PLAN_PATH")
     cuts = orders[i].cuts
     kernel = CE.onesite_reorder(orders[i].tree, d; cuts)          # a generated kernel: the model tree is the kernel's tree
 
@@ -276,12 +290,12 @@ end
 
 # PARENT: runs one plan in a fresh julia process (run_child) and returns its answer as a named tuple.
 # msg == "" means a complete result; otherwise the plan was skipped by the child (memory) or the child failed, and msg says why.
-function bench_row(name, g)
+function bench_row(name, alloc, g)
     # Build the command line that will start a new Julia process
     # it uses same: Julia, project, thread count as us.
     # it adds --child, so now it will get filtered out above
     # it also adds: the plan name and the dimensions
-    cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) --threads=$(Threads.nthreads()) $(abspath(PROGRAM_FILE)) --child --plan=$name --dims=$(g[1]),$(g[2]),$(g[3])`
+    cmd = `$(Base.julia_cmd()) --project=$(Base.active_project()) --threads=$(Threads.nthreads()) $(abspath(PROGRAM_FILE)) --child --plan=$name --alloc=$alloc --dims=$(g[1]),$(g[2]),$(g[3])`
 
     # Now we start the worker, wait until it is done and return what is printed
     out = try
@@ -298,7 +312,7 @@ function bench_row(name, g)
     f = split(line, SEP)
 
     nan = NaN
-    empty_row(msg) = (name = name, cuts = "", alloc = ALLOCATOR, slices = "", flops_rel = nan, peak = nan, time = nan, per_slice = nan, tracked = nan,
+    empty_row(msg) = (name = name, cuts = "", alloc = alloc, slices = "", flops_rel = nan, peak = nan, time = nan, per_slice = nan, tracked = nan,
                       rss = nan, rss0 = nan, pool = nan, sys = nan, minflt = nan, re = nan, im = nan, times = Float64[], fp = nan, msg = msg)
     # A full result has 18 fields
     if length(f) == 18
@@ -317,18 +331,18 @@ end
 # Print the table of the rows of this run on screen
 function print_table(rows)
     # Print the table header
-    @printf("\n%-8s %-22s %-24s %6s %10s %10s %9s %9s %9s %8s\n", "dims", "plan", "cuts", "slices", "model flops", "time s", "reps s", "rss GiB", "pool GiB", "check")
+    @printf("\n%-8s %-22s %-7s %-24s %6s %10s %10s %9s %9s %9s %8s\n", "dims", "plan", "alloc", "cuts", "slices", "model flops", "time s", "reps s", "rss GiB", "pool GiB", "check")
 
     # Loop over all rows
     for r in rows
         dims = string(r.chi_env, ",", r.chi_peps, ",", r.D)
         # If the row crashed/was skipped than there is no time; we only print the plan, cuts and the note
         if !isfinite(r.tmin)
-            @printf("%-8s %-22s %-24s %s\n", dims, r.name, r.cuts[1:min(end, 24)], r.note); continue
+            @printf("%-8s %-22s %-7s %-24s %s\n", dims, r.name, r.alloc, r.cuts[1:min(end, 24)], r.note); continue
         end
 
         # Now we print the finished row with the check value
-        @printf("%-8s %-22s %-24s %6.0f %10.3e %10.2f %9s %9.3f %9.3f %8.1e\n", dims, r.name, r.cuts[1:min(end, 24)], r.slices, r.flops, r.tmin,
+        @printf("%-8s %-22s %-7s %-24s %6.0f %10.3e %10.2f %9s %9.3f %9.3f %8.1e\n", dims, r.name, r.alloc, r.cuts[1:min(end, 24)], r.slices, r.flops, r.tmin,
                 join(round.(r.times; digits = 1), "/"), r.rss, r.pool, r.check)
     end
 end
@@ -338,7 +352,7 @@ function print_system_info()
     println("Julia ", VERSION, ", threads ", Threads.nthreads(), ", BLAS threads ", BLAS.get_num_threads(), " (", blas_name(), ")",
             ", total memory ", round(GiB(Sys.total_memory()), digits = 1), " GiB, free ", round(GiB(Sys.free_memory()), digits = 1), " GiB")
     println("TensorKit ", pkgversion(TensorKit), ", TensorOperations ", pkgversion(CE.TensorOperations),
-            "   environment: ", ENV_LOADER === nothing ? "mock (dense, random, seed $MOCK_SEED)" : "real (" * ENV_LOADER * ")", ", allocator ", ALLOCATOR, ", reps ", REPS)
+            "   environment: ", ENV_LOADER === nothing ? "mock (dense, random, seed $MOCK_SEED)" : "real (" * ENV_LOADER * ")", ", allocators ", join(ALLOCATORS, "/"), ", reps ", REPS)
 end
 
 # Round to 6 significant digits (NaN and 0 stay as they are), for the plan file
@@ -351,7 +365,7 @@ function write_settings(outdir)
         println(io, "Julia ", VERSION, ", threads ", Threads.nthreads(), ", BLAS threads ", BLAS.get_num_threads(), " (", blas_name(), ")")
         println(io, "memory GiB: total ", round(GiB(Sys.total_memory()), digits = 1), ", free at start ", round(GiB(Sys.free_memory()), digits = 1))
         println(io, "PLAN_FILE = ", PLAN_PATH)
-        println(io, "ENV_LOADER = ", ENV_LOADER, ", MOCK_SEED = ", MOCK_SEED, ", REPS = ", REPS, ", ALLOCATOR = ", ALLOCATOR, ", FORCE = ", FORCE)
+        println(io, "ENV_LOADER = ", ENV_LOADER, ", MOCK_SEED = ", MOCK_SEED, ", REPS = ", REPS, ", ALLOCATORS = ", ALLOCATORS, ", FORCE = ", FORCE)
         println(io, "RAM_BUDGET_GIB = ", RAM_BUDGET_GIB, ", DIMS = ", DIMS, ", MAX_HOURS = ", MAX_HOURS, ", RUN_DIR = \"", RUN_DIR, "\"")
         println(io)
     end
@@ -369,6 +383,14 @@ function main()
 
     envkind = ENV_LOADER === nothing ? :mock : :real
     timecol = envkind === :mock ? "time_s" : "time_real_s"
+    all(a -> a in ("reuse", "manual"), ALLOCATORS) || error("ALLOCATORS may only contain \"reuse\" and \"manual\", got $ALLOCATORS")
+    
+    # Every plan gets a row for every allocator of ALLOCATORS (same tree and cuts, no time yet)
+    # Rows with no allocators are seen as "reuse", see onesite_add_allocator_copies() and _os_line_allocator()
+    for a in ALLOCATORS
+        n = CE.onesite_add_allocator_copies(PLAN_PATH, Symbol(a))
+        n > 0 && println("added $n rows with allocator $a to the plan file (copies of the plans that had none)")
+    end
     plans = CE.onesite_read_plans(PLAN_PATH)
     isempty(plans) && error("no plans in $PLAN_PATH: make them first with development/contraction_plans/find_orders_ome.jl")
 
@@ -403,7 +425,8 @@ function main()
         g = (r.chi_env, r.chi_peps, r.D)
         haskey(refs, g) || (refs[g] = complex(r.re, r.im); fps[g] = r.fp)
     end
-    isdone(g, name) = any(r -> (r.chi_env, r.chi_peps, r.D) == g && r.name == name && isfinite(r.tmin), rows)
+    # Define a Dict which given row info as key, returns Boolean which tells you if it was already timed
+    isdone(g, name, alloc) = any(r -> (r.chi_env, r.chi_peps, r.D) == g && r.name == name && r.alloc == alloc && isfinite(r.tmin), rows)
 
     println("plan file: ", PLAN_PATH, "  (", length(plans), " plans)")
     println("run folder: ", outdir, "  (", nold, " results in it already)")
@@ -425,7 +448,8 @@ function main()
         todo = NamedTuple[]
         for r in plan_rows(d)
             (isfinite(r.ram_gib) && r.ram_gib <= RAM_BUDGET_GIB) || continue
-            isdone(g, r.name) && continue
+            r.allocator in ALLOCATORS || continue
+            isdone(g, r.name, r.allocator) && continue
             cost = CE.onesite_cost(CE.onesite_reorder(r.tree, d; cuts = r.cuts), d; cuts = r.cuts)
             push!(todo, (plan = r, cost = cost))
         end
@@ -443,15 +467,15 @@ function main()
             r = j.plan; cost = j.cost
             nrun += 1
             # Show progress
-            println(stderr, "\n[($(join(g, ","))) plan $n/$(length(todo)), $(round((time() - t_start) / 60, digits = 1)) min since the start] $(r.name), $(length(r.cuts)) cuts"); flush(stderr)
+            println(stderr, "\n[($(join(g, ","))) plan $n/$(length(todo)), $(round((time() - t_start) / 60, digits = 1)) min since the start] $(r.name) ($(r.allocator)), $(length(r.cuts)) cuts"); flush(stderr)
             # Identify the row in the CSV corresponding to current job
-            key = (chi_env = g[1], chi_peps = g[2], D = g[3], tree = r.tree, cuts = r.cuts)
+            key = (chi_env = g[1], chi_peps = g[2], D = g[3], tree = r.tree, cuts = r.cuts, allocator = r.allocator)
             # What is the same for every outcome of this plan
             ident = (chi_env = g[1], chi_peps = g[2], D = g[3], name = r.name, source = r.source, ram_gib = r.ram_gib, cuts = join(r.cuts, " "),
                      slices = cost.slices, flops = cost.flops, peak = GiB(cost.peak * sizeof(ComplexF64)), env = ENV_LOADER === nothing ? "mock seed $MOCK_SEED" : "real",
                      blas = BLAS.get_num_threads())
             # A row without a time (skipped or failed)
-            norow(msg) = merge(ident, (times = Float64[], tmin = NaN, tracked = NaN, rss = NaN, pool = NaN, alloc = ALLOCATOR, fp = NaN, re = NaN, im = NaN, check = NaN, note = msg))
+            norow(msg) = merge(ident, (times = Float64[], tmin = NaN, tracked = NaN, rss = NaN, pool = NaN, alloc = r.allocator, fp = NaN, re = NaN, im = NaN, check = NaN, note = msg))
             function addrow(row)
                 push!(rows, row)
                 try
@@ -463,7 +487,7 @@ function main()
 
             # Skip a plan that needs more memory than is free, without starting a process (the child has the same guard)
             # We assume 16 bytes per element (ComplexF64), child checks explicitely again for real scalar size
-            est = CE.ONESITE_RAM_RULES.baseline_gib + CE.ONESITE_RAM_RULES[Symbol(ALLOCATOR)] * GiB(cost.peak * sizeof(ComplexF64))
+            est = CE.ONESITE_RAM_RULES.baseline_gib + CE.ONESITE_RAM_RULES[Symbol(r.allocator)] * GiB(cost.peak * sizeof(ComplexF64))
             # Compare estimated needed ram with currently free ram
             free = GiB(Sys.free_memory())
             if est > 0.85 * free && !FORCE
@@ -478,7 +502,7 @@ function main()
             end
 
             # Run the contraction!
-            t_wall = @elapsed res = bench_row(r.name, g)
+            t_wall = @elapsed res = bench_row(r.name, r.allocator, g)
 
             # If there is a message, this means that child skipped the plan or crashed
             if res.msg != ""

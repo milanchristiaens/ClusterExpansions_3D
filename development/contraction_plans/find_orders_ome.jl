@@ -26,16 +26,17 @@ const CE = ClusterExpansions
 # This is at the moment not really possible (chi_peps would go to 36), so only doable dims are used for now
 const DEFAULT_DIMS = [
     # D = 3: chi_peps = 4 and 5 (1.5*3 = 4.5), chi_env = 2, 3, 4 times chi_peps
-    (8, 4, 3),      # 0.5%
-    (12, 4, 3),     # 4.1%
-    (16, 4, 3),     # 29.7%
-    (10, 5, 3),     # 8.5%
-    (12, 5, 3),     # 29.1%
+#    (8, 4, 3),      # 0.5%
+#    (12, 4, 3),     # 3.7%
+#    (16, 4, 3),     # 27.3%
+#    (10, 5, 3),     # 7.9%
+    (11, 5, 3),     # 13.8%
+#    (12, 5, 3),     # 23.1%
     # D = 4: combinations that are doable
-    (6, 4, 4),      # 0.3%
-    (10, 5, 4),     # 23.0%
+#    (6, 4, 4),      # 0.3%
+#    (10, 5, 4),     # 18.8%
     # D = 5: combinations that are doable
-    (7, 5, 5)       # 4.8%
+#    (7, 5, 5)       # 4.5%
     # Higher dimensions are for now too costly
 ]
 const RAM_GIBS  = [4, 29, 59]              # RAM budgets in GiB for which a plan is made (4 = laptop; HPC: 29 if 1/8 of a node, 59 if 1/4 of a node, 238 if a full node)

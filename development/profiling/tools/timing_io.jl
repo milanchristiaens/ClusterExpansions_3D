@@ -1,5 +1,5 @@
 # timing_io.jl -- the data side of the timing scripts: TimerOutput -> rows -> CSV file -> rows, and where the data of a script goes.
-# Used by the profiling scripts (ising_model_3D_CE_CTMRG_profiling.jl, ising_model_3D_CE_vbPEPS_profiling.jl) and by comparing/ising_model_3D_CE_vbPEPS_compare.jl.
+# Used by the profiling scripts (ising_model_3D_CE_CTMRG_profiling.jl, ising_model_3D_CE_vbPEPS_profiling.jl) and by the scripts in comparing/.
 # Needs: using TimerOutputs, ClusterExpansions (and the three folder functions below need nothing else)
 # The plots are in timing_plots.jl, the helpers of the compare scripts in compare_tools.jl.
 

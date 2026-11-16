@@ -3,8 +3,9 @@
 # Contents:
 #   Where the data goes        data/contraction_plans/<script name>/<run>/   (bench_run_dir, existing_bench_run_dir)
 #   results.csv of a run       BENCH_HEADER, append_bench_row, read_bench_results   (ONE row per timed plan, all repetitions in it)
-#   Plots                      make_times_figure (ONE figure, 2 panels), and the list BENCH_PLOTS that
-#                              make_all_benchmark_plots runs at the end of the benchmark
+#   Plots                      make_times_figure (ONE figure, 2 panels, one figure per allocator),
+#                              make_allocator_figure (reuse against manual, per RAM budget), make_ram_figure (time against RAM budget, per dimension set),
+#                              and the list BENCH_PLOTS that make_all_benchmark_plots runs at the end of the benchmark
 #
 # More plots can be made/added later.
 # `rows` are the rows of results.csv (see read_bench_results): they have the fields below, so a new plot never needs the benchmark to run again.
@@ -225,9 +226,111 @@ function make_times_figure(rows)
         plot_title = bench_label(rows), plot_titlefontsize = 10)
 end
 
-# All plots that are made at the end of the benchmark: file name => function(rows) returning a plot. A new plot = a new entry here.
+# ======================================================================================================================
+# Reuse against manual allocator, and time against RAM budget
+# ======================================================================================================================
+# The finished rows of one allocator
+rows_of(rows, alloc) = [r for r in rows if r.alloc == alloc && isfinite(r.tmin)]
+
+# The reuse row and the manual row of the same plan: same dimensions, same source (tree), same cuts and same RAM budget.
+# (Not the name: SOURCE#N is counted per allocator, so a plan that only one allocator has would shift the numbers.)
+plan_id(r) = (bench_dims(r), r.source, r.cuts, r.ram_gib)
+function allocator_pairs(rows)
+    man = Dict(plan_id(r) => r for r in rows_of(rows, "manual"))
+    return [(reuse = r, manual = man[plan_id(r)]) for r in rows_of(rows, "reuse") if haskey(man, plan_id(r))]
+end
+
+# Reuse against manual, for the plans made for ONE RAM budget (ram). Two panels:
+#   left:  time of every plan, filled marker = reuse, open marker = manual (same colour and marker shape = same tree), a thin line joins the two of one plan
+#   right: (t_manual - t_reuse) / t_reuse in percent: > 0 means that manual is slower
+# x = the dimension sets, sorted by the mean reuse time.
+function plot_allocator_pair(pairs, ram)
+    dims = unique(bench_dims(p.reuse) for p in pairs)
+    meanreuse(d) = (v = [p.reuse.tmin for p in pairs if bench_dims(p.reuse) == d]; sum(v) / length(v))
+    order = sort(dims; by = meanreuse)
+    n = length(order)
+    xpos = Dict(d => i for (i, d) in enumerate(order))
+    ylims, yticks = log_time_axis(vcat([p.reuse for p in pairs], [p.manual for p in pairs]))
+    common = (; xticks = (1:n, dims_label.(order)), xrotation = 45, xlims = (0.5, n + 0.5), gridalpha = 0.25, xlabel = "(χenv, χpeps, D), sorted by mean reuse time")
+    pt = plot(; ylabel = "time of the contraction [s]", yscale = :log10, ylims, yticks, legend = :topleft, minorgrid = true, minorgridalpha = 0.12,
+        title = "plans for $(fmt_gib(ram)) GiB: filled = reuse, open = manual", common...)
+    pr = plot(; ylabel = "(t_manual - t_reuse) / t_reuse [%]", legend = false, title = "plans for $(fmt_gib(ram)) GiB: > 0 means manual is slower", common...)
+    hline!(pr, [0.0]; color = :black, linewidth = 1, label = "")
+    for (k, tk) in enumerate(TREE_KINDS)
+        ps = [p for p in pairs if tree_kind(p.reuse.source) == tk.kind]
+        isempty(ps) && continue
+        x = [xpos[bench_dims(p.reuse)] + dodge(k) for p in ps]
+        tr = [p.reuse.tmin for p in ps]; tm = [p.manual.tmin for p in ps]
+        plot!(pt, vcat([[xi - 0.025, xi + 0.025, NaN] for xi in x]...), vcat([[a, b, NaN] for (a, b) in zip(tr, tm)]...); color = tk.color, linewidth = 1, label = "")
+        scatter!(pt, x .- 0.025, tr; color = tk.color, marker = tk.marker, markersize = 7, markerstrokecolor = :white, markerstrokewidth = 1, label = tk.kind)
+        scatter!(pt, x .+ 0.025, tm; color = :white, marker = tk.marker, markersize = 7, markerstrokecolor = tk.color, markerstrokewidth = 2, label = "")
+        scatter!(pr, x, 100 .* (tm .- tr) ./ tr; color = tk.color, marker = tk.marker, markersize = 7, markerstrokecolor = :white, markerstrokewidth = 1, label = tk.kind)
+    end
+    return pt, pr
+end
+
+fmt_gib(x) = isinteger(x) ? string(Int(x)) : string(x)
+
+# ONE figure: one row of two panels (plot_allocator_pair) per RAM budget that has plans timed with both allocators; nothing if there is none
+function make_allocator_figure(rows)
+    pairs = allocator_pairs(rows)
+    rams = sort(unique(p.reuse.ram_gib for p in pairs))
+    isempty(rams) && return nothing
+    panels = Any[]
+    for ram in rams
+        append!(panels, plot_allocator_pair([p for p in pairs if p.reuse.ram_gib == ram], ram))
+    end
+    height = 120 + 620 * length(rams)
+    return plot(panels...; layout = (length(rams), 2), size = (1900, height), left_margin = 10mm, bottom_margin = 12mm, top_margin = 4mm,
+        plot_title = bench_label(rows) * "\nreuse against manual: same tree and same cuts, only the allocator differs", plot_titlefontsize = 10,
+        plot_titlevspan = 100 / height)       # room for the 3 lines of the title
+end
+
+# Time against RAM budget for ONE dimension set: x = RAM budget of the plan (log axis, ticks at the budgets), y = time (log).
+# One step line per tree and allocator (solid + filled markers = reuse, dashed + open markers = manual): a tree keeps its time until a larger
+# budget allows a plan with fewer cuts (a plan that is the same for several budgets is only in the file once, for the smallest one), so the line
+# is drawn as a step and carried on to the largest budget of the panel. The number next to a marker is the number of slices of that plan.
+function plot_ram_panel(rows, d)
+    sel = [r for r in rows if isfinite(r.tmin) && bench_dims(r) == d]
+    rams = sort(unique(r.ram_gib for r in sel))
+    xmax = maximum(rams)
+    ylims, yticks = log_time_axis(sel)
+    p = plot(; title = "(χenv, χpeps, D) = ($(dims_label(d)))", xlabel = "RAM budget of the plan [GiB]", ylabel = "time [s]", xscale = :log10, yscale = :log10,
+        xticks = (rams, fmt_gib.(rams)), xlims = (minimum(rams) / 1.4, xmax * 1.4), ylims, yticks, legend = :outertopright, gridalpha = 0.25)
+    for tk in TREE_KINDS, (alloc, ls, open_marker) in (("reuse", :solid, false), ("manual", :dash, true))
+        pts = sort([r for r in sel if tree_kind(r.source) == tk.kind && r.alloc == alloc]; by = r -> r.ram_gib)
+        isempty(pts) && continue
+        xs = [r.ram_gib for r in pts]; ys = [r.tmin for r in pts]
+        plot!(p, vcat(xs, xmax), vcat(ys, ys[end]); seriestype = :steppost, color = tk.color, linestyle = ls, linewidth = 2, label = "")
+        scatter!(p, xs, ys; color = open_marker ? :white : tk.color, marker = tk.marker, markersize = 7, markerstrokecolor = open_marker ? tk.color : :white,
+            markerstrokewidth = open_marker ? 2 : 1, label = "$(tk.kind), $alloc")
+        annotate!(p, [(x * 1.08, y, text(string(round(Int, r.slices)), 7, tk.color, :left)) for (x, y, r) in zip(xs, ys, pts)])
+    end
+    return p
+end
+
+# ONE figure: one panel (plot_ram_panel) per dimension set that has plans for at least two RAM budgets; nothing if there is none
+function make_ram_figure(rows)
+    ok = filter(r -> isfinite(r.tmin), rows)
+    dims = [d for d in dims_order(ok) if length(unique(r.ram_gib for r in ok if bench_dims(r) == d)) >= 2]
+    isempty(dims) && return nothing
+    ncol = min(length(dims), 3)
+    nrow = cld(length(dims), ncol)
+    height = 120 + 560 * nrow
+    return plot([plot_ram_panel(ok, d) for d in dims]...; layout = (nrow, ncol), size = (max(900 * ncol, 1500), height), left_margin = 10mm, bottom_margin = 10mm,
+        top_margin = 4mm, plot_title = bench_label(rows) * "\ntime against the RAM budget the plan was made for (number = slices)", plot_titlefontsize = 10,
+        plot_titlevspan = 100 / height)       # room for the 3 lines of the title
+end
+
+# The figure of make_times_figure for the rows of ONE allocator (nothing if that allocator has no finished plan)
+times_figure_of(alloc) = rows -> (sub = rows_of(rows, alloc); isempty(sub) ? nothing : make_times_figure(sub))
+
+# All plots that are made at the end of the benchmark: file name => function(rows) returning a plot, or nothing if there is no data for it. A new plot = a new entry here.
 const BENCH_PLOTS = Pair{String,Function}[
-    "benchmark_times.png" => make_times_figure,
+    "benchmark_times_reuse.png" => times_figure_of("reuse"),
+    "benchmark_times_manual.png" => times_figure_of("manual"),
+    "benchmark_allocators.png" => make_allocator_figure,
+    "benchmark_ram.png" => make_ram_figure,
 ]
 
 # Makes every plot of BENCH_PLOTS from the rows and saves it in outdir. Every plot is made in its own try, so that a plot that cannot be made does not stop the others
@@ -240,6 +343,10 @@ function make_all_benchmark_plots(rows, outdir)
     for (file, makeplot) in BENCH_PLOTS
         try
             plt = makeplot(rows)
+            if plt === nothing
+                @info "Plot $file not made: no data for it in this run"
+                continue
+            end
             savefig(plt, joinpath(outdir, file))
             @info "Plot saved: $(joinpath(outdir, file))"
         catch err

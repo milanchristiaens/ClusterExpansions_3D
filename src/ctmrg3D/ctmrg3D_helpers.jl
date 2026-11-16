@@ -100,12 +100,34 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     verbosity::Int
     west_updates::Union{Int, Symbol}   # West updates per side: Int >= 1, or :auto (stop once ϵ < west_tol, at most 4)
     west_tol::Float64
+    projectors::Symbol                 # :svd = U * sqrt(S) from the SVD of ONE enlarged tensor (original), :oblique = one projector pair per bond (Proposal 1, get_projectors_oblique)
+    max_seconds::Float64               # time limit of leading_boundary in seconds (Inf = none)
 
-    function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}
-        A, E, C = CTMRG3D_init(O; Vp, Vbp, Vv)
+    # env0 = nothing: cold start, the 26 environment tensors depend on init:
+    #        init = :random (default) every tensor random (randn), for both projector kinds.    
+    #        The random numbers come from a local generator with seed init_seed, so a run is reproducible and the global seed is not touched.
+    #        init = :ones   all ones, for both projector kinds. Note: this start is rank one, and :oblique keeps a rank-one
+    #                       environment rank one (its projectors are exact on the support of R1 * R2, and the pseudo-inverse drops the rest.
+    # env0 = an earlier CTMRG3D: warm start, we copy its C, E, A and only take the new O
+function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, 
+                maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol, 
+                projectors::Symbol = :svd, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, max_seconds::Real = Inf) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
+        init in (:ones, :random) || throw(ArgumentError("init must be :ones or :random, got :$init"))
+        if env0 === nothing
+            A, E, C = CTMRG3D_init(O; Vp, Vbp, Vv)
+            init === :random && ((A, E, C) = random_init(A, E, C; seed = init_seed))
+        else
+            space(env0.O) == space(O) || throw(ArgumentError("warm start: the O of env0 has other spaces than the new O ($(space(env0.O)) against $(space(O)))"))
+            # copies of the arrays (not of the tensors): the steps replace tensors in these arrays, env0 must keep its own
+            A, E, C = copy(env0.A), copy(env0.E), copy(env0.C)
+        end
         (west_updates === :auto || (west_updates isa Int && west_updates ≥ 1)) ||
             throw(ArgumentError("west_updates must be :auto or an integer ≥ 1"))
-        new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, verbosity, west_updates, west_tol)
+        projectors in (:svd, :oblique) || throw(ArgumentError("projectors must be :svd or :oblique, got :$projectors"))
+        
+        max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
+        new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, 
+                                                                verbosity, west_updates, west_tol, projectors, Float64(max_seconds))
     end
 end
 
@@ -117,6 +139,13 @@ function CTMRG3D_init(O::TensorMap{T,S,0,6}; Vp = space(O)[1]', Vbp = oneunit(Vp
     C = ones(S_type, Vv, Vv' ⊗ Vv')
     C = fill(permute(C, ((),(1,2,3))), 8)
     return A, E, C
+end
+
+# Random tensors (randn) with the spaces of the tensors of CTMRG3D_init, from a local random number generator (seed), so the global seed is not touched
+function random_init(A, E, C; seed = 1)
+    rng = Random.Xoshiro(seed)
+    make(x) = randn!(rng, similar(x))
+    return make.(A), make.(E), make.(C)
 end
 
 envspace(env::CTMRG3D) = domain(env.E[1])[1]
@@ -242,18 +271,94 @@ function get_projectors_edge(ees, trunc)
     return Ws
 end
 
+# ============================================================================================
+# projectors = :oblique: one projector pair per bond of the new West plane
+# ============================================================================================
+# The projectors above only look at ONE side of a bond (the SVD of ec or ee alone). Here every bond gets a pair (P1, P2) built from
+# the two enlarged tensors on both sides of it, as in Verraes eqs. 3.48-3.51 (and oblique_projector in local_truncation.jl):
+#   X (left) = Q1 * R1,  Y (right) = R2 * Q2   (QR / RQ, so that the big X and Y are never multiplied; X * Y is the doubled bond)
+#   R1 * R2 ≈ U * S * V'   (truncated SVD),   P1 = R2 * V * S^(-1/2),   P2 = S^(-1/2) * U' * R1
+# so that X * P1 * P2 * Y = Q1 * (U S V')_truncated * Q2 ≈ X * Y. Without truncation P1 * P2 is the identity on the bond.
+# S^(-1/2) is a pseudo-inverse
+# The 12 bonds (i = 1..4, in the order of enlarged_corners / enlarged_edges):
+#   y_i:  UP pair of corner i     <->  DOWN pair of edge i        (truncated to χenv)
+#   z_i:  NORTH pair of corner i  <->  UP pair of edge i-1        (truncated to χenv; renormalize_edges uses Uzs[i+1] on edge i)
+#   f_i:  NORTH pair of edge i    <->  pair i of the face (UP, NORTH, DOWN, SOUTH), only this pair sees O   (truncated to χpeps)
+# See Typst file for clearer convention explanation, also NORTH and UP refer to leg names, not to the locations of these enlarged (= pair) tensors
+# X is always the edge (bonds y, z) or the face (bonds f), Y the corner (y, z) or the edge (f).
+function oblique_pair(R1, R2, trunc)
+    U, S, Vᴴ = @timeit to "oblique projector: svd_trunc of R1*R2" svd_trunc(R1 * R2; trunc)
+    return @timeit to "oblique projector: build P1 P2" begin
+        isqS = PEPSKit.sdiag_pow(S, -1 / 2)
+        (R2 * Vᴴ' * isqS, isqS * U' * R1)
+    end
+end
+
+# R1 of X = Q1 * R1 (bond = the domain of X) and R2 of Y = R2 * Q2 (bond = the codomain of Y)
+_R_left(X) = (@timeit to "oblique projector: left_orth (QR)" left_orth(X))[2]
+_R_right(Y) = (@timeit to "oblique projector: right_orth (RQ)" right_orth(Y))[1]
+
+# Returns the projectors in the form that renormalize_corners, renormalize_edges and renormalize_side expect.
+# renormalize_* expects P[pair; new]: the two legs of the pair in the codomain, the single compressed leg in the domain.
+# Those functions apply conj(P)[pair; new] on the corner side and on the NORTH pair of the edges (right), and P[pair; new] on the other sides (left),
+# so the corner-side member P2 (new ← pair) is passed as its adjoint (conj(P2')[pair; new] = P2[new; pair]).
+function get_projectors_oblique(ecs, ees, es, trunc_env, trunc_bpeps)
+    Uys_c, Uzs_c, Uys_e, Uzs_e = [], [], [], []
+    for i = 1:4
+        # bond y_i: This returns the projectors
+        P1, P2 = oblique_pair(
+            _R_left( permute(ees[i], ((1,2,3,4,7),(5,6))) ),        # X: regroup the legs such that domain becomes the bond (all rest codomain)
+            _R_right( permute(ecs[i], ((1,2),(3,4,5))) ),           # Y: regroup the legs such that codomain becomes the bond (all rest domain)
+            trunc_env)
+        # We have to take the adjoint of P2: P2'[pair; new] = conj(P2[new; pair])
+        push!(Uys_e, P1); push!(Uys_c, copy(P2'))
+
+        # bond z_i:This returns the projectors
+        P1, P2 = oblique_pair(
+            _R_left( permute(ees[mod1(i-1,4)], ((3,4,5,6,7),(1,2))) ),  # X: regroup the legs such that domain becomes the bond (all rest codomain)
+            _R_right( permute(ecs[i], ((3,4),(1,2,5))) ),               # Y: regroup the legs such that codomain becomes the bond (all rest domain)
+            trunc_env)
+        # We have to take the adjoint of P2: P2'[pair; new] = conj(P2[new; pair])
+        # Note that Uzs_e[i] belongs to edge i−1 (z2 = E1-C2), which is why renormalize_edges reads Uzs[mod1(i+1,4)] for edge i.
+        push!(Uzs_e, P1); push!(Uzs_c, copy(P2'))
+    end
+
+    Ws_e, Ws_f = [], []
+    for k = 1:4
+        # bond f_k: the face with its pair k (legs 2k, 2k+1 of es) as the domain, edge k with its NORTH pair as the codomain
+        pair = (2k, 2k+1)
+        P1, P2 = oblique_pair(
+            _R_left( permute(es, (Tuple(setdiff(1:9, pair)), pair)) ),  # X: face with pair k as its domain, all rest codomain
+            _R_right( permute(ees[k], ((3,4),(1,2,5,6,7))) ),           # Y: edge with bond in codomain, rest in domain
+            trunc_bpeps)
+        # We have to take the adjoint of P2: P2'[pair; new] = conj(P2[new; pair])
+        push!(Ws_f, P1); push!(Ws_e, copy(P2'))
+    end
+    return Uys_c, Uzs_c, Uys_e, Uzs_e, Ws_e, Ws_f
+end
+
 
 function partial_ctmrgstep(env::CTMRG3D)
     ecs = @timeit to "enlarged_corners (4 contractions)" enlarged_corners(env)
     ees = @timeit to "enlarged_edges (4 contractions)" enlarged_edges(env)
     es = @timeit to "enlarged_side (1 contraction)" enlarged_side(env)
 
-    Uys, Uzs = @timeit to "get_projectors_corner (8 SVDs)" get_projectors_corner(ecs, env.trunc_env)
-    Ws = @timeit to "get_projectors_edge (4 SVDs)" get_projectors_edge(ees, env.trunc_bpeps)
+    if env.projectors === :svd
+        # svd: one projector per bond, the same one on both sides
+        Uys, Uzs = @timeit to "get_projectors_corner (8 SVDs)" get_projectors_corner(ecs, env.trunc_env)
+        Ws = @timeit to "get_projectors_edge (4 SVDs)" get_projectors_edge(ees, env.trunc_bpeps)
 
-    @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys, Uzs)
-    @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys, Uzs, Ws)
-    @timeit to "renormalize_side" renormalize_side(env, es, Ws)
+        @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys, Uzs)
+        @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys, Uzs, Ws)
+        @timeit to "renormalize_side" renormalize_side(env, es, Ws)
+    else
+        # oblique: one projector pair per bond, each side of the bond gets its own member
+        Uys_c, Uzs_c, Uys_e, Uzs_e, Ws_e, Ws_f = @timeit to "get_projectors_oblique (12 bonds)" get_projectors_oblique(ecs, ees, es, env.trunc_env, env.trunc_bpeps)
+
+        @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys_c, Uzs_c)
+        @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys_e, Uzs_e, Ws_e)
+        @timeit to "renormalize_side" renormalize_side(env, es, Ws_f)
+    end
 
     @timeit to "normalize! (all 26 tensors)" normalize!(env)
 

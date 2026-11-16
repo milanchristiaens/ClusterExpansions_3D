@@ -43,9 +43,10 @@ end
 include("clusterexpansions/utility/symmetries.jl")
 
 include("utility/observables.jl")
-include("utility/observables_cubic_bpeps.jl")
-include("utility/ctmrg3D_main.jl")
-include("utility/ctmrg3D_helpers.jl")
+include("bpeps/bpeps_main.jl")
+include("bpeps/bpeps_helpers.jl")
+include("ctmrg3D/ctmrg3D_main.jl")
+include("ctmrg3D/ctmrg3D_helpers.jl")
 include("utility/contract_onesite_slicing.jl")
 
 include("time_evolution/local_truncation.jl")

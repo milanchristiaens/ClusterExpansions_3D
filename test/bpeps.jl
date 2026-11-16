@@ -1,10 +1,10 @@
-# Test of the variational boundary PEPS (src/utility/observables_cubic_bpeps.jl) on a small 3D Ising PEPO (cluster expansion, g = 2, β = 0.2, D = 2).
+# Test of the variational boundary PEPS (src/bpeps/bpeps_main.jl, bpeps_helpers.jl) on a small 3D Ising PEPO (cluster expansion, g = 2, β = 0.2, D = 2).
 # Small sizes only (χpeps = 3, χenv = 8); most of the time is compilation.
 # What is tested:
 #   (1) the layout of the 2D PEPO tensor,
 #   (2) the gradient of the cost function with fixed environments (differentiate_environment = false, the default) agrees with a finite difference of the cost
 #       with frozen environments: this tests the automatic differentiation of the network values. It does NOT test that this gradient is the gradient of the
-#       total cost (environments re-converged): that is only approximately true, see the comment in observables_cubic_bpeps.jl (section 4) and
+#       total cost (environments re-converged): that is only approximately true, see the comment in bpeps_helpers.jl (section 4) and
 #       development/checks/check_bpeps_gradient.jl, which prints the numbers,
 #   (3) bpeps_optimize runs (a few LBFGS steps, from the power-method start and warm-started), gives a finite cost, a finite observable, and the nested "bPEPS: ..." timers.
 # NOT tested here (a test that the LBFGS cost decreases would be unreliable): the 2D CTMRG of this small case converges to different fixed points for different random

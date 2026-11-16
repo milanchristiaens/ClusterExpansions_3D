@@ -181,14 +181,14 @@ end
     @test CE.onesite_read_plans(path)[1].time_s == 4.5
 
     # a REAL update: time_real_s, and the seven measurement columns now belong to the real run; time_s stays
-    @test CE.onesite_update_plans(path, [merge(upd, (time_s = 9.0, allocator = "manual", rss_gib = 3.5, note = "real"))]; env = :real) == 1
+    @test CE.onesite_update_plans(path, [merge(upd, (time_s = 9.0, rss_gib = 3.5, note = "real"))]; env = :real) == 1
     r1 = CE.onesite_read_plans(path)[1]
-    @test r1.time_s == 4.5 && r1.time_real_s == 9.0 && r1.allocator == "manual" && r1.rss_gib == 3.5 && r1.note == "real"
+    @test r1.time_s == 4.5 && r1.time_real_s == 9.0 && r1.allocator == "reuse" && r1.rss_gib == 3.5 && r1.note == "real"
     @test CE.onesite_plan_time(r1) == 9.0                              # the real time counts, not the (smaller) mock time
     # a later MOCK update changes time_s only; the measurements of the real run are kept
-    @test CE.onesite_update_plans(path, [merge(upd, (time_s = 5.5, allocator = "reuse", rss_gib = 1.0, note = "mock again"))]) == 1
+    @test CE.onesite_update_plans(path, [merge(upd, (time_s = 5.5, rss_gib = 1.0, note = "mock again"))]) == 1
     r1 = CE.onesite_read_plans(path)[1]
-    @test r1.time_s == 5.5 && r1.time_real_s == 9.0 && r1.allocator == "manual" && r1.rss_gib == 3.5 && r1.note == "real"
+    @test r1.time_s == 5.5 && r1.time_real_s == 9.0 && r1.allocator == "reuse" && r1.rss_gib == 3.5 && r1.note == "real"
     # an update without a finite time (skipped or failed run) only writes the note, and keeps the times and the measurements
     @test CE.onesite_update_plans(path, [merge(upd, (time_s = NaN, note = "skipped: too big"))]; env = :real) == 1
     r1 = CE.onesite_read_plans(path)[1]
@@ -207,6 +207,18 @@ end
     CE.onesite_update_plans(path, [merge(upd, (time_s = 200.0,))]; env = :real)
     b2 = CE.onesite_choose_plan(d; ram_gib = max(rows[1].ram_gib, rows[2].ram_gib), plans = path)
     @test startswith(b2.source, "plan file") && b2.tree == rows[2].tree && b2.cuts == rows[2].cuts
+    # the allocator is part of the key: a manual copy of every plan (same tree and cuts, right below it, no times), with its own measurements;
+    # the plans of one allocator are only used for that allocator
+    n0 = length(CE.onesite_read_plans(path))
+    @test CE.onesite_add_allocator_copies(path, :manual) == n0
+    @test CE.onesite_add_allocator_copies(path, :manual) == 0
+    all2 = CE.onesite_read_plans(path)
+    @test length(all2) == 2n0 && all(all2[2i].allocator == "manual" && all2[2i].tree == all2[2i - 1].tree && all2[2i].cuts == all2[2i - 1].cuts &&
+                                     isnan(all2[2i].time_s) && isnan(all2[2i].time_real_s) for i in 1:n0)
+    @test length(CE.onesite_plans_for(d, path; allocator = :manual)) == n0 && length(CE.onesite_plans_for(d, path)) == n0
+    @test CE.onesite_update_plans(path, [merge(upd, (allocator = "manual", time_s = 1.25))]) == 1
+    @test CE.onesite_read_plans(path)[2].time_s == 1.25 && CE.onesite_read_plans(path)[1].time_s == 5.5 && CE.onesite_read_plans(path)[1].time_real_s == 200.0
+    @test CE.onesite_write_plans(path, rows) == 0
 end
 
 # ----------------------------------------------------------------------------------------------------------------------
