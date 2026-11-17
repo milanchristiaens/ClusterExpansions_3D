@@ -56,7 +56,7 @@ const T = Float64
 const spin_symmetry = Trivial
 const J = 1.0
 const g = 0.0
-const D_CE = 3      # the same as in ising_model_3D_CE_CTMRG_compare.jl (the same PEPO)
+const D_CE = 2      # smaller than in ising_model_3D_CE_CTMRG_compare.jl (D_CE = 3 didn't work/converge)
 const chipeps = 2   # smaller than D_CE: a coarse boundary PEPS, chosen to keep the cost per call affordable
 const chienv = 14   # above the bond of the three-layer network (chipeps * D_CE * chipeps = 12)
 const Δβ_iter = 0.005
@@ -81,7 +81,7 @@ const base_kwargs = (;
     boundary_alg_type = SimultaneousCTMRG, symmetrization = nothing,
     boundary_tol = 1.0e-10, boundary_maxiter = 1500, boundary_verbosity = 1,
     gradient_tol = 1.0e-6, gradient_maxiter = 5, gradient_krylovdim = 20,
-    optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 10,
+    optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 100,     # optimizer_maxiter = 100 is super high, but it will be stopped due to time limit before that
     maxiter_init = 20,
     optimizer_verbosity = 2,
 )

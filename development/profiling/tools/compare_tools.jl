@@ -129,7 +129,7 @@ function ising_results_file(path = ISING_RESULTS_PATH)
         mkpath(dirname(path))
         open(io -> println(io, ISING_CSV_HEADER), path, "w")
     end
-    return paths
+    return path
 end
 
 
@@ -183,9 +183,7 @@ end
 
 # The observations that we use in the spread plot: leaves out the cases, flagged / failed / timed out observations and outliers (see the keyword arguments).
 # Prints what is left out. The magnetization is |m| because the sign is arbitrary (Z2).
-# The vbPEPS compare run and the CTMRG3D compare run write different CSV columns:
 # A row fails if m is not finite; a vbPEPS row also if its cost f is not finite (CTMRG3D has no f).
-# rows without a field timed_out (which also correspond to CTMRG3D) are never timed out.
 function spread_points(rows; exclude_cases = String[], exclude_flagged = true, exclude_timed_out = true, outlier_tol = 0.1)
     reason(r) = if r.case in exclude_cases
         "case left out"

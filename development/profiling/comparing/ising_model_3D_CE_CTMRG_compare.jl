@@ -64,7 +64,8 @@ const chienv = 11
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter).
 # One point in each phase and four around βc ≈ 0.2217 (the transition of the finite-χ results is shifted and smeared, so we cover 0.19-0.25).
-const β_obs = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]
+#const β_obs = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]
+const β_obs = [0.21]
 
 # Settings of CTMRG3D (the same for all cases, except projectors and the start, which are the 4 cases)
 const ctm_miniter = 3
@@ -83,9 +84,9 @@ const MIN_SECONDS_OBS = 60.0            # but every observation gets at least th
 # (name, projectors, warm start)
 const CASES = [
     ("svd_cold", :svd, false),
-    ("svd_warm", :svd, true),
-    ("oblique_cold", :oblique, false),
-    ("oblique_warm", :oblique, true),
+#    ("svd_warm", :svd, true),
+#    ("oblique_cold", :oblique, false),
+#    ("oblique_warm", :oblique, true),
 ]
 
 # If REPLOT_DIR is the NAME of a run folder (for example "20261116_1500") in data/profiling/comparing/ising_model_3D_CE_CTMRG_compare/,
