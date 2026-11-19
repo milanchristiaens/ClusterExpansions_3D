@@ -1,0 +1,26 @@
+#!/bin/bash
+# job_vbpeps_compare.pbs -- ising_model_3D_CE_vbPEPS_compare.jl on CORES Hortense cores (default 2, about 3.7 GiB): one job of a pilot, of the timing
+# (fast against slow) or of a full run.
+# Submitted by submit_compare.sh, which passes PROFILE (pilot, timing or hpc), IMPL (pepskit or betterpepskit), CORES, DIMS (one candidate of the pilot),
+# CASE (one case of the full run) and RUN (the run folder; the parallel jobs of one full run share it) with qsub -v, and sets the cores and the walltime.
+# The same core budget per case as the CTMRG3D compare: 2 cores × 32 h = 4 cores × 16 h = 64 core hours (the time limits are in the profiles of the
+# script). The PEPOs and start states come from the PEPO file (job_pepos.pbs first).
+# The environment follows the implementation: betterpepskit runs in development/fast_vbpeps (BetterPEPSKit, without ClusterExpansions), pepskit in the
+# environment of the clone (its compilation of the `true` cases, about 2 h, comes on top of the budget).
+#PBS -A starting_2026_079
+#PBS -N vbpeps_compare
+#PBS -l nodes=1:ppn=2
+#PBS -l walltime=34:00:00
+#PBS -j oe
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+JULIA_THREADS=${CORES:-2}     # vbPEPS: one Julia thread per core, 1 BLAS thread each (the script sets the BLAS threads from its profile)
+export OPENBLAS_NUM_THREADS=1
+export CE_COMPARE_PROFILE=${PROFILE:-pilot}
+export CE_COMPARE_IMPL=${IMPL:-betterpepskit}
+[ -n "${DIMS:-}" ] && export CE_COMPARE_DIMS=$DIMS
+[ -n "${CASE:-}" ] && export CE_COMPARE_CASES=$CASE
+[ -n "${RUN:-}" ] && export CE_COMPARE_RUN=$RUN
+if [ "$CE_COMPARE_IMPL" = betterpepskit ]; then ENVDIR=development/fast_vbpeps; else ENVDIR=.; fi
+cd "$REPO"
+julia -t $JULIA_THREADS --project=$ENVDIR development/profiling/comparing/ising_model_3D_CE_vbPEPS_compare.jl

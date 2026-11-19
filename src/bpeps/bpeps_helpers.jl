@@ -258,9 +258,9 @@ end
 
 # O: 2D PEPO tensor O[(DOWN, UP); (N, E, S, W)], T = InfinitePEPO(O), Vpeps = virtual space of the boundary PEPS (dimension χpeps)
 function bpeps_initial_state(O, T::InfinitePEPO, Vpeps; maxiter_init::Int = 20)
-    # Construct a random ComplexF64 boundary PEPS with 1 physical leg (codomain), 4 virtual legs (N, E, S, W) (domain)
-    # all legs have space Vpeps
-    ψ = initializePEPS(T, Vpeps)[1, 1]
+    # Construct a random boundary PEPS with the element type of O (Float64 for a real PEPO), 1 physical leg (codomain; the physical space of T,
+    # as in PEPSKit.initializePEPS, which is always ComplexF64) and 4 virtual legs (N, E, S, W) (domain), all with space Vpeps
+    ψ = InfinitePEPS(randn, scalartype(O), PEPSKit.domain_physicalspace(T, 1, 1), Vpeps, Vpeps)[1, 1]
 
     # Now define the truncation algorithm, we use local truncation, with limit = dim(Vpeps) = chi_peps
     trunc_alg = NoEnvTruncation(truncrank(dim(Vpeps)))
@@ -287,14 +287,12 @@ function bpeps_pepo_tensor(PEPO::AbstractTensorMap{A,S,2,6}, obs = nothing) wher
     # 6 virtual legs of PEPO are in order: U, N, E, D, S, W in domain
 
     if obs === nothing
-        # Trace physical legs and place (DOWN, UP) in the 'physical legs' space
+        # Trace physical legs and place (DOWN, UP) in the 'physical legs' space; O keeps the element type of the PEPO (the boundary PEPS gets the same one)
         @tensor O[-1 -2; -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -2 -3 -4 -1 -5 -6]
-
-        # O has to be made Complex, for matching with initializePEPS
-        return scalartype(O) <: Complex ? O : complex(O)
+        return O
     end
 
     # If obs:
     @tensor M[-1 -2; -3 -4 -5 -6] := twist(PEPO, 2)[1 2; -2 -3 -4 -1 -5 -6] * obs[2; 1]
-    return scalartype(M) <: Complex ? M : complex(M)
+    return M
 end

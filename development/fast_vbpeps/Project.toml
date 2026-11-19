@@ -1,0 +1,11 @@
+[deps]
+BetterPEPSKit = "21e266e9-103e-48e3-9147-d6755bc7be1e"
+JLD2 = "033835bb-8acc-5ee8-8aae-3f567f8a3819"
+KrylovKit = "0b1a1467-8014-51b9-945f-bf0ae24f4b77"
+MPSKit = "bb1c41ca-d63c-52ed-829e-0820dda26502"
+OptimKit = "77e91f04-9b3b-57a6-a776-40b61faaebe0"
+SUNRepresentations = "1a50b95c-7aac-476d-a9ce-2bfc675fc617"
+TensorKit = "07d1fe3e-3e46-537d-9eac-e9e13d0d4cec"
+TimerOutputs = "a759f4b9-e2f1-59dc-863e-4aeb61b1ea8f"
+WignerSymbols = "9f57e263-0b3d-5e2e-b1be-24f2bb48858b"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"

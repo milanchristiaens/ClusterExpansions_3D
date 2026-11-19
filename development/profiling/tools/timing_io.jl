@@ -52,7 +52,10 @@ end
 # └─ B (3 s)
 #     └─ B1 (2 s)
 # Then we get: TOTAL, A, A1, A2, B, B1
-function timer_rows(to::TimerOutput)
+timer_rows(to::TimerOutput) = timer_rows(TimerOutputs.todict(to))
+# (also for the Dict of TimerOutputs.todict; MAXALLOC of ClusterExpansions only when it is loaded: the vbPEPS of BetterPEPSKit runs without it)
+max_alloc_of(name) = isdefined(Main, :ClusterExpansions) ? get(Main.ClusterExpansions.MAXALLOC, name, NaN) : NaN
+function timer_rows(top::AbstractDict)
     # Start empty list, each section will become one named tuple in it
     rows = NamedTuple[]
     
@@ -80,7 +83,7 @@ function timer_rows(to::TimerOutput)
                 self = (c["time_ns"] - inner_ns(c)) / 1.0e9,    # total self time of child
                 alloc_MiB = c["allocated_bytes"] / 2^20,        # Allocated memory in MiB (2^20 Bytes)
                 pct_parent = parent_ns > 0 ? 100 * c["time_ns"] / parent_ns : NaN, # Share of parent's time in %
-                max_alloc_MiB = get(ClusterExpansions.MAXALLOC, name, NaN) / 2^20, # Largest allocation of ONE call of a section with this name (MiB)
+                max_alloc_MiB = max_alloc_of(name) / 2^20,      # Largest allocation of ONE call of a section with this name (MiB; NaN without ClusterExpansions)
             ))
 
             # Make it resursive, we visit this section's own children, one level deeper, with this section as new parent
@@ -89,8 +92,7 @@ function timer_rows(to::TimerOutput)
         end
     end
 
-    # Now we convert the whole time to dictionaries, start the walk at root with ampty prefix and depth 0
-    top = TimerOutputs.todict(to)
+    # Start the walk at the root (the whole timer as dictionaries) with empty prefix and depth 0
     # We have to pass a parent_ns, but top doesn't really have a parent, so it shouldn't have self time
     # So we can simply use time of children inner_ns(top)
     walk(top, "", 0, inner_ns(top))

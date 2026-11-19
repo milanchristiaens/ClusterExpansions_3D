@@ -36,9 +36,11 @@ end
 # Function used by rest of package, it takes the pair (lower layer, upper layer)
 # multiplies them and returns one tensor with the original bond dimension together with error estimate
 function approximate_state(
-        A::Tuple{AbstractTensorMap{E, S, 2, 6}, AbstractTensorMap{E, S, 2, 6}},
+        A::Tuple{AbstractTensorMap{E1, S, 2, 6}, AbstractTensorMap{E2, S, 2, 6}},
         trunc_alg::NoEnvTruncation; rot_invariance::Bool = false
-    ) where {E, S <: ElementarySpace}
+    ) where {E1, E2, S <: ElementarySpace}
+    # A complex layer and a real one (after the complex fallback of takagi_trunc, the real ΔO meets a complex O): we make both complex
+    E1 === E2 || (A = (complex(A[1]), complex(A[2])))
     proj = rot_invariance ? :takagi : :svd
     lattice = Cubic()
     

@@ -6,15 +6,17 @@
 #   julia +1.12 -O1 -t 6 --project=. development/contraction_plans/benchmark_contract_onesite.jl
 #
 # WHAT IT DOES
-#   The plans of the plan file that were made for a RAM budget of at most RAM_BUDGET_GIB (column ram_gib) and for the dimensions in DIMS (nothing = all dimensions of the file)
-#   are timed, one after the other, grouped by dimensions (chi_env, chi_peps, D), the cheapest dimensions first. Every plan is timed REPS times after the warm-up.
-#   - ENV_LOADER = nothing (default): the contraction runs on a MOCK environment, random dense tensors with the dimensions of the plan.
+#   The plans of the plan file that were made for a RAM budget of at most RAM_BUDGET_GIB (column ram_gib), for the dimensions in DIMS (nothing = all dimensions of the file)
+#   and for the element type of the environment (column eltype: T_MOCK for the mock environment, the element type of the real environment otherwise) are timed, one after the other, grouped by dimensions (chi_env, chi_peps, D), the cheapest dimensions first. Every plan is timed REPS times after the warm-up.
+#   - ENV_LOADER = nothing (default): the contraction runs on a MOCK environment, random dense tensors of element type T_MOCK with the dimensions of the plan.
 #     ALL plans of the same dimensions get EXACTLY the same mock environment (every child builds it with the same MOCK_SEED; the benchmark checks this, see below).
 #     The time goes into the column time_s of the plan file.
 #   - ENV_LOADER = "development/contraction_plans/env_loader_example.jl": the contraction runs on the REAL environment that this file builds (see env_loader_example.jl). Only the plans
 #     for the dimensions of that environment are timed (the others are skipped). The time goes into the column time_real_s.
+#   - ENV_LOADER = "development/contraction_plans/env_loader_pepo.jl" (the profile :validate with CE_BENCH_ENV=real): a REAL environment for EVERY set of DIMS (a few
+#     CTMRG3D iterations of the Ising PEPO of the PEPO file, built once per set and saved; see env_loader_pepo.jl). The time goes into the column time_real_s.
 #     contract_onesite_auto uses time_real_s if it is filled, otherwise time_s.
-#   The seven columns allocator, rss_gib, pool_gib, sys_s, minflt, check, note belong to the real run if there is one, otherwise to the mock run.
+#   The six columns rss_gib, pool_gib, sys_s, minflt, check, note belong to the real run if there is one, otherwise to the mock run.
 #   ALLOCATORS: the allocator is part of the identity of a plan-file row (a plan can have a reuse row and a manual row, each with its own times).
 #     Before timing, every plan of the file gets a row for every allocator in ALLOCATORS that it does not have yet (same tree and cuts, no time:
 #     CE.onesite_add_allocator_copies), and the rows of all allocators in ALLOCATORS are timed, each with its own allocator. A plan is named SOURCE#N, where N
@@ -34,8 +36,8 @@
 #     done: the first group always runs). A group that is skipped is printed. Plans of one group are never split, so that the mean of a group (right panel of the plot) is complete.
 #   A plan that needs more memory than is free (model estimate > 85 % of the free memory) is not run (unless FORCE): it gets a `note` and stays without a time.
 #
-#   A time is only valid for the machine, the allocator and the number of (BLAS) threads that it was measured with: on another machine use another plan file
-#   (PLAN_FILE here and in find_orders_ome.jl) and time it there. A plan that was made for a large RAM budget (column ram_gib) is only worth timing on a machine
+#   A time is only valid for the machine, the allocator, the element type and the number of (BLAS) threads that it was measured with: the column machine of the plan file
+#   says where a time was measured (see PROFILE), and contract_onesite_auto(...; machine) only uses the times of its machine and the plans of its element type. A plan that was made for a large RAM budget (column ram_gib) is only worth timing on a machine
 #   that has that much memory.
 
 using Printf, LinearAlgebra
@@ -46,22 +48,52 @@ const CE = ClusterExpansions
 # ======================================================================================================================
 # SETTINGS:
 # ======================================================================================================================
+# PROFILE: :laptop (default) or :hpc (the Hortense job script development/hpc/job_benchmark_plans.pbs sets CE_BENCH_PROFILE).
+#   :laptop  the (11, 5, 3) plans for RAM budgets up to 3 GiB, both allocators (machine "laptop")
+#   :hpc     Hortense (4 cores, about 7.4 GiB, as the CTMRG3D compare runs there), the 3 GiB plans of the candidates of the CTMRG3D dimension pilot,
+#            reuse allocator (the one contract_onesite_auto uses by default)
+#   :validate Hortense (4 cores), the check of the benchmark method before the full :hpc benchmark: three sets (low, medium, high), only the current tree and the
+#            ome-sc tree (our fastest), both allocators; run once with the mock environment and once with the real one (CE_BENCH_ENV=real, env_loader_pepo.jl),
+#            so all four combinations (mock/real × reuse/manual) are timed (development/hpc/job_validate_plans.pbs runs both). If mock and reuse give the same
+#            picture as real and manual, the full benchmark uses only reuse and mock.
+#   sources: the tree kinds that are timed (tree_kind of tools/benchmark_plots.jl: "current", "opt-true", "ome-flops", "ome-sc"); nothing = all
+# The time of a row goes into the plan file together with the machine (column machine). Both machines time 3 GiB plans, but of other dimensions
+# (dims), so the times of the two machines do not overwrite each other in the one plan file: do not time the Hortense dimensions on the laptop.
+const PROFILE = Symbol(get(ENV, "CE_BENCH_PROFILE", "laptop"))
+const PROFILES = Dict(
+    :laptop   => (; machine = "laptop",   ram_min = 0, ram_max = 3, dims = [(11, 5, 3)],                         allocators = ["reuse", "manual"], max_hours = 10,
+                  sources = nothing, run_dir = ""),
+    :hpc      => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(16, 5, 3), (16, 6, 3), (18, 6, 3)], allocators = ["reuse"],           max_hours = 16,
+                  sources = nothing, run_dir = ""),
+    :validate => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(8, 4, 3), (11, 5, 3), (18, 6, 3)],  allocators = ["reuse", "manual"], max_hours = 13,
+                  sources = ["current", "ome-sc"], run_dir = ""),
+)
+haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_BENCH_PROFILE): use laptop, hpc or validate")
+const P = PROFILES[PROFILE]
+const MACHINE    = P.machine                  # written into the column machine of every row that gets a time
 const PLAN_FILE  = CE.ONESITE_PLAN_FILE   # plan file that is read and updated (the same constant is in find_orders_ome.jl)
-const ENV_LOADER = nothing                # nothing = mock environment (time_s); "development/contraction_plans/env_loader_example.jl" = real environment (time_real_s)
+# nothing = mock environment (time_s); "development/contraction_plans/env_loader_example.jl" or "development/contraction_plans/env_loader_pepo.jl" = real environment
+# (time_real_s). The job script of the validation sets CE_BENCH_ENV=real for env_loader_pepo.jl.
+const ENV_LOADER = get(ENV, "CE_BENCH_ENV", "mock") == "real" ? "development/contraction_plans/env_loader_pepo.jl" : nothing
 const MOCK_SEED  = 1                      # seed of the random mock environment: the same seed gives the same environment for all plans of the same dimensions
+const T_MOCK     = Float64                # element type of the mock environment (the CE Ising PEPOs are Float64); only the plans made for it (column eltype) are timed
 const REPS       = 2                      # timed repetitions of the contraction after the warm-up (the fastest is used; all are in results.csv)
-const ALLOCATORS = ["reuse", "manual"]    # the allocators whose rows are timed (missing rows are added first, see above): ["reuse"], ["manual"] or both
+const ALLOCATORS = P.allocators           # the allocators whose rows are timed (missing rows are added first, see above): ["reuse"], ["manual"] or both
 const FORCE      = true                   # true = run also if the estimated memory exceeds 85 % of the free memory
-const RAM_BUDGET_GIB = 4                  # only plans made for a RAM budget (column ram_gib of the plan file) of at most this many GiB are timed (4 = laptop)
-const DIMS = nothing                      # nothing = all dimensions of the plan file; or a list such as [(8, 4, 3), (12, 4, 3)] for (chi_env, chi_peps, D)
-const MAX_HOURS  = 10                     # no new group of dimensions is started if it is predicted not to finish within this many hours after the start (see above)
-const RUN_DIR    = "20261111_2104"        # "" = new run folder; the NAME of an existing run folder (for example "20261111_2230") = continue that run / make its plots again
+const RAM_MIN_GIB = P.ram_min             # only plans made for a RAM budget (column ram_gib of the plan file) of at least RAM_MIN_GIB ...
+const RAM_BUDGET_GIB = P.ram_max          # ... and at most RAM_BUDGET_GIB are timed (laptop 0-3, Hortense 3)
+const DIMS = P.dims                       # nothing = all dimensions of the plan file; or a list such as [(8, 4, 3), (12, 4, 3)] for (chi_env, chi_peps, D)
+const SOURCES = P.sources                 # nothing = all tree kinds; or a list such as ["current", "ome-sc"] (tree_kind of tools/benchmark_plots.jl)
+const MAX_FLOPS  = 1.0e15                 # plans whose model flops (all slices together) exceed this are not timed (Inf = no limit)
+const MAX_SLICES = 20_000                 # plans with more slices than this are not timed (Inf = no limit)
+const MAX_HOURS  = P.max_hours            # no new group of dimensions is started if it is predicted not to finish within this many hours after the start (see above)
+const RUN_DIR    = P.run_dir              # "" = new run folder; the NAME of an existing run folder (for example "20261111_2230") = continue that run / make its plots again
 # ======================================================================================================================
 
 # The plots and the results.csv functions are only needed by the parent process (loading Plots takes long: the children do not do it)
 any(==("--child"), ARGS) || include(joinpath(@__DIR__, "tools", "benchmark_plots.jl"))
 
-# WHAT IS MEASURED (the plan file gets: time, allocator, rss_gib, pool_gib, sys_s, minflt, check, note; results.csv has all repetitions and more)
+# WHAT IS MEASURED (the plan file gets: time, machine, rss_gib, pool_gib, sys_s, minflt, check, note; results.csv has all repetitions and more)
 #   time         wall time of the whole sliced contraction (fastest of REPS, GC.gc() before each); NOT including compilation
 #   model_*      cost model (dense; src/utility/contract_onesite_slicing.jl): flops relative to current unsliced, peak of the intermediates in GiB (screen only)
 #   tracked_gib  peak bytes of ALL temporaries of one slice (TrackingAllocator; includes TensorKit's permutation copies) (screen only)
@@ -106,42 +138,31 @@ function load_env(dims)
         # And we run it in Main, and retrieve the answer (the binding is looked up AND called with invokelatest: Julia 1.12 warns about
         # a binding that was defined after this function started running)
         f = Base.invokelatest(getproperty, Main, :onesite_load_env)
-        return Base.invokelatest(f)
+        # a loader for any dimensions (env_loader_pepo.jl) takes them; a loader of one environment (env_loader_example.jl) takes nothing
+        return loader_takes_dims(f) ? Base.invokelatest(f, Tuple(dims)) : Base.invokelatest(f)
     end
     # If no real env was given, we build a random mock env (seeded: the same dims and the same MOCK_SEED always give the same tensors)
-    return CE.onesite_mock_env(ℂ^dims[1], ℂ^dims[2], ℂ^dims[3]; seed = MOCK_SEED)
+    return CE.onesite_mock_env(ℂ^dims[1], ℂ^dims[2], ℂ^dims[3]; T = T_MOCK, seed = MOCK_SEED)
 end
+
+# Does the loader take the dimensions (onesite_load_env(dims))?
+loader_takes_dims(f) = Base.invokelatest(applicable, f, (1, 1, 1))
 
 # A number that identifies the environment: the sum of the norms of all 27 tensors and M. Plans of the same dimensions must give exactly the same number.
 env_fingerprint(env, M) = sum(norm, env.C) + sum(norm, env.E) + sum(norm, env.A) + norm(M)
 
-# The ram_gib column (column 11 of the plan file) of every data row, in the order in which CE.onesite_read_plans returns the rows
-# (the same lines are skipped: empty lines, comments, the header; CE.onesite_read_plans does not return this column)
-function plan_ram_gibs(path)
-    out = Float64[]
-    for line in eachline(path)
-        s = strip(line)
-        (isempty(s) || startswith(s, "#") || startswith(s, "chi_env")) && continue
-        f = split(line, ';')
-        push!(out, length(f) >= 11 && !isempty(strip(f[11])) ? parse(Float64, strip(f[11])) : NaN)
-    end
-    return out
-end
-
-# The rows of the plan file that were made for the bond dimensions d (the 54 numbers of CE.onesite_dims), as a Vector of (name, allocator, tree, cuts, source, ram_gib, time_s, time_real_s).
-# The name is SOURCE#N (N = number of the row among the rows for these dims with the same allocator, whatever their RAM budget), so parent and child process find the same row
-# (with the name AND the allocator).
-function plan_rows(d)
+# The rows of the plan file that were made for the bond dimensions d (the 54 numbers of CE.onesite_dims) and the element type T, as a Vector of
+# (name, allocator, tree, cuts, source, ram_gib, time_s, time_real_s). The name is SOURCE#N (N = number of the row among the rows for these dims, this element type
+# and the same allocator, whatever their RAM budget), so parent and child process find the same row (with the name AND the allocator).
+function plan_rows(d, T)
     all = CE.onesite_read_plans(PLAN_PATH)
-    # This reads column 11 (ram_gib) of every data row. onesite_read_plans does not return that column
-    ram = plan_ram_gibs(PLAN_PATH)
     out = NamedTuple[]
 
     # For all allocator that occur in the file ("reuse" and "manual")
     for a in unique(r.allocator for r in all)
-        # Collect the indices i of the rows which satisfy: that they have dimensions d and that they have allocator a
-        keep = [i for (i, r) in enumerate(all) if CE.onesite_dims(r.chi_env, r.chi_peps, r.D) == d && r.allocator == a]
-        append!(out, [(name = string(all[i].source, "#", n), allocator = a, tree = all[i].tree, cuts = all[i].cuts, source = all[i].source, ram_gib = ram[i],
+        # Collect the indices i of the rows which satisfy: that they have dimensions d, element type T and allocator a
+        keep = [i for (i, r) in enumerate(all) if CE.onesite_dims(r.chi_env, r.chi_peps, r.D) == d && r.eltype == string(T) && r.allocator == a]
+        append!(out, [(name = string(all[i].source, "#", n), allocator = a, tree = all[i].tree, cuts = all[i].cuts, source = all[i].source, ram_gib = all[i].ram_gib,
                        time_s = all[i].time_s, time_real_s = all[i].time_real_s, line = i) for (n, i) in enumerate(keep)])
     end
     # in the order of the file (so the reuse row and the manual copy right below it are timed one after the other)
@@ -180,11 +201,12 @@ function run_child(o)
     env, M = load_env(dims)
     # The fingerprint of the environment (the parent checks that all plans of the same dimensions have the same one)
     fp = env_fingerprint(env, M)
-    # define the vector of 54 bond dimensions, read from the actual tensors
+    # define the vector of 54 bond dimensions and the element type, read from the actual tensors
     d = CE.onesite_dims(env, M)
+    T = CE.onesite_eltype(env, M)
 
     # The plan: its tree, re-ordered such that the peak of the sliced network is minimal, and its cuts
-    orders = plan_rows(d)
+    orders = plan_rows(d, T)
     i = findfirst(r -> r.name == name && r.allocator == akind, orders)
     i === nothing && error("no plan named $name with allocator $akind for these dimensions in $PLAN_PATH")
     cuts = orders[i].cuts
@@ -199,10 +221,8 @@ function run_child(o)
     # And define base as the model cost of the current tree unsliced
     cost = CE.onesite_cost(kernel, d; cuts); base = CE.onesite_cost(CE.TREE_CURRENT, d)
 
-    # Define the element size: 16 bytes for a single ComplexF64 element
-    esize = sizeof(scalartype(M))
-    # Now transform the cost.peak to a number in GiB
-    mpeak = GiB(cost.peak * esize)
+    # Now transform the cost.peak to a number in GiB (sizeof(T) bytes per element)
+    mpeak = GiB(cost.peak * sizeof(T))
 
     # Now we use the same rule of thumb as contract_onesite_auto (CE.ONESITE_RAM_RULES) for calculating
     # wether or not we have currently enough free RAM: predicted size of the process = baseline_gib + factor * model peak,
@@ -240,7 +260,7 @@ function run_child(o)
         # If we use a mock env: create the mock env, and run the whole sliced contraction on a tiny (2, 2, 2) mock
         # (mock stores tensors in Vector{any} so compiled code is same as for big mocks)
         # (this re-seeds the random number generator, but the big environment above is already built)
-        e2, M2 = CE.onesite_mock_env(ℂ^2, ℂ^2, ℂ^2)
+        e2, M2 = CE.onesite_mock_env(ℂ^2, ℂ^2, ℂ^2; T = T_MOCK)
         CE.contract_onesite_sliced(e2, M2, CE.onesite_full_cuts(e2, M2, cuts); kernel = kern, allocator = CE.TrackingAllocator(make_alloc(akind)))
     end
 
@@ -352,7 +372,7 @@ function print_system_info()
     println("Julia ", VERSION, ", threads ", Threads.nthreads(), ", BLAS threads ", BLAS.get_num_threads(), " (", blas_name(), ")",
             ", total memory ", round(GiB(Sys.total_memory()), digits = 1), " GiB, free ", round(GiB(Sys.free_memory()), digits = 1), " GiB")
     println("TensorKit ", pkgversion(TensorKit), ", TensorOperations ", pkgversion(CE.TensorOperations),
-            "   environment: ", ENV_LOADER === nothing ? "mock (dense, random, seed $MOCK_SEED)" : "real (" * ENV_LOADER * ")", ", allocators ", join(ALLOCATORS, "/"), ", reps ", REPS)
+            "   environment: ", ENV_LOADER === nothing ? "mock (dense, random, seed $MOCK_SEED, $T_MOCK)" : "real (" * ENV_LOADER * ")", ", allocators ", join(ALLOCATORS, "/"), ", reps ", REPS)
 end
 
 # Round to 6 significant digits (NaN and 0 stay as they are), for the plan file
@@ -365,8 +385,9 @@ function write_settings(outdir)
         println(io, "Julia ", VERSION, ", threads ", Threads.nthreads(), ", BLAS threads ", BLAS.get_num_threads(), " (", blas_name(), ")")
         println(io, "memory GiB: total ", round(GiB(Sys.total_memory()), digits = 1), ", free at start ", round(GiB(Sys.free_memory()), digits = 1))
         println(io, "PLAN_FILE = ", PLAN_PATH)
-        println(io, "ENV_LOADER = ", ENV_LOADER, ", MOCK_SEED = ", MOCK_SEED, ", REPS = ", REPS, ", ALLOCATORS = ", ALLOCATORS, ", FORCE = ", FORCE)
-        println(io, "RAM_BUDGET_GIB = ", RAM_BUDGET_GIB, ", DIMS = ", DIMS, ", MAX_HOURS = ", MAX_HOURS, ", RUN_DIR = \"", RUN_DIR, "\"")
+        println(io, "ENV_LOADER = ", ENV_LOADER, ", MOCK_SEED = ", MOCK_SEED, ", T_MOCK = ", T_MOCK, ", REPS = ", REPS, ", ALLOCATORS = ", ALLOCATORS, ", FORCE = ", FORCE)
+        println(io, "PROFILE = ", PROFILE, ", MACHINE = ", MACHINE, ", host = ", gethostname())
+        println(io, "RAM_MIN_GIB = ", RAM_MIN_GIB, ", RAM_BUDGET_GIB = ", RAM_BUDGET_GIB, ", DIMS = ", DIMS, ", MAX_HOURS = ", MAX_HOURS, ", RUN_DIR = \"", RUN_DIR, "\"")
         println(io)
     end
 end
@@ -385,8 +406,7 @@ function main()
     timecol = envkind === :mock ? "time_s" : "time_real_s"
     all(a -> a in ("reuse", "manual"), ALLOCATORS) || error("ALLOCATORS may only contain \"reuse\" and \"manual\", got $ALLOCATORS")
     
-    # Every plan gets a row for every allocator of ALLOCATORS (same tree and cuts, no time yet)
-    # Rows with no allocators are seen as "reuse", see onesite_add_allocator_copies() and _os_line_allocator()
+    # Every plan gets a row for every allocator of ALLOCATORS (same tree and cuts, no time yet), see onesite_add_allocator_copies()
     for a in ALLOCATORS
         n = CE.onesite_add_allocator_copies(PLAN_PATH, Symbol(a))
         n > 0 && println("added $n rows with allocator $a to the plan file (copies of the plans that had none)")
@@ -394,21 +414,42 @@ function main()
     plans = CE.onesite_read_plans(PLAN_PATH)
     isempty(plans) && error("no plans in $PLAN_PATH: make them first with development/contraction_plans/find_orders_ome.jl")
 
-    # The groups of dimensions that are timed: all of them for the mock environment (or those of DIMS); for the real environment only the one with its dimensions
-    groups = unique((r.chi_env, r.chi_peps, r.D) for r in plans)
-    DIMS === nothing || (groups = filter(g -> g in DIMS, groups))
-    if ENV_LOADER !== nothing
-        env, M = load_env(nothing)
+    # The element type of the environment: T_MOCK, or the one of the real environment; only plans made for it are timed
+    per_dims = false     # true: a real environment for every set (env_loader_pepo.jl)
+    if ENV_LOADER === nothing
+        T = T_MOCK
+    else
+        Base.include(Main, abspath(ENV_LOADER))
+        per_dims = loader_takes_dims(Base.invokelatest(getproperty, Main, :onesite_load_env))
+        per_dims && DIMS === nothing && error("$ENV_LOADER builds an environment for every set: set DIMS (the profile) to the sets")
+        # the environment of the first set (per_dims) or the one environment: its element type (and its dimensions)
+        env, M = load_env(per_dims ? DIMS[1] : nothing)
+        T = CE.onesite_eltype(env, M)
         d_env = CE.onesite_dims(env, M)
+    end
+    # The environment as written into results.csv; only the rows of results.csv with this environment count as done
+    envtag = ENV_LOADER === nothing ? "mock seed $MOCK_SEED $T" : "real $T"
+
+    # The groups of dimensions that are timed: all of them for the mock environment (or those of DIMS); for the real environment only the one with its dimensions
+    groups = unique((r.chi_env, r.chi_peps, r.D) for r in plans if r.eltype == string(T))
+    DIMS === nothing || (groups = filter(g -> g in DIMS, groups))
+    if ENV_LOADER !== nothing && !per_dims
         groups = filter(g -> CE.onesite_dims(g...) == d_env, groups)
         if isempty(groups)
-            println("no plan in $PLAN_PATH has the bond dimensions of the environment of $ENV_LOADER: make plans for these dimensions with development/contraction_plans/find_orders_ome.jl")
+            println("no plan in $PLAN_PATH has the bond dimensions and the element type ($T) of the environment of $ENV_LOADER: make plans for them with development/contraction_plans/find_orders_ome.jl")
             return
         end
     end
-    isempty(groups) && (println("no plan in $PLAN_PATH has dimensions in DIMS = $DIMS"); return)
+    isempty(groups) && (println("no plan in $PLAN_PATH for element type $T has dimensions in DIMS = $DIMS"); return)
     # Cheapest dimensions first (model flops of the current tree, unsliced): if the time runs out, the most expensive dimensions are the ones that are left out
     sort!(groups; by = g -> CE.onesite_cost(CE.TREE_CURRENT, CE.onesite_dims(g...)).flops)
+    # A real environment for every set (env_loader_pepo.jl): build them all now (each is saved once and read by every plan of its set)
+    if per_dims
+        for g in groups
+            load_env(g)
+        end
+        env = M = nothing; GC.gc()
+    end
 
     # The run folder, and the rows of results.csv that are already in it (empty for a new run)
     outdir = isempty(RUN_DIR) ? bench_run_dir(@__FILE__) : existing_bench_run_dir(@__FILE__, RUN_DIR)
@@ -421,16 +462,16 @@ function main()
     # reference value and fingerprint of the first plan of every group of dimensions (also from the rows of an earlier part of this run)
     refs = Dict{Any,ComplexF64}(); fps = Dict{Any,Float64}()
     for r in rows
-        isfinite(r.tmin) || continue
+        (isfinite(r.tmin) && r.env == envtag) || continue
         g = (r.chi_env, r.chi_peps, r.D)
         haskey(refs, g) || (refs[g] = complex(r.re, r.im); fps[g] = r.fp)
     end
     # Define a Dict which given row info as key, returns Boolean which tells you if it was already timed
-    isdone(g, name, alloc) = any(r -> (r.chi_env, r.chi_peps, r.D) == g && r.name == name && r.alloc == alloc && isfinite(r.tmin), rows)
+    isdone(g, name, alloc) = any(r -> (r.chi_env, r.chi_peps, r.D) == g && r.name == name && r.alloc == alloc && r.env == envtag && isfinite(r.tmin), rows)
 
     println("plan file: ", PLAN_PATH, "  (", length(plans), " plans)")
     println("run folder: ", outdir, "  (", nold, " results in it already)")
-    println("selected: plans for RAM budget <= ", RAM_BUDGET_GIB, " GiB, ", length(groups), " dimension sets, cheapest first: ", join(("(" * join(g, ",") * ")" for g in groups), " "))
+    println("selected: plans for RAM budget ", RAM_MIN_GIB, "-", RAM_BUDGET_GIB, " GiB and element type ", T, " (machine ", MACHINE, "), ", length(groups), " dimension sets, cheapest first: ", join(("(" * join(g, ",") * ")" for g in groups), " "))
     print_system_info()
 
     # Prediction of the time of a plan from the plans that are done: fixed overhead (compilation, warm-up, building the environment) + REPS * flops / (flops per second of the repetitions)
@@ -446,11 +487,17 @@ function main()
         d = CE.onesite_dims(g...)
         # The plans of this group for the RAM budget, with their model cost
         todo = NamedTuple[]
-        for r in plan_rows(d)
-            (isfinite(r.ram_gib) && r.ram_gib <= RAM_BUDGET_GIB) || continue
+        for r in plan_rows(d, T)
+            (isfinite(r.ram_gib) && RAM_MIN_GIB <= r.ram_gib <= RAM_BUDGET_GIB) || continue
             r.allocator in ALLOCATORS || continue
+            (SOURCES === nothing || tree_kind(r.source) in SOURCES) || continue
             isdone(g, r.name, r.allocator) && continue
             cost = CE.onesite_cost(CE.onesite_reorder(r.tree, d; cuts = r.cuts), d; cuts = r.cuts)
+            # we skip plans that are predicted to take far too long (for example an OME slicing with very many slices)
+            if cost.flops > MAX_FLOPS || cost.slices > MAX_SLICES
+                println(stderr, "($(join(g, ","))) $(r.name) ($(r.allocator)) not timed: $(round(Int, cost.slices)) slices, $(round(cost.flops, sigdigits = 3)) flops (MAX_SLICES, MAX_FLOPS)")
+                continue
+            end
             push!(todo, (plan = r, cost = cost))
         end
         isempty(todo) && continue
@@ -469,10 +516,10 @@ function main()
             # Show progress
             println(stderr, "\n[($(join(g, ","))) plan $n/$(length(todo)), $(round((time() - t_start) / 60, digits = 1)) min since the start] $(r.name) ($(r.allocator)), $(length(r.cuts)) cuts"); flush(stderr)
             # Identify the row in the CSV corresponding to current job
-            key = (chi_env = g[1], chi_peps = g[2], D = g[3], tree = r.tree, cuts = r.cuts, allocator = r.allocator)
+            key = (chi_env = g[1], chi_peps = g[2], D = g[3], eltype = string(T), tree = r.tree, cuts = r.cuts, allocator = r.allocator)
             # What is the same for every outcome of this plan
             ident = (chi_env = g[1], chi_peps = g[2], D = g[3], name = r.name, source = r.source, ram_gib = r.ram_gib, cuts = join(r.cuts, " "),
-                     slices = cost.slices, flops = cost.flops, peak = GiB(cost.peak * sizeof(ComplexF64)), env = ENV_LOADER === nothing ? "mock seed $MOCK_SEED" : "real",
+                     slices = cost.slices, flops = cost.flops, peak = GiB(cost.peak * sizeof(T)), env = envtag,
                      blas = BLAS.get_num_threads())
             # A row without a time (skipped or failed)
             norow(msg) = merge(ident, (times = Float64[], tmin = NaN, tracked = NaN, rss = NaN, pool = NaN, alloc = r.allocator, fp = NaN, re = NaN, im = NaN, check = NaN, note = msg))
@@ -486,8 +533,7 @@ function main()
             end
 
             # Skip a plan that needs more memory than is free, without starting a process (the child has the same guard)
-            # We assume 16 bytes per element (ComplexF64), child checks explicitely again for real scalar size
-            est = CE.ONESITE_RAM_RULES.baseline_gib + CE.ONESITE_RAM_RULES[Symbol(r.allocator)] * GiB(cost.peak * sizeof(ComplexF64))
+            est = CE.ONESITE_RAM_RULES.baseline_gib + CE.ONESITE_RAM_RULES[Symbol(r.allocator)] * GiB(cost.peak * sizeof(T))
             # Compare estimated needed ram with currently free ram
             free = GiB(Sys.free_memory())
             if est > 0.85 * free && !FORCE
@@ -534,8 +580,8 @@ function main()
             # for the prediction of the next groups
             nfin += 1; reptime += sum(res.times); work += length(res.times) * cost.flops; over += t_wall - sum(res.times)
 
-            # Write the measurements back into THE row of the plan file (time = fastest repetition, allocator, rss_gib, pool_gib, sys_s, minflt, check, note)
-            planfile_update(key, (time_s = rnd(minimum(res.times)), allocator = res.alloc, rss_gib = rnd(res.rss), pool_gib = rnd(res.pool),
+            # Write the measurements back into THE row of the plan file (time = fastest repetition, rss_gib, pool_gib, sys_s, minflt, check, note)
+            planfile_update(key, (time_s = rnd(minimum(res.times)), rss_gib = rnd(res.rss), pool_gib = rnd(res.pool),
                                   sys_s = rnd(res.sys), minflt = rnd(res.minflt), check = rnd(c), note = note), envkind)
             println(stderr, "    ", timecol, " = ", rnd(minimum(res.times)), " (reps ", join(round.(res.times; digits = 2), ", "), "), written into the plan file and results.csv")
         end
@@ -560,7 +606,7 @@ end
 # Write into the plan file; if that fails (on Windows, a file in a OneDrive folder can be locked for a moment) the run goes on: results.csv has the data anyway
 function planfile_update(key, vals, envkind)
     try
-        CE.onesite_update_plans(PLAN_PATH, [merge(key, vals)]; env = envkind)
+        CE.onesite_update_plans(PLAN_PATH, [merge(key, vals, (; machine = MACHINE))]; env = envkind)
     catch e
         @warn "could not update the plan file (the result is in results.csv)" exception = e
     end

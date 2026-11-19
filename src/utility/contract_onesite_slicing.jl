@@ -15,21 +15,22 @@
 #   1. d = the 54 bond dimensions of the real tensors                                         (onesite_dims)
 #   2. default: the fixed tree TREE_CURRENT + BRUTE FORCE search of the best cuts (fewest flops among the cut sets predicted to fit in the RAM)
 #                                                                                          (onesite_choose_cuts, onesite_best_cuts)
-#      or a ready-made plan (tree + cuts) from the plan file `onesite_plans.csv`: only plans for exactly these bond dimensions, that are
-#      predicted to fit, and that you MEASURED (column time_real_s, or time_s if there is no real time), the fastest one is used (onesite_choose_plan)                                (onesite_choose_plan)
+#      or a ready-made plan (tree + cuts) from the plan file `onesite_plans.csv`: only plans for exactly these bond dimensions and this element type
+#      (Float64 or ComplexF64, onesite_eltype), that are predicted to fit, and that we MEASURED (column time_real_s, or time_s if there is no real time),
+#      the fastest one is used                                                                                             (onesite_choose_plan)
 #   3. the tree is turned into a Julia function with the same @tensor syntax as contract_onesite (cached)               (onesite_make_kernel)
 #   4. the slices are contracted with an allocator that re-uses its temporaries                                         (contract_onesite_sliced, ReuseAllocator)
 #
 # WHERE THE PLAN FILE COMES FROM (OMEinsumContractionOrders.jl)
 #   development/contraction_plans/find_orders_ome.jl (settings at the top of that file: dimensions, RAM budgets, kmax, ...) calls onesite_find_plans, which asks
-#   OMEinsumContractionOrders.jl (TreeSA) for several contraction trees, finds the best cuts of every tree by brute force, and appends the winners
+#   OMEinsumContractionOrders.jl (TreeSA) for several contraction trees and lets it slice them itself (TreeSASlicer; the two fixed trees get brute-force cuts), and appends the winners
 #   per RAM budget to onesite_plans.csv (or to another file: PLAN_FILE in that file).
 #   Predicted flops are only a proxy for the run time (a tree with fewer flops can run slower), so the rows are timed by running
 #   development/contraction_plans/benchmark_contract_onesite.jl: it times every row that has no time yet and writes the measured seconds back into the same csv
 #   (onesite_update_plans): into time_s when it runs on the dense MOCK environment, into time_real_s when it runs on a REAL environment (ENV_LOADER in
 #   that file). The other measurements (allocator, rss_gib, pool_gib, sys_s, minflt, check, note) belong to the real run if there is one, otherwise to the mock run.
 #   By default (select = :measured) contract_onesite_auto only uses rows that have a time (time_real_s if filled, otherwise time_s, see onesite_plan_time).
-#   A time is only valid for the machine, the allocator and the number of threads it was measured with: use one plan file per machine (PLAN_FILE in both development files).
+#   A time is only valid for the machine, the allocator, the element type and the number of threads it was measured with (columns machine, allocator, eltype).
 #   contract_onesite_auto never needs to wait for OMEinsumContractionOrders: it only READS the csv.
 #
 # Slicing and the contraction order only change speed and memory, not the value of the contraction (up to floating point rounding).
@@ -37,6 +38,7 @@
 # FILE MAP
 #    1. MAIN ENTRY            ONESITE_RAM_RULES, onesite_plan_of, onesite_choose_cuts, onesite_choose_plan, contract_onesite_auto, contract_onesite_dispatch
 #    2. PLAN FILE + OMEco     onesite_read_plans / onesite_write_plans / onesite_update_plans / onesite_add_allocator_copies, onesite_find_trees, onesite_find_plans
+#                             (the element type of a contraction: onesite_eltype)
 #    3. THE NETWORK           table of the 27 tensors, 54 bonds, dimensions, TREE_CURRENT, OPT_TRUE
 #    4. COST MODEL            onesite_cost (flops, peak memory, slices), onesite_reorder
 #    5. TREES AS TEXT         onesite_parse_tree
@@ -75,15 +77,20 @@ function _os_check_alloc(allocator::Symbol)
     return nothing
 end
 
+# The element type of the contraction: the promotion of the element types of the 26 environment tensors and M
+# (Float64 if all are real, ComplexF64 if one of them is complex). It decides which plans of the plan file are used (column eltype)
+# and the memory of an element (sizeof).
+onesite_eltype(env, M) = mapreduce(scalartype, promote_type, [env.C; env.E; env.A]; init = scalartype(M))
+
 
 # Given a tree and a cut set, evaluate it: compute its cost with and without the cuts.
 # reorder = true: first rewrite the order of the two children in every product of the tree such that the peak memory of THIS cut set is as small
 # as possible (see onesite_reorder), the plan then contains the rewritten tree.
 # Return some data in a named tuple, `tree` is the tree that has to be contracted.
-function onesite_plan_of(d::Vector{Float64}, cuts; ram_gib::Real, bytes::Integer = 16, allocator::Symbol = :reuse,
+function onesite_plan_of(d::Vector{Float64}, cuts; ram_gib::Real, T::Type{<:Number} = ComplexF64, allocator::Symbol = :reuse,
                          margin::Real = 0.8, rules = ONESITE_RAM_RULES, tree = TREE_CURRENT, reorder::Bool = true,
                          source::AbstractString = "")
-    # bytes depends on what type of number: ComplexF64 is 16, Float64 is 8
+    # T = element type of the tensors: the memory of an element is sizeof(T) (Float64: 8 bytes, ComplexF64: 16 bytes)
     # d is vector of 54 bond dimensions, cuts is one combination of bond labels to cut
     # margin = fraction of total RAM we allow to be taken by this contraction
     # source = free text telling where this plan comes from (shown with verbosity > 1)
@@ -101,7 +108,7 @@ function onesite_plan_of(d::Vector{Float64}, cuts; ram_gib::Real, bytes::Integer
     c = onesite_cost(t, d; cuts = cs)
 
     # Calculate the theoretical expected max peak in GiB
-    peak_gib = c.peak * bytes / 2^30
+    peak_gib = c.peak * sizeof(T) / 2^30
 
     # Calculate the estimated peak in GiB
     est = rules.baseline_gib + rules[allocator] * peak_gib
@@ -117,8 +124,8 @@ end
 # For every k the cheapest cut set (fewest flops) is searched by brute force, first with the written child order of the tree (so the precompiled
 # kernel can be used for TREE_CURRENT), then, only if that does not fit, with the best child order (the plan then contains a reordered tree).
 # Return its plan
-function onesite_choose_cuts(d::Vector{Float64}; ram_gib::Real, bytes::Integer = 16, allocator::Symbol = :reuse,
-                             kmax::Int = 4, margin::Real = 0.8, rules = ONESITE_RAM_RULES, tree = TREE_CURRENT,
+function onesite_choose_cuts(d::Vector{Float64}; ram_gib::Real, T::Type{<:Number} = ComplexF64, allocator::Symbol = :reuse,
+                             kmax::Int = 5, margin::Real = 0.8, rules = ONESITE_RAM_RULES, tree = TREE_CURRENT,
                              source::AbstractString = "")
     # Do some checks
     _os_check_alloc(allocator)
@@ -126,10 +133,10 @@ function onesite_choose_cuts(d::Vector{Float64}; ram_gib::Real, bytes::Integer =
 
     # Calculate the max number of allowed elements = cap
     allowed_gib = (margin * ram_gib - rules.baseline_gib) / rules[allocator]
-    cap = allowed_gib * 2^30 / bytes
+    cap = allowed_gib * 2^30 / sizeof(T)
 
     # Define keywords for onesite_plan_of function
-    kw = (; ram_gib, bytes, allocator, margin, rules, tree, source)
+    kw = (; ram_gib, T, allocator, margin, rules, tree, source)
     # Loop over all amount of cuts, stop at lowest k that works
     for k in 0:kmax, order in (:written, :best)
         # If no cut
@@ -161,15 +168,17 @@ end
 #   cuts given               -> that cut set on `tree` (still checked against the budget)
 #   tree given (not default) -> brute-force cuts on that tree
 #   otherwise                -> brute-force cuts on TREE_CURRENT, and the ready-made plans of `plans` (csv file, or nothing to ignore the file)
-#                               made for exactly these bond dimensions and predicted to fit:
+#                               made for exactly these bond dimensions, this element type T and this allocator, and predicted to fit:
 #      select = :measured (default): only plans with a measured time (onesite_plan_time) count, the fastest of them replaces the brute-force plan
+#                                    machine = nothing (default): times of every machine; "laptop" or "hortense": only the times measured on that machine
 #      select = :model             : all plans count, the one with the fewest PREDICTED flops wins (the model ignores GEMM efficiency and data
 #                                    volume, a tree with fewer flops can (AND OFTEN WILL!) run slower: check with development/contraction_plans/benchmark_contract_onesite.jl)
-function onesite_choose_plan(d::Vector{Float64}; ram_gib::Real, bytes::Integer = 16, allocator::Symbol = :reuse, cuts = nothing,
-                             tree = TREE_CURRENT, plans = ONESITE_PLAN_FILE, select::Symbol = :measured, kmax::Int = 4,
-                             margin::Real = 0.8, rules = ONESITE_RAM_RULES)
+# If the file has no plan for this element type, the brute-force plan on TREE_CURRENT is used; its memory is computed for T as well.
+function onesite_choose_plan(d::Vector{Float64}; ram_gib::Real, T::Type{<:Number} = ComplexF64, allocator::Symbol = :reuse, cuts = nothing,
+                             tree = TREE_CURRENT, plans = ONESITE_PLAN_FILE, select::Symbol = :measured, kmax::Int = 5,
+                             margin::Real = 0.8, rules = ONESITE_RAM_RULES, machine = nothing)
     select === :measured || select === :model || error("select must be :measured or :model, got :$select")
-    kw = (; ram_gib, bytes, allocator, margin, rules)
+    kw = (; ram_gib, T, allocator, margin, rules)
 
     # 1. the caller fixed the cuts
     cuts === nothing || return onesite_plan_of(d, cuts; kw..., tree, source = "given cuts")
@@ -182,9 +191,12 @@ function onesite_choose_plan(d::Vector{Float64}; ram_gib::Real, bytes::Integer =
     (plans === nothing || !default_tree) && return best
     chosen = nothing
     chosen_key = Inf
-    for r in onesite_plans_for(d, plans; allocator)
-        # in :measured mode a plan without measured time is not used
-        (select === :measured && !isfinite(onesite_plan_time(r))) && continue
+    for r in onesite_plans_for(d, plans; allocator, T)
+        # in :measured mode a plan without measured time is not used, nor a time of another machine (if machine is given)
+        if select === :measured
+            isfinite(onesite_plan_time(r)) || continue
+            (machine === nothing || r.machine == String(machine)) || continue
+        end
         p = onesite_plan_of(d, r.cuts; kw..., tree = r.tree, source = "plan file: " * r.source)
         p.fits || continue
         # the number to minimise: measured time or predicted flops
@@ -205,8 +217,8 @@ end
 # The main contraction function:
 # This computes the same number as contract_onesite(env, M), but using slices, number of slices chosen automatically from RAM budget
 function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30, allocator::Symbol = :reuse, cuts = nothing,
-                               tree = TREE_CURRENT, plans = ONESITE_PLAN_FILE, select::Symbol = :measured, kmax::Int = 4,
-                               margin::Real = 0.8, rules = ONESITE_RAM_RULES, force::Bool = false, verbosity::Int = 0)
+                               tree = TREE_CURRENT, plans = ONESITE_PLAN_FILE, select::Symbol = :measured, kmax::Int = 5,
+                               margin::Real = 0.8, rules = ONESITE_RAM_RULES, force::Bool = false, verbosity::Int = 0, machine = nothing)
 
     # ram_gib: memory this PROCESS may use. Default=Sys.total_memory(), pass it explicitely if needed (e.g. = 64)
     # allocator: :reuse or :manual (:reuse = `ReuseAllocator`: 13-19 % faster than `:manual` in Windows runs)
@@ -217,16 +229,18 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
     # select: :measured (only plans with a measured time_s are used, the fastest wins) or :model (fewest predicted flops), see onesite_choose_plan
     # kmax: largest number of cuts to try (<= 5).  `margin`: fraction of `ram_gib` the prediction may fill.
     # force: run even if nothing is predicted to fit (will probably swap or be killed).
+    # machine: nothing (times of every machine) or the machine whose measured times count ("laptop", "hortense"; column machine of the plan file)
+    # The element type T of env and M decides which plans of the file are used (column eltype) and the memory per element (see onesite_eltype).
 
     # Check if allowed allocator
     _os_check_alloc(allocator)
     # Vector of dimensions for all bounds
     d = onesite_dims(env, M)
-    # Define number of bytes per element (8 for Float64, 16 for ComplexF64)
-    bytes = sizeof(scalartype(M))
+    # The element type of the contraction (Float64 or ComplexF64): its plans and the memory of an element (sizeof(T))
+    T = onesite_eltype(env, M)
 
     # Choose tree + cuts (given cuts are checked, otherwise brute force on the tree, and the plan file as alternative)
-    plan = onesite_choose_plan(d; ram_gib, bytes, allocator, cuts, tree, plans, select, kmax, margin, rules)
+    plan = onesite_choose_plan(d; ram_gib, T, allocator, cuts, tree, plans, select, kmax, margin, rules, machine)
 
     # if the memory cost is too high (and we don't force it)
     if !plan.fits && !force
@@ -266,41 +280,57 @@ contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_a
 # 2. PLAN FILE (csv) + FINDING TREES WITH OMEinsumContractionOrders.jl
 # ======================================================================================================================
 
-# The plan file has one ready-made plan per row, columns separated by ';' (can be opened in Excel):
-#    chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;bytes;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note
-# Columns that are read: bond dimensions the plan was made for (chi_env, chi_peps, D), the contraction tree (nested pairs of leaf numbers, see
-# TREE_CURRENT), the cut bonds (labels separated by a space, empty = no cuts), a free text (source), time_s = the measured time in seconds of
-# one full contraction on the dense MOCK environment (onesite_mock_env) and time_real_s = the same on a REAL environment (empty = not measured).
-# The time that counts for contract_onesite_auto is time_real_s if it is filled, otherwise time_s (onesite_plan_time).
-# The columns k ... bytes are written by onesite_find_plans for the human reader:
-# number of cuts, number of slices, predicted flops, predicted peak of the intermediates (GiB), the RAM budget (GiB) and bytes per element it was made for.
-# allocator (reuse/manual) is part of the identity of a row: a plan (dimensions, tree, cuts) can have one row per allocator, each with its own times, because a time
-# is only valid for the allocator it was measured with. contract_onesite_auto(...; allocator) only uses the rows of its allocator. An empty allocator column
-# (rows written before the allocator was part of the key) counts as reuse. onesite_add_allocator_copies adds the rows of another allocator (same tree and cuts).
-# The other columns after time_real_s are written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), all empty until the row is measured:
-# rss_gib = peak resident memory of the process, pool_gib = what the ReuseAllocator asked the OS for,
-# sys_s = system CPU seconds and minflt = minor page faults per repetition (Linux only), check = relative deviation of the value from the first row
-# measured for the same dimensions in that benchmark run (0 for that first row; should be ~1e-10 or smaller), note = free text (e.g. "skipped: ...").
-# These seven columns belong to the real run if time_real_s is filled, otherwise to the mock run.
-# Older files with 13 columns (up to time_s) or 20 columns (no time_real_s: the measurement columns are 14..20) are still read: a line is read as
-# the 21-column layout only if it has 21 columns. Lines starting with # and the header line are ignored.
+# The plan file has one ready-made plan per row, 22 columns separated by ';' (can be opened in Excel):
+#    chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;eltype;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note;machine
+# Written by onesite_find_plans / onesite_write_plans (development/contraction_plans/find_orders_ome.jl):
+#   chi_env, chi_peps, D   bond dimensions the plan was made for
+#   tree                   contraction tree (nested pairs of leaf numbers, see TREE_CURRENT)
+#   cuts                   cut bonds (labels separated by a space, empty = no cuts)
+#   source                 where the plan comes from (TREE_CURRENT, OPT_TRUE, ome-flops-sliced, ome-scN-sliced)
+#   k ... ram_gib          for the human reader: number of cuts, number of slices, predicted flops, predicted peak of the intermediates (GiB), RAM budget (GiB)
+#   eltype                 element type the plan was made and timed for ("Float64" or "ComplexF64"); it sets the memory of an element
+#   allocator              "reuse" or "manual": the allocator the plan is timed with
+# Written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), empty until the row is measured:
+#   time_s                 measured time (s) of one full contraction on the dense MOCK environment (onesite_mock_env)
+#   time_real_s            the same on a REAL environment; the time that counts for contract_onesite_auto is time_real_s if it is filled, otherwise time_s (onesite_plan_time)
+#   rss_gib, pool_gib      peak resident memory of the process, what the ReuseAllocator asked the OS for
+#   sys_s, minflt          system CPU seconds and minor page faults per repetition (Linux only)
+#   check                  relative deviation of the value from the first row measured for the same dimensions in that benchmark run (should be ~1e-10 or smaller)
+#   note                   free text (e.g. "skipped: ...")
+#   machine                the machine on which the time was measured ("laptop", "hortense"), written together with every time
+# rss_gib ... note belong to the real run if time_real_s is filled, otherwise to the mock run.
+# The identity (key) of a row is (chi_env, chi_peps, D, eltype, tree, cuts, allocator): a time is only valid for the element type and the allocator it was
+# measured with. machine is not part of the key: a row has the time of the last machine that timed it (we time the plans for RAM budgets <= 4 GiB on the
+# laptop and those for 29 and 59 GiB on Hortense, so the two do not overwrite each other). Lines starting with # are comments.
 const ONESITE_PLAN_FILE = joinpath(@__DIR__, "onesite_plans.csv")
-const _os_PLAN_HEADER = "chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;bytes;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note"
+const _os_PLAN_HEADER = "chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;eltype;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note;machine"
+const _os_PLAN_NCOLS = 22
 
-# Read the plan file, return a Vector of named tuples (chi_env, chi_peps, D, tree, cuts, source, time_s, time_real_s, allocator, rss_gib, pool_gib, sys_s, minflt, check, note).
-# A missing file gives an empty vector. The numbers are NaN and the texts "" if they are not filled in (except allocator: empty = "reuse").
+# A line of the plan file that holds a plan (not empty, not a comment, not the header)
+_os_is_plan_line(s) = !(isempty(s) || startswith(s, "#") || startswith(s, "chi_env"))
+
+# The key of a row: of a named tuple (a row of onesite_find_plans or onesite_read_plans, or an update) and of a line of the file split at ';'
+_os_plan_key(r) = (r.chi_env, r.chi_peps, r.D, String(r.eltype), string(r.tree), Symbol[Symbol(c) for c in r.cuts], String(r.allocator))
+_os_line_key(f) = (parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), String(strip(f[12])), string(onesite_parse_tree(strip(f[4]))),
+                   Symbol[Symbol(c) for c in split(f[5])], String(strip(f[15])))
+
+# Split a plan line into its 22 columns (an error for any other number of columns)
+function _os_split_plan_line(line, path, n)
+    f = String.(split(line, ';'))
+    length(f) == _os_PLAN_NCOLS || error("$path, line $n: expected $_os_PLAN_NCOLS ';'-separated columns, got $(length(f)) (header: $_os_PLAN_HEADER)")
+    return f
+end
+
+# Read the plan file, return a Vector of named tuples
+# (chi_env, chi_peps, D, tree, cuts, source, ram_gib, eltype, time_s, time_real_s, allocator, rss_gib, pool_gib, sys_s, minflt, check, note, machine).
+# A missing file gives an empty vector. Numbers that are not filled in are NaN, texts "".
 function onesite_read_plans(path::AbstractString)
     out = NamedTuple[]
     isfile(path) || return out
 
     for (n, line) in enumerate(eachline(path))
-        s = strip(line)
-        # skip empty lines, comments and the header
-        (isempty(s) || startswith(s, "#") || startswith(s, "chi_env")) && continue
-
-        # split the columns
-        f = split(line, ';')
-        length(f) >= 6 || error("$path, line $n: expected at least 6 ';'-separated columns, got $(length(f))")
+        _os_is_plan_line(strip(line)) || continue
+        f = _os_split_plan_line(line, path, n)
 
         # cuts: labels separated by a space, check that all are real bond labels
         cuts = Symbol[Symbol(c) for c in split(f[5])]
@@ -308,15 +338,13 @@ function onesite_read_plans(path::AbstractString)
             haskey(ONESITE_LABEL_INDEX, c) || error("$path, line $n: unknown bond label $c")
         end
 
-        # column i as text / as number (NaN if the column is missing or empty)
-        txt(i) = length(f) >= i ? String(strip(f[i])) : ""
+        # column i as text / as number (NaN if empty)
+        txt(i) = String(strip(f[i]))
         num(i) = isempty(txt(i)) ? NaN : parse(Float64, txt(i))
-        # 21 columns: time_real_s is column 14 and the measurement columns follow (15..21); 13 or 20 columns (older files): no time_real_s, measurements at 14..20
-        o = length(f) >= 21 ? 1 : 0
 
-        push!(out, (chi_env = parse(Int, f[1]), chi_peps = parse(Int, f[2]), D = parse(Int, f[3]),
-                    tree = onesite_parse_tree(strip(f[4])), cuts = cuts, source = String(strip(f[6])), time_s = num(13), time_real_s = o == 1 ? num(14) : NaN,
-                    allocator = isempty(txt(14 + o)) ? "reuse" : txt(14 + o), rss_gib = num(15 + o), pool_gib = num(16 + o), sys_s = num(17 + o), minflt = num(18 + o), check = num(19 + o), note = txt(20 + o)))
+        push!(out, (chi_env = parse(Int, f[1]), chi_peps = parse(Int, f[2]), D = parse(Int, f[3]), tree = onesite_parse_tree(txt(4)), cuts = cuts,
+                    source = txt(6), ram_gib = num(11), eltype = txt(12), time_s = num(13), time_real_s = num(14), allocator = txt(15), rss_gib = num(16),
+                    pool_gib = num(17), sys_s = num(18), minflt = num(19), check = num(20), note = txt(21), machine = txt(22)))
     end
     return out
 end
@@ -340,138 +368,100 @@ function _os_cached_plans(path::AbstractString)
     return rows
 end
 
-# The plans of the file made for exactly these bond dimensions d and this allocator (we look at everything stored in the cache)
-onesite_plans_for(d::Vector{Float64}, path::AbstractString; allocator::Symbol = :reuse) =
-    [r for r in _os_cached_plans(path) if onesite_dims(r.chi_env, r.chi_peps, r.D) == d && r.allocator == String(allocator)]
+# The plans of the file made for exactly these bond dimensions d, this allocator and this element type T (we look at everything stored in the cache)
+onesite_plans_for(d::Vector{Float64}, path::AbstractString; allocator::Symbol = :reuse, T::Type{<:Number} = ComplexF64) =
+    [r for r in _os_cached_plans(path) if onesite_dims(r.chi_env, r.chi_peps, r.D) == d && r.allocator == String(allocator) && r.eltype == string(T)]
 
-# The allocator of a line of the plan file (split at ';'): column 15 in the 21-column layout, column 14 in the old 20-column layout; empty = "reuse"
-function _os_line_allocator(f)
-    a = length(f) >= 21 ? strip(f[15]) : (length(f) >= 14 ? strip(f[14]) : "")
-    return isempty(a) ? "reuse" : String(a)
+# Write the lines (the header first) to the plan file in one step (temporary file + move), and forget the cached copy of the file
+function _os_replace_plan_file(path::AbstractString, lines)
+    tmp = string(path, ".tmp")
+    open(tmp, "w") do io
+        println(io, _os_PLAN_HEADER)
+        foreach(l -> println(io, l), lines)
+    end
+    mv(tmp, path; force = true)
+    delete!(_os_PLAN_CACHE, String(path))
+    return nothing
 end
 
-# Add plans to the file (rows as returned by onesite_find_plans). A row whose dimensions, tree, cuts and allocator are already in the file is NOT added
-# again (so a time_s that you filled in is never overwritten). Returns the number of rows that were added.
+# A number as text (empty if NaN or missing), a free text without ';' or line breaks
+_os_num(x) = (x isa Real && isfinite(x)) ? string(x) : ""
+_os_txt(x) = replace(String(x), ';' => ',', '\n' => ' ')
+
+# Add plans to the file (rows as returned by onesite_find_plans). A row whose key (see above) is already in the file is NOT added
+# again (so a measured time is never overwritten). Returns the number of rows that were added.
 function onesite_write_plans(path::AbstractString, rows)
-    key(chi_env, chi_peps, D, tree, cuts, alloc) = (chi_env, chi_peps, D, string(tree), Symbol[Symbol(c) for c in cuts], String(alloc))
-
     # The lines already in the file (the header is written again) and the keys of the plans in them
-    old = String[]
-    oldkeys = Set{Any}()
-    if isfile(path)
-        for line in eachline(path)
-            s = strip(line)
-            (isempty(s) || startswith(s, "chi_env")) && continue
-            push!(old, line)
-            if !startswith(s, "#")
-                f = split(line, ';')
-                push!(oldkeys, key(parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), onesite_parse_tree(strip(f[4])), split(f[5]), _os_line_allocator(f)))
-            end
-        end
-    end
+    old = isfile(path) ? [line for line in eachline(path) if !startswith(strip(line), "chi_env") && !isempty(strip(line))] : String[]
+    have = Set{Any}(_os_plan_key(r) for r in onesite_read_plans(path))
 
-    # The new lines
+    # The new lines: the columns of onesite_find_plans, the measurement columns empty
     newlines = String[]
     for r in rows
-        alloc = String(get(r, :allocator, "reuse"))
-        k = key(r.chi_env, r.chi_peps, r.D, r.tree, r.cuts, alloc)
-        k in oldkeys && continue
-        push!(oldkeys, k)
-        time_s = hasproperty(r, :time_s) && isfinite(r.time_s) ? string(r.time_s) : ""
-        push!(newlines, join((r.chi_env, r.chi_peps, r.D, string(r.tree), join(r.cuts, ' '), replace(String(r.source), ';' => ','),
-                              r.k, round(Int, r.slices), r.flops, round(r.peak_gib; digits = 3), r.ram_gib, r.bytes, time_s, "", alloc, "", "", "", "", "", ""), ';')) # time_real_s, allocator, empty columns: rss_gib ... note
+        k = _os_plan_key(r)
+        k in have && continue
+        push!(have, k)
+        push!(newlines, join((r.chi_env, r.chi_peps, r.D, string(r.tree), join(r.cuts, ' '), _os_txt(r.source), r.k, round(Int, r.slices), r.flops,
+                              round(r.peak_gib; digits = 3), r.ram_gib, r.eltype, _os_num(r.time_s), "", r.allocator, "", "", "", "", "", "", ""), ';'))
     end
 
-    open(path, "w") do io
-        println(io, _os_PLAN_HEADER)
-        foreach(line -> println(io, line), old)
-        foreach(line -> println(io, line), newlines)
-    end
-
-    # The cache gets deleted
-    delete!(_os_PLAN_CACHE, String(path))
+    _os_replace_plan_file(path, [old; newlines])
     return length(newlines)
 end
 
-
-# The fields of a line of the plan file in the 21-column layout (older 13- or 20-column lines get an empty time_real_s column and empty missing columns)
-function _os_plan_fields(f::Vector{String})
-    length(f) >= 21 && return f[1:21]
-    g = f[1:min(end, 13)]
-    while length(g) < 13
-        push!(g, "")
-    end
-    push!(g, "")                                            # time_real_s
-    length(f) > 13 && append!(g, f[14:min(end, 20)])        # allocator ... note
-    while length(g) < 21
-        push!(g, "")
-    end
-    return g
-end
-
 # Fill in the measurements of development/contraction_plans/benchmark_contract_onesite.jl in the plan file.
-# `updates` = named tuples with the key of a row (chi_env, chi_peps, D, tree, cuts, allocator; a missing allocator = "reuse") and the columns to set: time_s, rss_gib, pool_gib, sys_s, minflt, check, note.
+# `updates` = named tuples with the key of a row (chi_env, chi_peps, D, eltype, tree, cuts, allocator) and the columns to set: time_s, rss_gib, pool_gib, sys_s, minflt,
+# check, note, machine.
 # `env = :mock`: `time_s` of the update is written into column time_s (dense mock environment); `env = :real`: it is written into column time_real_s (real environment).
-# The seven columns (allocator ... note) belong to the real run if there is one: an `env = :real` update always writes them, a :mock update only if time_real_s of that row is still empty.
+# The six columns rss_gib ... note belong to the real run if there is one: an `env = :real` update always writes them, a :mock update only if time_real_s of that row is still empty.
 # A property that is missing, or a number that is NaN, gives an empty column.
 # An update WITHOUT a finite time_s (a run that was skipped or failed) only writes `note` (on the same condition) and keeps everything else of the row.
-# All other lines (comments, other rows) are kept as they are (older lines keep their layout), a row that is updated is written in the 21-column layout,
-# the header is written again, and the file is replaced in one step (temporary file + move),
+# All other lines are kept as they are, and the file is replaced in one step (temporary file + move).
 # Returns the number of rows that were updated; an update whose row is not in the file is an error.
 function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock)
     # Some prior checks
     env === :mock || env === :real || error("onesite_update_plans: env must be :mock or :real, got :$env")
     isfile(path) || error("onesite_update_plans: $path does not exist")
-    
-    # Small local function: turns row's identity into tuple that can be compared
-    key(chi_env, chi_peps, D, tree, cuts, alloc) = (chi_env, chi_peps, D, string(tree), Symbol[Symbol(c) for c in cuts], String(alloc))
-    
-    # Build Dict from key (which we use to compare with rows in csv file) to the full update yuple
-    pending = Dict{Any,Any}(key(u.chi_env, u.chi_peps, u.D, u.tree, u.cuts, get(u, :allocator, "reuse")) => u for u in updates)
-    nup = length(pending)
 
-    # a number as text (empty if NaN or missing), a free text without ';'
-    num(x) = (x isa Real && isfinite(x)) ? string(x) : ""
-    txt(x) = replace(String(x), ';' => ',', '\n' => ' ')
+    # Build Dict from key (which we use to compare with rows in csv file) to the full update tuple
+    pending = Dict{Any,Any}(_os_plan_key(u) => u for u in updates)
+    nup = length(pending)
 
     lines = String[]            # new content of file
     done = 0                    # count rows that were updated (should go to nup)
     # Loop over all lines of csv
-    for line in eachline(path)
+    for (n, line) in enumerate(eachline(path))
         s = strip(line)
-
-        # Old header is skipped , fresh header is written at end
+        # Old header is skipped, a fresh header is written at the end
         startswith(s, "chi_env") && continue
-        # Skip comments and empty lines                    
-        if isempty(s) || startswith(s, "#")
+        # Keep comments and empty lines
+        if !_os_is_plan_line(s)
             push!(lines, line)
             continue
         end
-        # Split line at ; into string fields
-        f = String.(split(line, ';'))
-        # Build the key of this line in the file
-        k = key(parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), onesite_parse_tree(strip(f[4])), split(f[5]), _os_line_allocator(f))
-        
-        # Check if there is an update for this row? (is key also in pending?)
+        # Split line at ; into its 22 columns, and build the key of this line
+        f = _os_split_plan_line(line, path, n)
+        k = _os_line_key(f)
+
+        # Check if there is an update for this row (is the key also in pending?)
         if haskey(pending, k)
             # In that case u is the update info
             u = pending[k]
-            # Make sure row has exactly 21 fields (add empty fields if necessary)
-            f = _os_plan_fields(f)
             # t is time of this run, if no t then NaN
             t = get(u, :time_s, NaN)
-            # Should the columns (allocator ... note) belong to this run? Yes, if real run, no if mock run and already real run done before (f[14] is time_real_s) 
+            # Should the columns rss_gib ... note belong to this run? Yes, if real run; if mock run only if no real run was done before (f[14] is time_real_s)
             mine = env === :real || isempty(strip(f[14]))
-            
-            # If there is a time, write it in correct column (real/mock)
+
+            # If there is a time, write it in correct column (real/mock), together with the machine
             if isfinite(t)
-                f[env === :real ? 14 : 13] = num(t)
-                # If update (allocator ... note) should belong to this run, rewrite the old columns
-                mine && (f[15:21] = [txt(get(u, :allocator, "reuse")), num(get(u, :rss_gib, NaN)), num(get(u, :pool_gib, NaN)), num(get(u, :sys_s, NaN)),
-                                     num(get(u, :minflt, NaN)), num(get(u, :check, NaN)), txt(get(u, :note, ""))])
+                f[env === :real ? 14 : 13] = _os_num(t)
+                f[22] = _os_txt(u.machine)
+                # If the measurements should belong to this run, rewrite them
+                mine && (f[16:21] = [_os_num(get(u, :rss_gib, NaN)), _os_num(get(u, :pool_gib, NaN)), _os_num(get(u, :sys_s, NaN)),
+                                     _os_num(get(u, :minflt, NaN)), _os_num(get(u, :check, NaN)), _os_txt(get(u, :note, ""))])
             # If no finite time (run was skipped/failed), only write note if mine (e.g. Note = "skipped: estimated 3.3 GiB > 85% of free 3.4 GiB (set FORCE = true)" or "failed: ...")
             else
-                mine && (f[21] = txt(get(u, :note, "")))
+                mine && (f[21] = _os_txt(get(u, :note, "")))
             end
 
             # Glue all fields back into a line with ;
@@ -483,24 +473,14 @@ function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock
         # Every line goes into lines (also non updated rows)
         push!(lines, line)
     end
-    # if an update was never matched, error. Means that file was not initialized written before
+    # if an update was never matched, error: its row is not in the file
     isempty(pending) || error("onesite_update_plans: $(length(pending)) of $nup rows are not in $path (first: $(first(keys(pending))))")
 
-    # The complete new file is written to plans.csv.tmp
-    tmp = string(path, ".tmp")
-    open(tmp, "w") do io
-        # Also add a header now, then all lines
-        println(io, _os_PLAN_HEADER)
-        foreach(l -> println(io, l), lines)
-    end
-    # Now replace the old file with the original file
-    mv(tmp, path; force = true)
-    # Forget the cached copy of this file, next read sees the new content this way
-    delete!(_os_PLAN_CACHE, String(path))
+    _os_replace_plan_file(path, lines)
     return done
 end
 
-# For every plan (dimensions, tree, cuts) of the file that has no row for `allocator` yet, add a copy of its row with this allocator right below it:
+# For every plan (dimensions, eltype, tree, cuts) of the file that has no row for `allocator` yet, add a copy of its row with this allocator right below it:
 # the same tree, cuts and RAM budget (ram_gib), with empty times and measurements, so that development/contraction_plans/benchmark_contract_onesite.jl
 # can time the same plan with this allocator. The cuts of the copy are the ones that were chosen for the allocator of the original row
 # (with ONESITE_RAM_RULES: a reuse plan also fits its budget with :manual, since the manual factor is the smaller one).
@@ -509,30 +489,26 @@ function onesite_add_allocator_copies(path::AbstractString, allocator::Symbol)
     _os_check_alloc(allocator)
     isfile(path) || error("onesite_add_allocator_copies: $path does not exist")
     a = String(allocator)
-    plankey(f) = (parse(Int, f[1]), parse(Int, f[2]), parse(Int, f[3]), string(onesite_parse_tree(strip(f[4]))), Symbol[Symbol(c) for c in split(f[5])])
-    isrow(s) = !(isempty(s) || startswith(s, "#") || startswith(s, "chi_env"))
+    # the key of a line without its allocator
+    plankey(f) = _os_line_key(f)[1:6]
+    plan_lines = [(n, line) for (n, line) in enumerate(eachline(path)) if _os_is_plan_line(strip(line))]
 
-    # The plans that have a row for this allocator already (empty rows are counted as "reuse", see _os_line_allocator())
-    have = Set{Any}()
-    for line in eachline(path)
-        isrow(strip(line)) || continue
-        f = String.(split(line, ';'))
-        _os_line_allocator(f) == a && push!(have, plankey(f))
-    end
+    # The plans that have a row for this allocator already
+    have = Set{Any}(plankey(f) for f in (_os_split_plan_line(line, path, n) for (n, line) in plan_lines) if strip(f[15]) == a)
 
     lines = String[]
     added = 0
-    for line in eachline(path)
+    for (n, line) in enumerate(eachline(path))
         s = strip(line)
         startswith(s, "chi_env") && continue
         push!(lines, line)
-        isrow(s) || continue
-        f = String.(split(line, ';'))
+        _os_is_plan_line(s) || continue
+        f = _os_split_plan_line(line, path, n)
         k = plankey(f)
         k in have && continue
-        # the copy: columns 1..12 of the original (tree, cuts, budget, ...), allocator, all times and measurements empty
-        g = _os_plan_fields(f)
-        g[13:21] .= ""
+        # the copy: columns 1..12 of the original (tree, cuts, budget, eltype, ...), allocator, all times and measurements empty
+        g = copy(f)
+        g[13:22] .= ""
         g[15] = a
         push!(lines, join(g, ';'))
         push!(have, k)
@@ -540,13 +516,7 @@ function onesite_add_allocator_copies(path::AbstractString, allocator::Symbol)
     end
     added == 0 && return 0
 
-    tmp = string(path, ".tmp")
-    open(tmp, "w") do io
-        println(io, _os_PLAN_HEADER)
-        foreach(l -> println(io, l), lines)
-    end
-    mv(tmp, path; force = true)
-    delete!(_os_PLAN_CACHE, String(path))
+    _os_replace_plan_file(path, lines)
     return added
 end
 
@@ -561,7 +531,7 @@ end
 # Ask OMEinsumContractionOrders.jl (simulated annealing, TreeSA) for contraction trees of our network with bond dimensions d.
 #   First a tree with only flops in the score; its largest tensor has 2^sc_max elements.
 #   Then n_targets trees that are also punished for tensors larger than 2^(sc_max - 2j) elements (j = 1..n_targets): less memory, more flops.
-# Returns a Vector of (tree, source, tc); source is "ome-flops" (flops only) or "ome-scN" (target 2^N elements). Trees with outer products are thrown away. The search is random: another run can give other trees.
+# Returns a Vector of (tree, source, tc, ne); source is "ome-flops" (flops only) or "ome-scN" (target 2^N elements), ne = the tree in OME's own form. Trees with outer products are thrown away. The search is random: another run can give other trees.
 # ntrials / niters are the TreeSA settings (more = better trees, slower). Takes a few seconds per tree at (8,5,5).
 function onesite_find_trees(d::Vector{Float64}; n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4, niters::Int = 40, verbosity::Int = 0)    # The network as an einsum: one input tensor per row of ONESITE_TENSORS, no output indices (closed network = scalar)
     code = OME.EinCode([copy(labs) for (_, _, labs) in ONESITE_TENSORS], Symbol[])
@@ -578,8 +548,9 @@ function onesite_find_trees(d::Vector{Float64}; n_targets::Int = 1, sc_step::Int
     function keep!(ne, source)
         t = _os_tree_from_ome(ne)
         (_os_has_outer(t) || any(f -> f.tree == t, found)) && return
-        # tc = log2(flops) as computed by OMEinsumContractionOrders (can be compared with log2(onesite_cost(tree, d).flops))
-        push!(found, (tree = t, source = source, tc = OME.contraction_complexity(ne, sizes).tc))
+        # tc = log2(flops) as computed by OMEinsumContractionOrders (can be compared with log2(onesite_cost(tree, d).flops));
+        # ne = the tree as OMEinsumContractionOrders returns it (onesite_slice_tree slices it)
+        push!(found, (tree = t, source = source, tc = OME.contraction_complexity(ne, sizes).tc, ne = ne))
     end
 
     # 1. flops only
@@ -599,35 +570,78 @@ function onesite_find_trees(d::Vector{Float64}; n_targets::Int = 1, sc_step::Int
 end
 
 
-# Make plans (tree + cuts) for bond dimensions (χenv, χpeps, D) and a list of RAM budgets, and return them as rows for onesite_write_plans.
-# Candidates: TREE_CURRENT, OPT_TRUE and the trees of onesite_find_trees.  For each budget, every candidate gets its best cuts (brute force,
-# at most kmax of them); candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
-# Parameters of the cost model that you can vary: bytes (16 = ComplexF64, 8 = Float64), allocator, margin, rules; (all of them are used again by
-# contract_onesite_auto when it checks a plan, so use the same values there).
-# The rows have no measured time yet (time_s = NaN): development/contraction_plans/benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
-function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32, 64, 128, 256, 512), bytes::Int = 16, allocator::Symbol = :reuse,
-                            kmax::Int = 4, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
-                            niters::Int = 40, verbosity::Int = 1)
-    d = onesite_dims(χenv, χpeps, D)
-    candidates = NamedTuple[(tree = TREE_CURRENT, source = "TREE_CURRENT"), (tree = OPT_TRUE, source = "OPT_TRUE")]
-    for t in onesite_find_trees(d; n_targets, sc_step, ntrials, niters, verbosity)        # Is there a candidate c whose tree matches with the found tree t? If no put t into candidate list
-        any(c -> c.tree == t.tree, candidates) || push!(candidates, (tree = t.tree, source = t.source))
+# Let OMEinsumContractionOrders slice a tree (ne, as returned in onesite_find_trees) and rearrange it around the sliced bonds (TreeSASlicer):
+# it cuts whole bonds, one after the other, until its largest tensor has at most 2^sc_target elements, and re-optimises the tree (flops, with the
+# same memory penalty) after every cut. Returns (tree, cuts) in our form: the tree as nested pairs of leaf numbers, the cuts as bond labels.
+# ntrials / niters are the annealing settings of the slicer (OME's defaults: 10 / 10).
+function onesite_slice_tree(ne, d::Vector{Float64}, sc_target::Real; ntrials::Int = 10, niters::Int = 10)
+    sizes = Dict{Symbol,Int}(l => round(Int, d[i]) for (i, l) in enumerate(ONESITE_LABELS))
+    score = OME.ScoreFunction(tc_weight = 1.0, sc_weight = 1.0, rw_weight = 0.0, sc_target = Float64(sc_target))
+    se = OME.slice_code(ne, sizes, OME.TreeSASlicer(; ntrials, niters, score))
+    cuts = Symbol[Symbol(c) for c in se.slicing]
+    for c in cuts
+        haskey(ONESITE_LABEL_INDEX, c) || error("onesite_slice_tree: OMEinsumContractionOrders sliced an unknown label $c")
     end
-    verbosity > 0 && @info "onesite_find_plans: $(length(candidates)) candidate trees for (χenv, χpeps, D) = ($χenv, $χpeps, $D)"
+    return (tree = _os_tree_from_ome(se.eins), cuts = cuts)
+end
+
+# Make plans (tree + cuts) for bond dimensions (χenv, χpeps, D) and a list of RAM budgets, and return them as rows for onesite_write_plans.
+# Candidates:
+#   TREE_CURRENT and OPT_TRUE (the two fixed trees): for each budget their best cuts by brute force (at most kmax cuts, onesite_choose_cuts).
+#   The trees of onesite_find_trees (flops only, and n_targets trees with a memory penalty): for each budget OMEinsumContractionOrders slices the tree
+#   itself and rearranges it around the cuts (onesite_slice_tree), source "<tree>-sliced". Its target for the largest tensor is the number of
+#   elements that our memory model allows for this budget; if the result does not fit our model (which counts all tensors alive at the same time,
+#   not only the largest one), the target is lowered by 1 (at most 6 times).
+# Candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
+# Parameters of the cost model that we can vary: T (element type: Float64 or ComplexF64, written into the column eltype), allocator, margin, rules
+# (all of them are used again by contract_onesite_auto when it checks a plan, so use the same values there; T is the element type of the tensors there).
+# The rows have no measured time yet (time_s = NaN): development/contraction_plans/benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
+function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32, 64, 128, 256, 512), T::Type{<:Number} = ComplexF64, allocator::Symbol = :reuse,
+                            kmax::Int = 5, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
+                            niters::Int = 40, slice_ntrials::Int = 10, slice_niters::Int = 10, verbosity::Int = 1)
+    d = onesite_dims(χenv, χpeps, D)
+    fixed = NamedTuple[(tree = TREE_CURRENT, source = "TREE_CURRENT"), (tree = OPT_TRUE, source = "OPT_TRUE")]
+    found = [t for t in onesite_find_trees(d; n_targets, sc_step, ntrials, niters, verbosity) if !any(c -> c.tree == t.tree, fixed)]
+    verbosity > 0 && @info "onesite_find_plans: 2 fixed trees and $(length(found)) trees of OMEinsumContractionOrders for (χenv, χpeps, D) = ($χenv, $χpeps, $D)"
 
     rows = NamedTuple[]
-    for ram in sort(collect(ram_gibs)), c in candidates
-        p = onesite_choose_cuts(d; ram_gib = ram, bytes, allocator, kmax, margin, rules, tree = c.tree, source = c.source)
-        if !p.fits
-            # c.source = e.g. TREE_CURRENT or ome-flops or ome-sc28 (intermediate tensors are only free if below 2^28 elements (otherwise penalised))
-            verbosity > 0 && @warn "onesite_find_plans: $(c.source) does not fit $ram GiB with at most $kmax cuts"
-            continue
-        end
+    function add!(p, ram)
         # the tree of the plan can be a reordered version of the candidate; the same tree + cuts for a larger budget is not added again
-        any(r -> r.tree == p.tree && r.cuts == p.cuts, rows) && continue
-        verbosity > 0 && @info "onesite_find_plans: $ram GiB, $(c.source): $(p.k) cuts $(p.cuts), $(round(Int, p.slices)) slices, predicted $(round(p.est_gib; digits = 1)) GiB, $(round(p.flops; sigdigits = 3)) flops"
-        push!(rows, (chi_env = χenv, chi_peps = χpeps, D = D, tree = p.tree, cuts = p.cuts, source = c.source, k = p.k, slices = p.slices,
-                     flops = p.flops, peak_gib = p.peak_gib, ram_gib = ram, bytes = bytes, time_s = NaN, allocator = String(allocator)))
+        any(r -> r.tree == p.tree && r.cuts == p.cuts, rows) && return
+        verbosity > 0 && @info "onesite_find_plans: $ram GiB, $(p.source): $(p.k) cuts $(p.cuts), $(round(Int, p.slices)) slices, predicted $(round(p.est_gib; digits = 1)) GiB, $(round(p.flops; sigdigits = 3)) flops"
+        push!(rows, (chi_env = χenv, chi_peps = χpeps, D = D, tree = p.tree, cuts = p.cuts, source = p.source, k = p.k, slices = p.slices,
+                     flops = p.flops, peak_gib = p.peak_gib, ram_gib = ram, eltype = string(T), time_s = NaN, allocator = String(allocator)))
+    end
+
+    for ram in sort(collect(ram_gibs))
+        # 1. the fixed trees: brute-force cuts
+        for c in fixed
+            p = onesite_choose_cuts(d; ram_gib = ram, T, allocator, kmax, margin, rules, tree = c.tree, source = c.source)
+            if !p.fits
+                verbosity > 0 && @warn "onesite_find_plans: $(c.source) does not fit $ram GiB with at most $kmax cuts"
+                continue
+            end
+            add!(p, ram)
+        end
+        # 2. the trees of OMEinsumContractionOrders: sliced by OMEinsumContractionOrders itself
+        # the number of elements our memory model allows (the same formula as in onesite_choose_cuts), as a target for the largest tensor
+        allowed_gib = (margin * ram - rules.baseline_gib) / rules[allocator]
+        allowed_gib > 0 || continue
+        target0 = floor(Int, log2(allowed_gib * 2^30 / sizeof(T)))
+        for f in found
+            fitted = false
+            for target in target0:-1:(target0 - 6)
+                s = onesite_slice_tree(f.ne, d, target; ntrials = slice_ntrials, niters = slice_niters)
+                _os_has_outer(s.tree) && continue
+                p = onesite_plan_of(d, s.cuts; ram_gib = ram, T, allocator, margin, rules, tree = s.tree, source = f.source * "-sliced", reorder = true)
+                if p.fits
+                    add!(p, ram)
+                    fitted = true
+                    break
+                end
+            end
+            fitted || (verbosity > 0 && @warn "onesite_find_plans: $(f.source)-sliced does not fit $ram GiB (targets 2^$target0 down to 2^$(target0 - 6))")
+        end
     end
     return rows
 end

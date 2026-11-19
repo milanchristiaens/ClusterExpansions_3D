@@ -4,13 +4,20 @@
 # Contents:
 #   βc_ising, check_cost            sanity check of the cost f of a vbPEPS optimization
 #   build_pepos                     the CE PEPOs at all β of a list, built once
+#   compare_dims, compare_cases, compare_run_dir
+#                                   the parts of a profile that the Hortense job scripts choose with environment variables (CE_COMPARE_DIMS, _CASES, _RUN)
+#   warm_start_at                   the warm-start rule of the :warm cases (cold near βc)
 #   obs_seconds_allowed             the time limit of one observation, from the time budget of a case (the same rule for vbPEPS and CTMRG3D)
 #   ISING_RESULTS_PATH, ISING_CSV_HEADER, ising_results_file, append_ising_row, read_ising_results
 #                                   one results file for all Ising compare runs of both algorithms (column algorithm = "vbPEPS" or "CTMRG3D")
 #   median_of, spread_points, plot_spread   difference of |m| of every case to the mean |m| of the cases
-# The functions get their settings as arguments; they do not read the settings of the script that includes this file.
+# The functions get their settings as arguments; they do not read the settings of the script that includes this file (only compare_* read the environment variables).
 # Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots, LinearAlgebra
 # The timing plots of the compare scripts are in timing_plots.jl.
+
+# Warm start rule of the :warm cases (both compare scripts): warm from the previous β, except for a β closer than `window` to βc (`βc = nothing`:
+# always warm). Near βc a warm start stays in the (symmetric) state of the previous β, so there we start cold.
+warm_start_at(β, βc, window) = βc === nothing || abs(β - βc) >= window
 
 # ======================================================================================================================
 # Sanity check of the final cost f = −ln λ = −(1/N) ln Z:
@@ -72,13 +79,36 @@ function build_pepos(β_obs, Δβ_iter, D, J, g)
         nsteps = round(Int, (β - β_now) / Δβ_iter)
         @assert abs(nsteps - (β - β_now) / Δβ_iter) < 1.0e-8 "β = $β is not a multiple of Δβ_iter = $Δβ_iter"
         for _ in 1:nsteps
-            O, = approximate_state((O, ΔO), trunc_alg; rot_invariance = false)
+            # rot_invariance = true: one Takagi projector pair for all six legs, so every O is exactly symmetric under the cube rotations and
+            # reflections (needed by the C4v CTMRG of vbPEPS); it stays Float64 (see takagi_trunc)
+            O, = approximate_state((O, ΔO), trunc_alg; rot_invariance = true)
         end
         β_now = β
         push!(Os, deepcopy(O))   # copy, so that later steps cannot change an earlier O
     end
     return Os
 end
+
+# ======================================================================================================================
+# Parts of a profile chosen by the Hortense job scripts (development/hpc/), with environment variables; on the laptop none is set
+# ======================================================================================================================
+#   CE_COMPARE_DIMS  = "chienv_chipeps_DCE" (for example "16_6_3"): these bond dimensions instead of the dims of the profile (pilot: one job per candidate)
+#   CE_COMPARE_CASES = case names separated by "+" (for example "svd_cold"): only these cases (full run: one job per case, the jobs run in parallel)
+#   CE_COMPARE_RUN   = name of the run and of its run folder: the parallel jobs of one run write into the same run (otherwise a new folder <date>_<time>)
+# ("_" and "+" instead of commas, because qsub -v separates its variables with commas)
+function compare_dims(default)
+    haskey(ENV, "CE_COMPARE_DIMS") || return default
+    d = Tuple(parse.(Int, split(ENV["CE_COMPARE_DIMS"], '_')))
+    length(d) == 3 || error("CE_COMPARE_DIMS = $(ENV["CE_COMPARE_DIMS"]): expected chienv_chipeps_DCE, for example 16_6_3")
+    return d
+end
+function compare_cases(default, all_cases)
+    haskey(ENV, "CE_COMPARE_CASES") || return default
+    cases = String.(split(ENV["CE_COMPARE_CASES"], '+'))
+    all(in(all_cases), cases) || error("CE_COMPARE_CASES = $(ENV["CE_COMPARE_CASES"]): the cases are $all_cases")
+    return cases
+end
+compare_run_dir(script_file) = haskey(ENV, "CE_COMPARE_RUN") ? mkpath(joinpath(script_data_dir(script_file), ENV["CE_COMPARE_RUN"])) : new_run_dir(script_file)
 
 # ======================================================================================================================
 # Time limit of one observation
@@ -119,16 +149,14 @@ const ISING_CSV_HEADER = "algorithm,run,case,setting,warm_start,beta,D_CE,chi_pe
 
 
 
-# The results file: created with the header if it is not there; an error if it has another header (a file of an older layout: rename or delete it)
+# The results file: created with the header if it is not there (or empty); an error if it has another header.
+# Several jobs can append to it at the same time (the parallel Hortense jobs): we never overwrite it, and a second header line that two jobs
+# starting together might write is skipped by read_ising_results.
 function ising_results_file(path = ISING_RESULTS_PATH)
-    if isfile(path)
-        h = readline(path)
-        h == ISING_CSV_HEADER || error(
-            "$path has another header than ISING_CSV_HEADER (an older layout?): rename or delete it.\n file: $h\n expected: $ISING_CSV_HEADER")
-    else
-        mkpath(dirname(path))
-        open(io -> println(io, ISING_CSV_HEADER), path, "w")
-    end
+    mkpath(dirname(path))
+    (isfile(path) && filesize(path) > 0) || open(io -> println(io, ISING_CSV_HEADER), path, "a")
+    h = readline(path)
+    h == ISING_CSV_HEADER || error("$path has another header than ISING_CSV_HEADER: rename or delete it.\n file: $h\n expected: $ISING_CSV_HEADER")
     return path
 end
 
@@ -157,7 +185,7 @@ function read_ising_results(path = ISING_RESULTS_PATH; algorithm = nothing, run 
     isfile(path) || return rows
 
     for line in Iterators.drop(eachline(path), 1)
-        isempty(strip(line)) && continue
+        (isempty(strip(line)) || line == ISING_CSV_HEADER) && continue
         p = split(line, ','; limit = 24)
         r = (; algorithm = String(p[1]), run = String(p[2]), case = String(p[3]), setting = String(p[4]), warm = p[5] == "true", β = parse(Float64, p[6]),
             D_CE = parse(Int, p[7]), chipeps = parse(Int, p[8]), chienv = parse(Int, p[9]), dβ = num(p[10]), m_re = num(p[11]), m_im = num(p[12]),

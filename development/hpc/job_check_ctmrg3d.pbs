@@ -1,0 +1,17 @@
+#!/bin/bash
+# job_check_ctmrg3d.pbs -- one CTMRG3D check on 4 Hortense cores (as the CTMRG3D compare): CHECK=init (development/checks/check_ctmrg3d_init.jl: :ones,
+# :random, :nishino_okunishi for :svd and :oblique) or CHECK=exponent (development/checks/check_ctmrg3d_exponent.jl: P = 0, 1/2, 1 of the :svd projectors).
+# Both at (8,4,3) and (11,5,3), β = 0.19, 0.21, 0.25 (settings at the top of the scripts). They slice the current tree (CE_CHECK_PLANS=false), because
+# the plans are timed in the same round. Needs the PEPO file (job_pepos.pbs first). Submitted by submit_round1.sh (qsub -v CHECK=...).
+#PBS -A starting_2026_079
+#PBS -N check_ctmrg3d
+#PBS -l nodes=1:ppn=4
+#PBS -l walltime=30:00:00
+#PBS -j oe
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+export OPENBLAS_NUM_THREADS=4
+export CE_CHECK_MACHINE=hortense
+export CE_CHECK_PLANS=false
+cd "$REPO"
+julia -t 4 --project=. development/checks/check_ctmrg3d_${CHECK:-init}.jl

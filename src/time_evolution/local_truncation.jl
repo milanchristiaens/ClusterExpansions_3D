@@ -51,16 +51,26 @@ end
 transpose_flip(X) = flip(permute(X, (domainind(X), codomainind(X))), Tuple(1:numind(X)))
 
 # Takagi factorisation of a symmetric mat = transpose_flip(mat) as mat ≈ W * S * transpose_flip(W),
-# with W an isometry and S ≥ 0 the (truncated) singular values
-function takagi_trunc(mat; trunc)
+# with W an isometry and S ≥ 0 the (truncated) singular values.
+# A real mat keeps a real W if that is possible (Z = 1 below, i.e. the kept part of mat has no negative eigenvalues; for the 3D Ising CE PEPOs
+# this holds over the whole time evolution); otherwise we warn and continue with complex numbers (tol = relative tolerance of that test).
+function takagi_trunc(mat; trunc, tol::Real = 1.0e-10)
     # Take the SVD: M = USV†
     U, S, Vᴴ, ϵ = svd_trunc(mat; trunc)
     # We also know that: M=M^T=(USV†)^T=V̄ S Uᵀ (second SVD of M)
     # SVD is unique up to isometry Z that mixes vectors with same singular values: V̄ = U Z
+    V̄ = transpose_flip(Vᴴ)
+
+    # Real mat: if V̄ = U (Z = 1), then M = U S Uᵀ and W = U is real
+    if scalartype(mat) <: Real
+        norm(V̄ - U) <= tol * norm(U) && return U, S, ϵ
+        @warn "takagi_trunc: no real Takagi factor (Z ≠ 1: mat has a negative eigenvalue), we continue with complex numbers"
+        U, V̄ = complex(U), complex(V̄)
+    end
 
     # For symmetric mat, conj(V) = U * Z with Z a symmetric unitary commuting with S
     # So: Z = U† V̄. (because U^+ U = 1)
-    Z = U' * transpose_flip(Vᴴ)
+    Z = U' * V̄
 
     # Now substitute: M = U S V† = U S V̄ᵀ = U S Zᵀ Uᵀ = U S Z Uᵀ
     # And now we split Z symmetrically: S Z = √Z S √Z (S and Z commute)

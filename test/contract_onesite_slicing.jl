@@ -80,7 +80,8 @@ end
     end
 
     # Check if contractions of Float64 elements (8 bytes per number) indeed need <= the cuts needed for Complex (16 bytes per element)
-    @test CE.onesite_choose_cuts(d; ram_gib = 64, bytes = 8).k <= p1.k
+    @test CE.onesite_choose_cuts(d; ram_gib = 64, T = Float64).k <= p1.k
+    @test CE.onesite_plan_of(d, [:A9]; ram_gib = 64, T = Float64).peak_gib ≈ CE.onesite_plan_of(d, [:A9]; ram_gib = 64).peak_gib / 2
 
     # a budget that cannot be met: should give fits=False, but still result in contraction order
     pn = CE.onesite_choose_cuts(d; ram_gib = 2, kmax = 2)
@@ -112,13 +113,19 @@ end
         @test log2(CE.onesite_cost(f.tree, d).flops) ≈ f.tc rtol = 1e-9
     end
 
-    # Plans for a few budgets (candidates: TREE_CURRENT, OPT_TRUE and the found trees)
-    rows = CE.onesite_find_plans(8, 5, 5; ram_gibs = (16, 256), n_targets = 1, ntrials = 1, niters = 5, verbosity = 0)
+    # OMEinsumContractionOrders slices a tree itself: valid tree and bond labels, and the largest tensor of the sliced tree is smaller
+    s = CE.onesite_slice_tree(found[1].ne, d, found[1].tc / 3; ntrials = 1, niters = 2)
+    @test sort(collect(CE._os_leaves(s.tree))) == collect(1:27) && !isempty(s.cuts) && all(c -> haskey(CE.ONESITE_LABEL_INDEX, c), s.cuts)
+    @test CE.onesite_cost(s.tree, d; cuts = s.cuts).peak < CE.onesite_cost(found[1].tree, d).peak
+
+    # Plans for a few budgets (candidates: TREE_CURRENT and OPT_TRUE with brute-force cuts, the found trees sliced by OMEinsumContractionOrders)
+    rows = CE.onesite_find_plans(8, 5, 5; ram_gibs = (16, 256), n_targets = 1, ntrials = 1, niters = 5, slice_ntrials = 1, slice_niters = 2, verbosity = 0)
     @test !isempty(rows)
+    @test any(r -> r.source == "TREE_CURRENT", rows) && any(r -> endswith(r.source, "-sliced"), rows)
     for r in rows
         p = CE.onesite_plan_of(d, r.cuts; ram_gib = r.ram_gib, tree = r.tree)
         @test p.fits && p.flops ≈ r.flops
-        @test r.k == length(r.cuts) && isnan(r.time_s)
+        @test r.k == length(r.cuts) && isnan(r.time_s) && r.eltype == "ComplexF64" && r.allocator == "reuse"
     end
 
     # Writing and reading: the same rows come back, writing twice adds nothing
@@ -148,7 +155,7 @@ end
     # Fill in a measured time in the line of the second plan (column 13): select = :measured now uses it (if it fits), and writing the rows
     # again does not overwrite the time
     lines = readlines(path)
-    f = split(lines[3], ';'); f[13] = "123.5"; lines[3] = join(f, ';')
+    f = split(lines[3], ';'); f[13] = "123.5"; f[22] = "laptop"; lines[3] = join(f, ';')
     write(path, join(lines, "\n") * "\n")
     @test CE.onesite_read_plans(path)[2].time_s == 123.5
     ps = CE.onesite_choose_plan(d; ram_gib = rows[2].ram_gib, plans = path)
@@ -156,21 +163,15 @@ end
     @test CE.onesite_write_plans(path, rows) == 0
     @test CE.onesite_read_plans(path)[2].time_s == 123.5
 
-    # The measurements that development/contraction_plans/benchmark_contract_onesite.jl writes back (21-column layout: time_s, time_real_s, allocator ... note).
-    # A row that was never measured has empty columns; older lines with 13 or 20 columns are still read (time_real_s is then empty).
+    # The measurements that development/contraction_plans/benchmark_contract_onesite.jl writes back (time_s, time_real_s, rss_gib ... note, machine).
+    # A row that was never measured has empty columns; a line with another number of columns than 22 is an error.
     r0 = CE.onesite_read_plans(path)[1]
-    @test isnan(r0.rss_gib) && r0.note == "" && isnan(r0.time_real_s) && length(split(readlines(path)[2], ';')) == 21
-    path13 = tempname()
-    write(path13, join(split(readlines(path)[1], ';')[1:13], ';') * "\n" * join(split(readlines(path)[3], ';')[1:13], ';') * "\n")
-    @test CE.onesite_read_plans(path13)[1].time_s == 123.5 && isnan(CE.onesite_read_plans(path13)[1].check) && isnan(CE.onesite_read_plans(path13)[1].time_real_s)
-    # a 20-column line of the older layout: the measurement columns are 14..20
-    f20 = split(readlines(path)[3], ';')[1:13]; append!(f20, ["manual", "1.5", "0.5", "0.25", "7", "1e-13", "old"])
-    path20 = tempname(); write(path20, join(f20, ';') * "\n")
-    o20 = CE.onesite_read_plans(path20)[1]
-    @test o20.time_s == 123.5 && isnan(o20.time_real_s) && o20.allocator == "manual" && o20.rss_gib == 1.5 && o20.minflt == 7 && o20.check == 1e-13 && o20.note == "old"
+    @test isnan(r0.rss_gib) && r0.note == "" && isnan(r0.time_real_s) && r0.machine == "" && r0.ram_gib == rows[1].ram_gib && length(split(readlines(path)[2], ';')) == 22
+    path21 = tempname(); write(path21, join(split(readlines(path)[2], ';')[1:21], ';') * "\n")
+    @test_throws ErrorException CE.onesite_read_plans(path21)
 
-    upd = (chi_env = rows[1].chi_env, chi_peps = rows[1].chi_peps, D = rows[1].D, tree = rows[1].tree, cuts = rows[1].cuts,
-           time_s = 4.5, allocator = "reuse", rss_gib = 2.25, pool_gib = NaN, sys_s = 0.5, minflt = 1000.0, check = 1.0e-12, note = "a; b")
+    upd = (chi_env = rows[1].chi_env, chi_peps = rows[1].chi_peps, D = rows[1].D, eltype = "ComplexF64", tree = rows[1].tree, cuts = rows[1].cuts,
+           allocator = "reuse", time_s = 4.5, machine = "laptop", rss_gib = 2.25, pool_gib = NaN, sys_s = 0.5, minflt = 1000.0, check = 1.0e-12, note = "a; b")
     # a MOCK update: time_s and the seven measurement columns (the row has no real time yet)
     @test CE.onesite_update_plans(path, [upd]) == 1
     r1 = CE.onesite_read_plans(path)[1]
@@ -193,11 +194,9 @@ end
     @test CE.onesite_update_plans(path, [merge(upd, (time_s = NaN, note = "skipped: too big"))]; env = :real) == 1
     r1 = CE.onesite_read_plans(path)[1]
     @test r1.time_s == 5.5 && r1.time_real_s == 9.0 && r1.rss_gib == 3.5 && r1.note == "skipped: too big"
-    # a mock update of an OLD-layout line (13 columns) writes the 21-column layout
-    @test CE.onesite_update_plans(path13, [merge(upd, (cuts = rows[2].cuts, tree = rows[2].tree, time_s = 7.0))]) == 1
-    @test length(split(readlines(path13)[end], ';')) == 21 && CE.onesite_read_plans(path13)[1].time_s == 7.0
     @test_throws ErrorException CE.onesite_update_plans(path, [upd]; env = :other)
     @test_throws ErrorException CE.onesite_update_plans(path, [merge(upd, (cuts = [:L5, :L4, :A8, :U1, :U2, :U3],))])    # this row is not in the file
+    @test_throws ErrorException CE.onesite_update_plans(path, [merge(upd, (eltype = "Float64",))])                         # nor this one (other element type)
 
     # Choosing with a real time: plan 1 has time_s = 5.5 and time_real_s = 9.0, plan 2 has time_s = 123.5 only. The effective times are 9.0 and 123.5,
     # so plan 1 wins; with a real time of 200 for plan 1 plan 2 (123.5) wins, although the mock time of plan 1 (5.5) is smaller
@@ -219,6 +218,28 @@ end
     @test CE.onesite_update_plans(path, [merge(upd, (allocator = "manual", time_s = 1.25))]) == 1
     @test CE.onesite_read_plans(path)[2].time_s == 1.25 && CE.onesite_read_plans(path)[1].time_s == 5.5 && CE.onesite_read_plans(path)[1].time_real_s == 200.0
     @test CE.onesite_write_plans(path, rows) == 0
+    # the machine column: written with every time; machine = "..." in onesite_choose_plan only uses the rows timed on that machine.
+    # Plan 1 (reuse) gets a real time of 300 s on "hortense", plan 2 (reuse) keeps its 123.5 s of the laptop
+    @test CE.onesite_update_plans(path, [merge(upd, (time_s = 300.0, machine = "hortense"))]; env = :real) == 1
+    rr = CE.onesite_read_plans(path)
+    @test rr[1].machine == "hortense" && rr[1].time_real_s == 300.0 && rr[3].machine == "laptop" && rr[2].machine == "laptop"
+    @test length(split(readlines(path)[2], ';')) == 22
+    ram12 = max(rows[1].ram_gib, rows[2].ram_gib)
+    tc(p) = (p.tree, p.cuts)
+    @test tc(CE.onesite_choose_plan(d; ram_gib = ram12, plans = path, machine = "hortense")) == tc(rows[1])
+    @test tc(CE.onesite_choose_plan(d; ram_gib = ram12, plans = path, machine = "laptop")) == tc(rows[2])
+    @test tc(CE.onesite_choose_plan(d; ram_gib = ram12, plans = path)) == tc(rows[2])            # all machines: 123.5 s < 300 s
+
+    # the element type is part of the key: a Float64 row of the same plan is a new row with its own time, and only used for Float64.
+    # Without a Float64 plan in the file, the brute-force plan on TREE_CURRENT is used, with the memory of Float64 elements.
+    @test isempty(CE.onesite_plans_for(d, path; T = Float64))
+    pb = CE.onesite_choose_plan(d; ram_gib = ram12, plans = path, T = Float64)
+    @test startswith(pb.source, "TREE_CURRENT") && pb.peak_gib ≈ CE.onesite_cost(pb.tree, d; cuts = pb.cuts).peak * 8 / 2^30
+    @test CE.onesite_write_plans(path, [merge(rows[1], (eltype = "Float64",))]) == 1
+    @test CE.onesite_update_plans(path, [merge(upd, (eltype = "Float64", time_s = 2.0))]) == 1
+    @test length(CE.onesite_plans_for(d, path; T = Float64)) == 1 && CE.onesite_plans_for(d, path; T = Float64)[1].time_s == 2.0
+    @test tc(CE.onesite_choose_plan(d; ram_gib = ram12, plans = path, T = Float64)) == tc(rows[1])
+    @test tc(CE.onesite_choose_plan(d; ram_gib = ram12, plans = path)) == tc(rows[2])            # ComplexF64 is unchanged
 end
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -335,6 +356,7 @@ end
 
     # Float64 tensors (8-byte elements)
     envr, Mr = CE.onesite_mock_env(ℂ^3, ℂ^2, ℂ^2; T = Float64)
+    @test CE.onesite_eltype(envr, Mr) == Float64 && CE.onesite_eltype(env, M) == ComplexF64
     zr0 = CE.contract_onesite_kernel(envr.C, envr.E, envr.A, Mr)
     @test CE.contract_onesite_auto(envr, Mr; ram_gib = ram, rules = rules0, verbosity = 0) ≈ zr0
 
@@ -349,11 +371,13 @@ end
     @test CE.onesite_cost(CE.TREE_CURRENT, d).peak * 16 / 2^30 * 2.7 > ram_row * 0.8            # TREE_CURRENT without cuts does not fit that budget
     path = tempname() * ".csv"
     row = (chi_env = 3, chi_peps = 2, D = 2, tree = tr, cuts = [:U1, :U10], source = "test row", k = 2, slices = prow.slices,
-           flops = prow.flops, peak_gib = prow.peak_gib, ram_gib = ram_row, bytes = 16, time_s = 1.0)
+           flops = prow.flops, peak_gib = prow.peak_gib, ram_gib = ram_row, eltype = "ComplexF64", allocator = "reuse", time_s = 1.0)
     CE.onesite_write_plans(path, [row])
     plan = CE.onesite_choose_plan(d; ram_gib = ram_row, rules = rules0, plans = path, kmax = 0)
     @test startswith(plan.source, "plan file") && plan.tree == tr && plan.fits
     @test CE.contract_onesite_auto(env, M; ram_gib = ram_row, rules = rules0, plans = path, kmax = 0, verbosity = 0) ≈ z0
+    # a Float64 environment does not use this ComplexF64 plan: the brute-force plan on TREE_CURRENT (memory of Float64 elements)
+    @test startswith(CE.onesite_choose_plan(d; ram_gib = ram_row, rules = rules0, plans = path, kmax = 0, T = Float64).source, "TREE_CURRENT")
     # the same with a row without time: not used in the default mode, so nothing fits and it is an error; with select = :model it is used
     row_unmeasured = merge(row, (time_s = NaN,))
     path2 = tempname() * ".csv"

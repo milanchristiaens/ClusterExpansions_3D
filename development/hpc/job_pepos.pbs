@@ -1,0 +1,16 @@
+#!/bin/bash
+# job_pepos.pbs -- stage 1: ising_model_3D_CE_pepos.jl, the CE PEPOs of all β (and the start states of the vbPEPS) into the PEPO files
+# data/pepos/*.jld2, which all compare jobs read. Run it once before the pilots, and again after a change of the settings of ising_model_3D_CE_pepos.jl.
+# 4 cores for the memory (about 7.4 GiB; ClusterExpansions and its compilation need more than the 3.7 GiB of 2 cores); it takes minutes.
+# Submit on the login node, in the clone folder:
+#   module swap cluster/dodrio/cpu_milan_rhel9
+#   qsub development/hpc/job_pepos.pbs
+#PBS -A starting_2026_079
+#PBS -N pepos
+#PBS -l nodes=1:ppn=4
+#PBS -l walltime=01:00:00
+#PBS -j oe
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+cd "$REPO"
+julia -t 4 --project=. development/profiling/comparing/ising_model_3D_CE_pepos.jl

@@ -10,7 +10,8 @@
 #
 # What the comparison means:
 #   - Only cases with the same PEPO (the same D_CE and Δβ) differ only in the contraction (χpeps, χenv, algorithm): warning if they differ.
-#   - The time budget of a case (budget_s) and the number of BLAS threads are printed per selected case: for a comparison at the same budget they must be equal.
+#   - The time budget of a case (budget_s) and the number of BLAS threads are printed per selected case. On Hortense the two algorithms have the same CORE budget
+#     (cores × budget_s: CTMRG3D 4 cores × 16 h, vbPEPS 2 cores × 32 h), so budget_s differs between them on purpose; the cores are in the job scripts.
 #   - There is no reference value yet: the right panel compares the cases with each other (the mean of the selected cases), not with an exact m.
 # A cross marks an observation that was stopped by its time limit (both algorithms) or that did not converge (CTMRG3D).
 #
@@ -101,9 +102,9 @@ function print_summary(rows, specs)
             rpad(round(maximum((over(r) for r in sub if r.timed_out); init = 0.0); digits = 1), 19), count(r -> !isfinite(r.m_re), sub))
     end
     # the same PEPO, the same budget, the same number of BLAS threads?
-    for (what, f) in (("D_CE", r -> r.D_CE), ("Δβ", r -> r.dβ), ("budget_s", r -> r.budget_s), ("blas_threads", r -> r.blas))
+    for (what, f) in (("D_CE", r -> r.D_CE), ("Δβ", r -> r.dβ))
         vals = unique(f(r) for r in rows)
-        length(vals) > 1 && @warn "The selected cases have different $what: $vals" * (what in ("D_CE", "Δβ") ? " (different PEPOs: not only the contraction differs)" : " (not the same conditions)")
+        length(vals) > 1 && @warn "The selected cases have different $what: $vals (different PEPOs: not only the contraction differs)"
     end
     return nothing
 end

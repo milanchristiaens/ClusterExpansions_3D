@@ -7,3 +7,5 @@ deprecated
 data
 /*.csv
 /*.png
+# the environment of the fast vbPEPS (BetterPEPSKit) keeps its Manifest, so that the laptop and Hortense get the same versions
+!development/fast_vbpeps/Manifest.toml

@@ -101,6 +101,7 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     west_updates::Union{Int, Symbol}   # West updates per side: Int >= 1, or :auto (stop once ϵ < west_tol, at most 4)
     west_tol::Float64
     projectors::Symbol                 # :svd = U * sqrt(S) from the SVD of ONE enlarged tensor (original), :oblique = one projector pair per bond (Proposal 1, get_projectors_oblique)
+    projector_exponent::Float64        # P of the :svd projectors U * S^P (original: P = 1/2; P = 0 = isometries U); not used by :oblique
     max_seconds::Float64               # time limit of leading_boundary in seconds (Inf = none)
 
     # env0 = nothing: cold start, the 26 environment tensors depend on init:
@@ -108,12 +109,19 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     #        The random numbers come from a local generator with seed init_seed, so a run is reproducible and the global seed is not touched.
     #        init = :ones   all ones, for both projector kinds. Note: this start is rank one, and :oblique keeps a rank-one
     #                       environment rank one (its projectors are exact on the support of R1 * R2, and the pseudo-inverse drops the rest.
+    #        init = :nishino_okunishi   the 3×3×3 cube of O tensors: every corner, edge and face is O itself, with its outward legs closed by one random
+    #                       Gaussian vector (seed init_seed, the same vector on every outer leg), see nishino_okunishi_init. All bonds then start at the
+    #                       bond dimension D of O and grow to Vv / Vbp (trunc_env / trunc_bpeps) in the first iterations. Needs a cube-symmetric O
+    #                       (checked), because every corner, edge and face gets the same tensor.
     # env0 = an earlier CTMRG3D: warm start, we copy its C, E, A and only take the new O
 function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, 
                 maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol, 
-                projectors::Symbol = :svd, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, max_seconds::Real = Inf) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
-        init in (:ones, :random) || throw(ArgumentError("init must be :ones or :random, got :$init"))
-        if env0 === nothing
+                projectors::Symbol = :svd, projector_exponent::Real = 0.5, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, 
+                max_seconds::Real = Inf) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
+        init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
+        if env0 === nothing && init === :nishino_okunishi
+            A, E, C = nishino_okunishi_init(O; Vp, seed = init_seed)
+        elseif env0 === nothing
             A, E, C = CTMRG3D_init(O; Vp, Vbp, Vv)
             init === :random && ((A, E, C) = random_init(A, E, C; seed = init_seed))
         else
@@ -127,7 +135,7 @@ function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = spa
         
         max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
         new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, 
-                                                                verbosity, west_updates, west_tol, projectors, Float64(max_seconds))
+                                                                verbosity, west_updates, west_tol, projectors, Float64(projector_exponent), Float64(max_seconds))
     end
 end
 
@@ -146,6 +154,42 @@ function random_init(A, E, C; seed = 1)
     rng = Random.Xoshiro(seed)
     make(x) = randn!(rng, similar(x))
     return make.(A), make.(E), make.(C)
+end
+
+# The Nishino-Okunishi start: the 26 environment tensors are O itself, with the legs that point out of the 3×3×3 cube closed by the random Gaussian
+# vector v (seed; the same v on every outer leg). O[UP, NORTH, EAST, DOWN, SOUTH, WEST] (all legs of dimension D):
+#   corner C[UP, NORTH, EAST]          = O with DOWN, SOUTH, WEST closed (the three kept legs point to the three neighbouring edges)
+#   edge   E[UP, NORTH; DOWN, EAST]    = O with SOUTH, WEST closed (UP, DOWN along the edge = Vv legs; NORTH, EAST to the two faces = Vbp legs)
+#   face   A[centre; UP, NORTH, DOWN, SOUTH] = O with WEST closed and EAST (towards the centre O) as centre leg (the WEST face, as A[5])
+# The spaces are those of CTMRG3D_init with Vv = Vbp = the space of the legs of O, and the numbers are copied in as arrays (no symmetry sectors).
+# This uses the same tensor for all 8 corners, all 12 edges and all 6 faces, so it is only right for an O that is symmetric under the cube rotations and
+# reflections (the CE PEPOs with rot_invariance = true); we check that O is invariant under the permutations of the three axes, and that the legs of
+# O have the same dimension, and give an error otherwise.
+function nishino_okunishi_init(O::TensorMap{T,S,0,6}; Vp = space(O)[1]', seed = 1) where {T,S}
+    a = convert(Array, O)
+    D = size(a, 1)
+    all(==(D), size(a)) || throw(ArgumentError("init = :nishino_okunishi needs the same bond dimension on all six legs of O, got $(size(a))"))
+    # axis permutations (U,N,E,D,S,W): the cube symmetry we rely on
+    for perm in ((2, 1, 3, 5, 4, 6), (3, 2, 1, 6, 5, 4), (1, 3, 2, 4, 6, 5), (4, 5, 6, 1, 2, 3))
+        norm(permutedims(a, perm) - a) <= 1e-8 * norm(a) || throw(ArgumentError("init = :nishino_okunishi needs a cube-symmetric O (rot_invariance = true)"))
+    end
+    v = randn(Random.Xoshiro(seed), real(T), D)
+    @tensor c[u, n, e] := a[u, n, e, d, s, w] * v[d] * v[s] * v[w]
+    @tensor ed[u, n, d, e] := a[u, n, e, d, s, w] * v[s] * v[w]
+    @tensor f[e, u, n, d, s] := a[u, n, e, d, s, w] * v[w]
+    A0, E0, C0 = CTMRG3D_init(O; Vp, Vbp = space(O)[1]', Vv = space(O)[1]')
+    fill_data(t, x) = TensorMap(convert(Array{scalartype(t)}, x ./ norm(x)), space(t))
+    return [fill_data(A0[1], f) for _ in 1:6], [fill_data(E0[1], ed) for _ in 1:12], [fill_data(C0[1], c) for _ in 1:8]
+end
+
+# Change of the corner spectrum between two iterations. While the bond dimension grows (init = :nishino_okunishi) the two spectra have different
+# spaces: then we compare the sorted values, the shorter list filled up with zeros.
+function spectrum_change(S_new, S_old)
+    space(S_new) == space(S_old) && return norm(S_new - S_old)
+    values(S) = (x = convert(Array, S); sort([x[i, i] for i in axes(x, 1)]; rev = true))
+    a, b = values(S_new), values(S_old)
+    n = max(length(a), length(b))
+    return norm([a; zeros(n - length(a))] - [b; zeros(n - length(b))])
 end
 
 envspace(env::CTMRG3D) = domain(env.E[1])[1]
@@ -243,7 +287,7 @@ end
 # the bond carries the projector conj(U) * transpose(U), which is exact without truncation.
 # Instead we use U * sqrt(S), this inserts conj(U) * S * transpose(U), biasing every absorption.
 # This helps with stability. Up to debate!
-function get_projectors_corner(ecs, trunc)
+function get_projectors_corner(ecs, trunc; P = 0.5)
     Uys = []
     Uzs = []
     for i = 1:4
@@ -253,20 +297,21 @@ function get_projectors_corner(ecs, trunc)
         Uz, Sz, Vzᴴ = @timeit to "corner projector: svd_trunc (z)" svd_trunc(ecz; trunc)
 
         @timeit to "corner projector: U*sqrt(S)" begin
-            push!(Uys, Uy * sqrt(Sy))
-            push!(Uzs, Uz * sqrt(Sz))
+            # U * S^P (P = 1/2: the original U * sqrt(S))
+            push!(Uys, P == 0.5 ? Uy * sqrt(Sy) : Uy * PEPSKit.sdiag_pow(Sy, P))
+            push!(Uzs, P == 0.5 ? Uz * sqrt(Sz) : Uz * PEPSKit.sdiag_pow(Sz, P))
         end
     end
     return Uys, Uzs
 end
 
-function get_projectors_edge(ees, trunc)
+function get_projectors_edge(ees, trunc; P = 0.5)
     Ws = []
     for i = 1:4
         eep = @timeit to "edge projector: permute" permute(ees[i], ((3,4),(1,2,5,6,7)))
         W, S, M = @timeit to "edge projector: svd_trunc" svd_trunc(eep; trunc)
 
-        @timeit to "edge projector: W*sqrt(S)" push!(Ws, W * sqrt(S))
+        @timeit to "edge projector: W*sqrt(S)" push!(Ws, P == 0.5 ? W * sqrt(S) : W * PEPSKit.sdiag_pow(S, P))
     end
     return Ws
 end
@@ -345,8 +390,8 @@ function partial_ctmrgstep(env::CTMRG3D)
 
     if env.projectors === :svd
         # svd: one projector per bond, the same one on both sides
-        Uys, Uzs = @timeit to "get_projectors_corner (8 SVDs)" get_projectors_corner(ecs, env.trunc_env)
-        Ws = @timeit to "get_projectors_edge (4 SVDs)" get_projectors_edge(ees, env.trunc_bpeps)
+        Uys, Uzs = @timeit to "get_projectors_corner (8 SVDs)" get_projectors_corner(ecs, env.trunc_env; P = env.projector_exponent)
+        Ws = @timeit to "get_projectors_edge (4 SVDs)" get_projectors_edge(ees, env.trunc_bpeps; P = env.projector_exponent)
 
         @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys, Uzs)
         @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys, Uzs, Ws)
@@ -391,7 +436,7 @@ function ctmrg_4steps(env::CTMRG3D; side::String = "")
         # If we track the spectrum (vebosity > 2 or auto)
         if track
             S = @timeit to "convergence quantity: svd_trunc of C[1]" corner_spectrum(env)
-            ϵ = norm(S - S_prev)
+            ϵ = spectrum_change(S, S_prev)
             S_prev = S
             env.verbosity > 2 && @info "CTMRG3D side $side, West update $i/$nmax: ϵ = $ϵ"
             

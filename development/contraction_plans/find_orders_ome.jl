@@ -4,10 +4,12 @@
 #
 # WHAT IT DOES
 #   For every combination (chi_env, chi_peps, D) of DEFAULT_DIMS it asks
-#   OMEinsumContractionOrders for contraction trees. The candidates are always TREE_CURRENT and OPT_TRUE (the two fixed trees of the code), the tree with the fewest
-#   flops ("ome-flops") and N_TARGETS trees that also have to keep their largest tensor small ("ome-scN"). For every RAM budget in RAM_GIBS every candidate gets its
-#   best cut bonds (brute force over all sets of at most KMAX bonds); a candidate that does not fit the budget is dropped, and the same plan for several budgets is
-#   kept once (for the smallest budget).
+#   OMEinsumContractionOrders for contraction trees: the tree with the fewest flops ("ome-flops") and N_TARGETS trees that also have to keep their largest
+#   tensor small ("ome-scN"). For every RAM budget in RAM_GIBS (memory computed for elements of type ELTYPE, written into the column eltype):
+#   - OMEinsumContractionOrders slices each of these trees itself and rearranges the tree around the cut bonds (TreeSASlicer), so that it fits the budget
+#     ("ome-flops-sliced", "ome-scN-sliced"; settings SLICE_NTRIALS, SLICE_NITERS);
+#   - the two fixed trees of the code, TREE_CURRENT and OPT_TRUE, get their best cut bonds by brute force (all sets of at most KMAX bonds).
+#   A candidate that does not fit the budget is dropped, and the same plan for several budgets is kept once (for the smallest budget).
 #   Every combination is planned one after the other and its rows are appended to the plan file right away, so a long list that is interrupted keeps what was done.
 #   Rows that are already in the file are never changed (so measured times are never lost); if you change the settings, the new plans are added next to the old ones.
 #   The search is random (TreeSA): another run can give other trees.
@@ -26,12 +28,16 @@ const CE = ClusterExpansions
 # This is at the moment not really possible (chi_peps would go to 36), so only doable dims are used for now
 const DEFAULT_DIMS = [
     # D = 3: chi_peps = 4 and 5 (1.5*3 = 4.5), chi_env = 2, 3, 4 times chi_peps
-#    (8, 4, 3),      # 0.5%
+    (8, 4, 3),      # 0.5%    the low set of the validation of the benchmark (profile :validate of benchmark_contract_onesite.jl)
 #    (12, 4, 3),     # 3.7%
 #    (16, 4, 3),     # 27.3%
 #    (10, 5, 3),     # 7.9%
-    (11, 5, 3),     # 13.8%
+    (11, 5, 3),     # 13.8%   laptop (CTMRG3D compare, profile :laptop)
 #    (12, 5, 3),     # 23.1%
+    # Hortense: the candidates of the CTMRG3D dimension pilot (development/hpc/job_ctmrg_compare.pbs)
+    (16, 5, 3),
+    (16, 6, 3),
+    (18, 6, 3),
     # D = 4: combinations that are doable
 #    (6, 4, 4),      # 0.3%
 #    (10, 5, 4),     # 18.8%
@@ -39,15 +45,17 @@ const DEFAULT_DIMS = [
 #    (7, 5, 5)       # 4.5%
     # Higher dimensions are for now too costly
 ]
-const RAM_GIBS  = [4, 29, 59]              # RAM budgets in GiB for which a plan is made (4 = laptop; HPC: 29 if 1/8 of a node, 59 if 1/4 of a node, 238 if a full node)
-const KMAX      = 4                             # at most this many cut bonds (brute force over all cut sets, at most 5 is possible; 4 takes ~4 s per tree at 54 bonds)
-const BYTES     = 16                            # bytes per element: 16 = ComplexF64, 8 = Float64
+const RAM_GIBS  = [3, 7, 29]                    # RAM budgets in GiB for which a plan is made (3 = laptop and Hortense on 4 cores (the CTMRG3D compare); Hortense: 7 = 6 cores, 29 = 16 cores)
+const KMAX      = 5                             # TREE_CURRENT and OPT_TRUE: at most this many cut bonds (brute force over all cut sets, at most 5 is possible; 4 takes ~4 s per tree at 54 bonds)
+const ELTYPE    = Float64                       # element type of the tensors (Float64: 8 bytes, ComplexF64: 16 bytes); the CE Ising PEPOs are Float64
 const ALLOCATOR = :reuse                        # the allocator the memory rule is applied for (:reuse or :manual)
 const MARGIN    = 0.8                           # a plan counts as fitting if predicted RAM <= MARGIN * budget
 const N_TARGETS = 1                             # number of extra trees with a memory target (target = sc_max - SC_STEP * j, j = 1..N_TARGETS)
 const SC_STEP   = 6                             # the memory target is sc_max - SC_STEP (log2 of elements); with N_TARGETS = 1 this is the single target
 const NTRIALS   = 10                             # TreeSA settings (more = better trees, slower)
 const NITERS    = 100
+const SLICE_NTRIALS = 50                        # settings of the slicer of OMEinsumContractionOrders (TreeSASlicer; its defaults are 10 and 10)
+const SLICE_NITERS  = 50
 const PLAN_FILE = CE.ONESITE_PLAN_FILE          # plan file that rows are appended to (the same constant is in benchmark_contract_onesite.jl)
 # ======================================================================================================================
 
@@ -57,7 +65,7 @@ function main()
         println("\n===== combination $i of $(length(DEFAULT_DIMS)): (chi_env, chi_peps, D) = ($χenv, $χpeps, $D) =====")
         rows = CE.onesite_find_plans(χenv, χpeps, D;
             ram_gibs = RAM_GIBS,
-            bytes = BYTES,
+            T = ELTYPE,
             allocator = ALLOCATOR,
             kmax = KMAX,
             margin = MARGIN,
@@ -65,6 +73,8 @@ function main()
             sc_step = SC_STEP,
             ntrials = NTRIALS,
             niters = NITERS,
+            slice_ntrials = SLICE_NTRIALS,
+            slice_niters = SLICE_NITERS,
             verbosity = 1)
 
         # written right away: an interrupted long list keeps the combinations that are done

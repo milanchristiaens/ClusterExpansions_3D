@@ -100,11 +100,12 @@ const TREE_KINDS = [
     (; kind = "ome-sc", color = "#eda100", marker = :square),
 ]
 
-# "TREE_CURRENT" -> "current", "OPT_TRUE" -> "opt-true", "ome-flops" -> "ome-flops", "ome-sc23" (any number) -> "ome-sc"; anything else is returned as it is
-# (the old name TREE_FAST of OPT_TRUE is accepted too, so that results.csv files of runs before the rename can still be plotted)
+# "TREE_CURRENT" -> "current", "OPT_TRUE" -> "opt-true", "ome-flops-sliced" -> "ome-flops", "ome-sc23-sliced" (any number) -> "ome-sc";
+# anything else is returned as it is
 function tree_kind(source)
     source == "TREE_CURRENT" && return "current"
-    (source == "OPT_TRUE" || source == "TREE_FAST") && return "opt-true"
+    source == "OPT_TRUE" && return "opt-true"
+    startswith(source, "ome-flops") && return "ome-flops"
     startswith(source, "ome-sc") && return "ome-sc"
     return String(source)
 end
