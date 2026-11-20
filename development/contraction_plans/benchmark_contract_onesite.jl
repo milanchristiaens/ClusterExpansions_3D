@@ -48,13 +48,14 @@ const CE = ClusterExpansions
 # ======================================================================================================================
 # SETTINGS:
 # ======================================================================================================================
-# PROFILE: :laptop (default) or :hpc (the Hortense job script development/hpc/job_benchmark_plans.pbs sets CE_BENCH_PROFILE).
+# PROFILE: :laptop (default), :hpc or :validate (the Hortense job scripts set CE_BENCH_PROFILE: development/hpc/job_plans.pbs runs :validate (mock, real)
+#          and then :hpc, development/hpc/job_benchmark_plans.pbs runs only :hpc).
 #   :laptop  the (11, 5, 3) plans for RAM budgets up to 3 GiB, both allocators (machine "laptop")
 #   :hpc     Hortense (4 cores, about 7.4 GiB, as the CTMRG3D compare runs there), the 3 GiB plans of the candidates of the CTMRG3D dimension pilot,
 #            reuse allocator (the one contract_onesite_auto uses by default)
 #   :validate Hortense (4 cores), the check of the benchmark method before the full :hpc benchmark: three sets (low, medium, high), only the current tree and the
 #            ome-sc tree (our fastest), both allocators; run once with the mock environment and once with the real one (CE_BENCH_ENV=real, env_loader_pepo.jl),
-#            so all four combinations (mock/real × reuse/manual) are timed (development/hpc/job_validate_plans.pbs runs both). If mock and reuse give the same
+#            so all four combinations (mock/real × reuse/manual) are timed (steps 1 and 2 of development/hpc/job_plans.pbs run both). If mock and reuse give the same
 #            picture as real and manual, the full benchmark uses only reuse and mock.
 #   sources: the tree kinds that are timed (tree_kind of tools/benchmark_plots.jl: "current", "opt-true", "ome-flops", "ome-sc"); nothing = all
 # The time of a row goes into the plan file together with the machine (column machine). Both machines time 3 GiB plans, but of other dimensions

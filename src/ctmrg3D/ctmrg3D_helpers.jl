@@ -166,29 +166,46 @@ end
 # reflections (the CE PEPOs with rot_invariance = true); we check that O is invariant under the permutations of the three axes, and that the legs of
 # O have the same dimension, and give an error otherwise.
 function nishino_okunishi_init(O::TensorMap{T,S,0,6}; Vp = space(O)[1]', seed = 1) where {T,S}
+    # Turn O into array, D is bond dimension of O
     a = convert(Array, O)
     D = size(a, 1)
     all(==(D), size(a)) || throw(ArgumentError("init = :nishino_okunishi needs the same bond dimension on all six legs of O, got $(size(a))"))
-    # axis permutations (U,N,E,D,S,W): the cube symmetry we rely on
-    for perm in ((2, 1, 3, 5, 4, 6), (3, 2, 1, 6, 5, 4), (1, 3, 2, 4, 6, 5), (4, 5, 6, 1, 2, 3))
+    
+    # axis permutations (U,N,E,D,S,W): the three axis exchanges, the inversion and the reflection U<->D alone.
+    # Together they generate all 48 symmetries of the cube (rotations and reflections)
+    for perm in ((2, 1, 3, 5, 4, 6), (3, 2, 1, 6, 5, 4), (1, 3, 2, 4, 6, 5), (4, 5, 6, 1, 2, 3), (4, 2, 3, 1, 5, 6))
         norm(permutedims(a, perm) - a) <= 1e-8 * norm(a) || throw(ArgumentError("init = :nishino_okunishi needs a cube-symmetric O (rot_invariance = true)"))
     end
+    
+    # Define a random Gaussian boundary vector
     v = randn(Random.Xoshiro(seed), real(T), D)
+    # Create the closed bottom-south-west corner of the cube
     @tensor c[u, n, e] := a[u, n, e, d, s, w] * v[d] * v[s] * v[w]
+    # Create the closed vertical edge at south-west of the cube
     @tensor ed[u, n, d, e] := a[u, n, e, d, s, w] * v[s] * v[w]
+    # Create the closed west face of the cube
     @tensor f[e, u, n, d, s] := a[u, n, e, d, s, w] * v[w]
+
+    # Now we call CTMRG3D_init() to get the right spaces ((non)-dual, (co)-domain, ...) for all spaces having dimension D
+    # space(0) = 0 ← V⊗V⊗V⊗V⊗V⊗V, space(O)[1]' = domain(O)[1] = V
     A0, E0, C0 = CTMRG3D_init(O; Vp, Vbp = space(O)[1]', Vv = space(O)[1]')
+    # A helper that takes array x and builds a normalized Tensormap with correct spaces and element type from t
     fill_data(t, x) = TensorMap(convert(Array{scalartype(t)}, x ./ norm(x)), space(t))
+    # Return the 6 faces, 12 edges, and 8 corners. (using the duality and spaces and such info from A0 and E0 and C0, but the numbers from f, ed and c)
     return [fill_data(A0[1], f) for _ in 1:6], [fill_data(E0[1], ed) for _ in 1:12], [fill_data(C0[1], c) for _ in 1:8]
 end
 
 # Change of the corner spectrum between two iterations. While the bond dimension grows (init = :nishino_okunishi) the two spectra have different
 # spaces: then we compare the sorted values, the shorter list filled up with zeros.
 function spectrum_change(S_new, S_old)
+    # If same space:
     space(S_new) == space(S_old) && return norm(S_new - S_old)
+    # If they have different spaces:
+    # Helper: take diagonal elements of S and sort it from large to small
     values(S) = (x = convert(Array, S); sort([x[i, i] for i in axes(x, 1)]; rev = true))
     a, b = values(S_new), values(S_old)
     n = max(length(a), length(b))
+    # Add extra 0's untill both have length of n
     return norm([a; zeros(n - length(a))] - [b; zeros(n - length(b))])
 end
 

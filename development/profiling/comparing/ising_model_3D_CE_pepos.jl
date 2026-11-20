@@ -50,18 +50,26 @@ function main()
         t0 = time()
         Os = build_pepos(BETAS, Δβ_iter, D_CE, J, g)
         pepo3d, O2, M2 = Any[], Any[], Any[]
+        # psi0 is a list of lists, one per χpeps: psi0[k][i] is the start state for CHIPEPS[k] at BETAS[i]
         psi0 = [Any[] for _ in CHIPEPS]
         for (i, β) in enumerate(BETAS)
             PEPO = Os[i]
+            # traces the two physical legs and reorders the legs to O[D, U; N, E, S, W]
             O = ClusterExpansions.bpeps_pepo_tensor(PEPO)
+            # pack_tensor: stores each tensor as plain data (needed for TensorKit 0.17.3 vs 0.17.1)
             push!(pepo3d, pack_tensor(PEPO))
             push!(O2, pack_tensor(O))
             push!(M2, pack_tensor(ClusterExpansions.bpeps_pepo_tensor(PEPO, obs)))
+            
+            # Now start states for vbpeps after some power iteration steps
             for (k, χ) in enumerate(CHIPEPS)
                 Random.seed!(psi0_seed(β, Δβ_iter))
                 push!(psi0[k], pack_tensor(ClusterExpansions.bpeps_initial_state(O, InfinitePEPO(O), ℂ^χ; maxiter_init = MAXITER_INIT)[1, 1]))
             end
         end
+
+        # Saving:
+        # e.g. data/pepos/ising_3D_J1.0_g0.0_D3_dbeta0.005.jld2
         path = pepo_file(D_CE, Δβ_iter, J, g)
         jldsave(path; beta = collect(Float64, BETAS), D_CE, dbeta = Δβ_iter, J, g, maxiter_init = MAXITER_INIT, psi0_seed_base = PSI0_SEED_BASE,
                 chipeps = collect(Int, CHIPEPS), pepo3d, O = O2, M = M2, psi0)

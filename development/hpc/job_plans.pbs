@@ -1,9 +1,11 @@
 #!/bin/bash
 # job_plans.pbs -- everything that writes the plan file, one after the other in ONE job (round 1 of the Hortense guide), on 4 Hortense cores (as the
-# CTMRG3D compare): (1) the validation (profile :validate of benchmark_contract_onesite.jl: (8,4,3), (11,5,3), (18,6,3), current and ome-sc trees, both
-# allocators) on the mock environment, (2) the same on a real environment (env_loader_pepo.jl: a few CTMRG3D iterations of the Ising PEPO of the PEPO
-# file, so job_pepos.pbs first), (3) the full benchmark (profile :hpc: all 3 GiB plans of the CTMRG3D candidates, mock environment, reuse allocator).
-# In series, because the three write the same plan file. Nothing else writes the plan file in round 1 (the pilots and checks slice the current tree).
+# CTMRG3D compare):
+# 1) For the selected cases: (8,4,3), (11,5,3), (18,6,3) and current and ome-sc trees: reuse vs. manual and mock vs. real environment (development/contraction_plans/env_loader_pepo.jl)
+# a few CTMRG3D iterations of the Ising PEPO of the PEPO file, 
+# 2) the full benchmark (profile :hpc: all 3 GiB plans of the CTMRG3D candidates, mock environment, reuse allocator).
+
+# In series, because 1) and 2) write the same plan file. Nothing else writes the plan file in round 1 (the pilots and checks slice the current tree).
 # Submitted by submit_round1.sh, or on the login node, in the clone folder:
 #   module swap cluster/dodrio/cpu_milan_rhel9
 #   qsub development/hpc/job_plans.pbs
