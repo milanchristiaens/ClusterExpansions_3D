@@ -1,0 +1,24 @@
+#!/bin/bash
+# job_mc.pbs -- the Monte Carlo reference of the 3D Ising model (development/reference/ising_3d_mc.jl, Wolff clusters) on 1 Hortense core.
+# Writes (appends) data/reference/ising3d_mc.csv, which the magnetization plots of the compare scripts read (the points of the largest L).
+# The settings below are passed to the script as environment variables (see the top of ising_3d_mc.jl); qsub -v can override them, e.g.
+#   qsub -v "MC_LS=64,MC_BETAS=0.23" development/hpc/job_mc.pbs
+# Estimate (sandbox timings scaled, not measured on Hortense): L = 64 about 9 min per β, L = 32 about 1 min, L = 16 seconds:
+# 7 β ≈ 1.3 h on 1 core (≈ 1.3 core hours). The script uses one thread (no BLAS, no ClusterExpansions), so 1 core is enough.
+# Submit on the login node, in the clone folder:
+#   module swap cluster/dodrio/cpu_milan_rhel9
+#   qsub development/hpc/job_mc.pbs
+#PBS -A starting_2026_079
+#PBS -N ising_mc
+#PBS -l nodes=1:ppn=1
+#PBS -l walltime=04:00:00
+#PBS -j oe
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+export MC_LS=${MC_LS:-16,32,64}
+export MC_BETAS=${MC_BETAS:-0.10,0.19,0.21,0.22,0.23,0.25,0.35}
+export MC_SWEEPS=${MC_SWEEPS:-20000}
+export MC_THERM=${MC_THERM:-2000}
+export MC_SEED=${MC_SEED:-1}
+cd "$REPO"
+julia --startup-file=no development/reference/ising_3d_mc.jl

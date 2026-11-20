@@ -80,6 +80,8 @@ include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 IN_FAST_ENV || include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
 include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
+# Talapov-Blöte, Bethe and the MC points of development/reference/ising_3d_mc.jl in the magnetization plot (plots only in the ClusterExpansions environment)
+IN_FAST_ENV || include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))
 
 # ======================================================================================================================
 # Settings
@@ -352,6 +354,7 @@ end
 function plot_magnetization(rows)
     p = plot(; xlabel = "β", ylabel = "|⟨σᶻ⟩|", title = "magnetization (g = 0: 0 below βc)", legend = :topleft)
     plot_cases!(p, rows, r -> hypot(r.m_re, r.m_im); labelled = true)
+    plot_ising_references!(p, minimum(r.β for r in rows), maximum(r.β for r in rows))
     vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")
     return p
 end
