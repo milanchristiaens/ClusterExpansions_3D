@@ -2,6 +2,11 @@
 #
 #     projectors (:svd = original U * sqrt(S), :oblique = Proposal 1, one projector pair per bond)  x  start (cold / warm)  x  west_updates (:auto / 1)
 #
+# and 10 extra cases that only run when chosen with CE_COMPARE_CASES (see CASES_EXTRA): the same 8 with class_projectors = true (gauge fix),
+# and Proposal 2, the cube-symmetric CTMRG3DOctant (cold / warm). The magnetization plot also shows the Ising references of
+# development/reference/ising_3d_reference.jl (Talapov-Blöte fit of MC at L = ∞, Bethe = BP of the exact network, and MC points if
+# data/reference/ising3d_mc.csv exists; run development/reference/ising_3d_mc.jl for them).
+#
 # cold = every β starts from a new environment (INIT: :ones = all ones; :random = random tensors; :nishino_okunishi; seed INIT_SEED);
 # warm = every β starts from the converged environment of the previous β (env0 of MPSKit.expectation_value, see ctmrg3D_main.jl), the first β is always cold,
 #        and a β closer than WARM_WINDOW to BETA_C also starts cold (warm_start_at in ../tools/compare_tools.jl: near βc a warm start stays in the
@@ -61,6 +66,7 @@ include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
 include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   # Talapov-Blöte, Bethe, MC points in the magnetization plot
 
 # ======================================================================================================================
 # Settings
@@ -80,6 +86,11 @@ include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
 const PROFILE = Symbol(get(ENV, "CE_COMPARE_PROFILE", "laptop"))
 const β_ALL = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]   # one point in each phase and four around βc ≈ 0.2217 (the finite-χ transition is shifted and smeared)
 const CASES_ALL = ["svd_cold_auto", "svd_warm_auto", "oblique_cold_auto", "oblique_warm_auto", "svd_cold_w1", "svd_warm_w1", "oblique_cold_w1", "oblique_warm_w1"]
+# Extra cases, not in the default profiles; choose them with CE_COMPARE_CASES (for example svdclass_cold_auto+octant_cold):
+#   svdclass_* / obliqueclass_*: the 8 cases above with class_projectors = true (the gauge fix of ctmrg3D_helpers.jl)
+#   octant_*: Proposal 2 (CTMRG3DOctant, ctmrg3D_octant.jl; west_updates has no meaning there)
+const CASES_EXTRA = ["svdclass_cold_auto", "svdclass_warm_auto", "obliqueclass_cold_auto", "obliqueclass_warm_auto",
+                     "svdclass_cold_w1", "svdclass_warm_w1", "obliqueclass_cold_w1", "obliqueclass_warm_w1", "octant_cold", "octant_warm"]
 const PROFILES = Dict(
     :laptop => (; dims = (11, 5, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 3600.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
                 ram_gib = 3, machine = "laptop", julia_threads = 4, blas_threads = 4, plan_file = true),
@@ -119,7 +130,7 @@ const MAX_SECONDS_OBS = P.max_seconds_obs     # per observation, twice the fair 
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 
 # (name, projectors, warm start, west_updates); the profile (or CE_COMPARE_CASES) chooses which of them we run
-const RUN_CASES = compare_cases(P.cases, CASES_ALL)
+const RUN_CASES = compare_cases(P.cases, [CASES_ALL; CASES_EXTRA])
 const CASES = filter(c -> c[1] in RUN_CASES, [
     ("svd_cold_auto", :svd, false, :auto),
     ("svd_warm_auto", :svd, true, :auto),
@@ -129,6 +140,17 @@ const CASES = filter(c -> c[1] in RUN_CASES, [
     ("svd_warm_w1", :svd, true, 1),
     ("oblique_cold_w1", :oblique, false, 1),
     ("oblique_warm_w1", :oblique, true, 1),
+    # :svdclass / :obliqueclass = :svd / :oblique with class_projectors = true; :octant = ctm_alg CTMRG3DOctant (see ctm_kwargs)
+    ("svdclass_cold_auto", :svdclass, false, :auto),
+    ("svdclass_warm_auto", :svdclass, true, :auto),
+    ("obliqueclass_cold_auto", :obliqueclass, false, :auto),
+    ("obliqueclass_warm_auto", :obliqueclass, true, :auto),
+    ("svdclass_cold_w1", :svdclass, false, 1),
+    ("svdclass_warm_w1", :svdclass, true, 1),
+    ("obliqueclass_cold_w1", :obliqueclass, false, 1),
+    ("obliqueclass_warm_w1", :obliqueclass, true, 1),
+    ("octant_cold", :octant, false, :auto),
+    ("octant_warm", :octant, true, :auto),
 ])
 
 # If REPLOT_DIR is the NAME of a run folder (for example "20261116_1500") in data/profiling/comparing/ising_model_3D_CE_CTMRG_compare/,
@@ -145,7 +167,10 @@ const SPREAD_OUTLIER_TOL = 0.1              # leave out a point whose |m| differ
 const TIMING_TOP = 6                     # number of sections in the self-time plot
 # blue = svd, red = oblique; dark = cold, light = warm; west_updates 1 = the deeper shade
 const CASE_COLORS = Dict("svd_cold_auto" => :steelblue, "svd_warm_auto" => :lightskyblue, "oblique_cold_auto" => :firebrick, "oblique_warm_auto" => :lightsalmon,
-                         "svd_cold_w1" => :navy, "svd_warm_w1" => :deepskyblue, "oblique_cold_w1" => :darkred, "oblique_warm_w1" => :orange)
+                         "svd_cold_w1" => :navy, "svd_warm_w1" => :deepskyblue, "oblique_cold_w1" => :darkred, "oblique_warm_w1" => :orange,
+                         "svdclass_cold_auto" => :purple, "svdclass_warm_auto" => :plum, "obliqueclass_cold_auto" => :darkorange, "obliqueclass_warm_auto" => :gold,
+                         "svdclass_cold_w1" => :indigo, "svdclass_warm_w1" => :orchid, "obliqueclass_cold_w1" => :chocolate, "obliqueclass_warm_w1" => :khaki,
+                         "octant_cold" => :darkgreen, "octant_warm" => :lightgreen)
 
 # The timer sections of one observation (the inner names are those of MPSKit.expectation_value in ctmrg3D_main.jl)
 const SEC_OBS = "expectation_value (CTMRG3D and observable)"
@@ -166,8 +191,11 @@ end
 contract_s(t) = sum(section_s(t, SEC_OBS, s) for s in SEC_CONTRACT)
 
 # (the pilot slices the current tree itself: plans = nothing)
-ctm_kwargs(projectors, west_updates) = (; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol, verbosity = 0, west_updates, projectors, ram_gib = RAM_GIB,
-                           init = INIT, init_seed = INIT_SEED, onesite_kwargs = P.plan_file ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing))
+# projectors of a case: :svd, :oblique, :svdclass, :obliqueclass (class_projectors = true) or :octant (ctm_alg = CTMRG3DOctant)
+ctm_kwargs(projectors, west_updates) = (; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol, verbosity = 0, west_updates,
+                           projectors = projectors in (:oblique, :obliqueclass) ? :oblique : :svd, class_projectors = projectors in (:svdclass, :obliqueclass),
+                           ctm_alg = projectors === :octant ? CTMRG3DOctant : CTMRG3D,
+                           ram_gib = RAM_GIB, init = INIT, init_seed = INIT_SEED, onesite_kwargs = P.plan_file ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing))
 
 function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace, obs, resultspath, outdir, run)
     @info "===== Case $name: projectors = $projectors, warm start = $warm, west_updates = $west_updates, budget = $(RUN_BUDGET_S) s ====="
@@ -270,8 +298,8 @@ function print_summary(rows)
 end
 
 # Label, colour and line style of a case in all plots (colour: projectors, line style: warm start)
-case_label(projectors, warm, west = :auto) = "$projectors, $(warm ? "warm" : "cold"), west $west"
-colour(projectors) = projectors == :oblique ? :crimson : :royalblue
+case_label(projectors, warm, west = :auto) = projectors === :octant ? "octant (proposal 2), $(warm ? "warm" : "cold")" : "$projectors, $(warm ? "warm" : "cold"), west $west"
+colour(projectors) = Dict(:svd => :royalblue, :oblique => :crimson, :svdclass => :purple, :obliqueclass => :darkorange, :octant => :forestgreen)[projectors]
 style(warm, west = :auto) = west === :auto ? (warm ? :dash : :solid) : (warm ? :dashdot : :dot)
 
 # One line per case in the panel p: y(r) of every finished observation r of the case, sorted by β, and a cross where the observation did not converge.
@@ -291,6 +319,7 @@ end
 function plot_magnetization(rows)
     p = plot(; xlabel = "β", ylabel = "|⟨σᶻ⟩|", title = "magnetization (g = 0: 0 below βc)", legend = :topleft)
     plot_cases!(p, rows, r -> hypot(r.m_re, r.m_im); labelled = true)
+    plot_ising_references!(p, minimum(r.β for r in rows), maximum(r.β for r in rows))
     vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")
     return p
 end

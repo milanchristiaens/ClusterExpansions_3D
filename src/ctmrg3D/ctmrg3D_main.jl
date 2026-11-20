@@ -56,6 +56,8 @@ end
 # ram_gib (= nothing) tells how much RAM we have to do this contraction (slicing)
 # onesite_kwargs can have (kmax, allocator, margin, force, rules, cuts, tree, plans) info which is used in contract_onesite_dispatch()
 # projectors: :svd or :oblique; projector_exponent: P of the :svd projectors U * S^P (1/2 = original)
+# class_projectors: false (original) = one projector per new bond; true = one projector per class of translation-equivalent bonds (gauge fix,
+#       see get_projectors_svd_class / get_projectors_oblique_class in ctmrg3D_helpers.jl), for :svd and :oblique
 # env0: nothing = cold start (init = :ones, :random or :nishino_okunishi, seed init_seed);
 #       an earlier converged CTMRG3D (e.g. of the previous β) = warm start from its C, E, A
 # max_seconds: time limit of the CTMRG3D iterations (leading_boundary) for a given β, Inf = none. The contractions of the observables come on top of it.
@@ -63,7 +65,7 @@ end
 # return_env = true (used in compare scripts, also for cold starts): returns (expvals, env, ϵs, timed_out) instead of expvals, so that env can be the env0 of the next call
 # (timed_out = true if max_seconds stopped the iterations)
 function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, 
-                                 verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, projectors = :svd, projector_exponent = 0.5, env0 = nothing, init = :ones, init_seed = 1, 
+                                 verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, projectors = :svd, projector_exponent = 0.5, class_projectors = false, env0 = nothing, init = :ones, init_seed = 1, 
                                  max_seconds = Inf, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
@@ -73,7 +75,7 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
 
     trunc_bpeps = truncrank(dim(bpepsspace))
     trunc_env = truncrank(dim(envspace))
-    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, projector_exponent, env0, init, init_seed, max_seconds)
+    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, projector_exponent, class_projectors, env0, init, init_seed, max_seconds)
     env, ϵs, timed_out = @timeit to "EV: leading_boundary (CTMRG3D iterations)" leading_boundary(env);
     expvals = []
     for obs = obss

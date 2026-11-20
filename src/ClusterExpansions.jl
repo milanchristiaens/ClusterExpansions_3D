@@ -47,6 +47,8 @@ include("bpeps/bpeps_main.jl")
 include("bpeps/bpeps_helpers.jl")
 include("ctmrg3D/ctmrg3D_main.jl")
 include("ctmrg3D/ctmrg3D_helpers.jl")
+include("ctmrg3D/belief_propagation3D.jl")
+include("ctmrg3D/ctmrg3D_octant.jl")
 include("utility/contract_onesite_slicing.jl")
 
 include("time_evolution/local_truncation.jl")
@@ -94,7 +96,8 @@ export UniformGroundStateTimeEvolution
 export time_evolve
 
 export evolution_operator_cubic, time_evolve_cubic
-export CTMRG3D
+export CTMRG3D, CTMRG3DOctant
+export bp_fixed_point, bp_expectation_value, bethe_ising_magnetization
 
 export SUWeight3D, InfiniteWeightPEPS3D, InfinitePEPS3D, product_peps3D
 export CubicHamiltonian, SimpleUpdate3D, simpleupdate3D, su_iter3D

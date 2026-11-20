@@ -86,16 +86,16 @@ include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
 # ======================================================================================================================
 # Profile: which machine and which run (the Hortense job scripts in development/hpc/ set CE_COMPARE_PROFILE; without it we use :laptop)
 #   :laptop  Milan's laptop, julia -t 4: 1 h per case (4 core hours)
-#   :pilot   Hortense, dimension pilot (:betterpepskit): 1 β near βc, the two cold cases, 1 h each on 2 cores; one job per candidate (CE_COMPARE_DIMS)
+#   :pilot   Hortense, dimension pilot (:betterpepskit): 1 β near βc, the two cold cases, 1 h each on 3 cores; one job per candidate (CE_COMPARE_DIMS)
 #   :timing  Hortense, fast against slow (round 1, next to the pilots): (27, 3, 3), the smallest candidate, 1 β near βc, the cold case, 30 min on 4 cores,
 #            one job per implementation (:pepskit needs the 4 cores for its memory; both get them, so the times can be compared)
-#   :hpc     Hortense, the full run: all β, 32 h per case on 2 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 2 jobs in parallel
+#   :hpc     Hortense, the full run: all β, 21.3 h per case on 3 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 2 jobs in parallel
 # The Hortense job scripts can also choose the dimensions (CE_COMPARE_DIMS), the cases (CE_COMPARE_CASES) and the run (CE_COMPARE_RUN) of one job
 # (see compare_dims in ../tools/compare_tools.jl).
-# The same CORE budget per case as the CTMRG3D compare (cores × time): on Hortense vbPEPS runs on 2 cores and CTMRG3D on 4, so vbPEPS gets twice
-# the time (32 h against 16 h per case = 64 core hours each). On the laptop both have 4 cores and 1 h.
-# Memory: 2 cores come with about 3.7 GiB; the vbPEPS of BetterPEPSKit alone (no ClusterExpansions in the process) peaked at about 2.6 GB in the sandbox.
-# The pilot shows the real peak; if it is too close to 3.7 GiB, we take 3 cores (development/hpc/submit_compare.sh and julia_threads below).
+# The same CORE budget per case as the CTMRG3D compare (cores × time): on Hortense vbPEPS runs on 3 cores and CTMRG3D on 4, so vbPEPS gets 4/3 of
+# the time (21.3 h against 16 h per case = 64 core hours each). On the laptop both have 4 cores and 1 h.
+# Memory: 2 cores (about 3.7 GiB) ran out of memory in the pilots of round 1 (20 Nov); on 3 cores (about 5.6 GiB) the pilots peaked at 5.3-5.6 GiB
+# (Slurm; 4.6 GiB by the script). The cores are also in development/hpc/submit_compare.sh, submit_round1.sh and job_vbpeps_compare.pbs.
 # dims = (chienv, chipeps, D_CE). HPC_DIMS (the dims of :timing and :hpc) is the choice of the dimension pilot (the candidates are in
 # development/hpc/submit_compare.sh).
 # Threads: vbPEPS works with small tensors, so every core is one Julia thread with 1 BLAS thread.
@@ -107,11 +107,11 @@ const PROFILES = Dict(
     :laptop => (; dims = (14, 2, 2), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 3600.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
                 julia_threads = 4, blas_threads = 1),
     :pilot  => (; dims = (32, 3, 3), β_obs = [0.21], cases = ["false_cold"], run_budget_s = 3600.0, max_seconds_obs = 3600.0, min_seconds_obs = 60.0,
-                julia_threads = 2, blas_threads = 1),
+                julia_threads = 3, blas_threads = 1),
     :timing => (; dims = (27, 3, 3), β_obs = [0.21], cases = ["false_cold"], run_budget_s = 1800.0, max_seconds_obs = 1800.0, min_seconds_obs = 60.0,
                 julia_threads = 4, blas_threads = 1),
-    :hpc    => (; dims = HPC_DIMS, β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 115200.0, max_seconds_obs = 38400.0, min_seconds_obs = 60.0,
-                julia_threads = 2, blas_threads = 1),
+    :hpc    => (; dims = HPC_DIMS, β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 76800.0, max_seconds_obs = 25600.0, min_seconds_obs = 60.0,
+                julia_threads = 3, blas_threads = 1),
 )
 haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot, timing or hpc")
 const P = PROFILES[PROFILE]
@@ -135,7 +135,7 @@ const WARM_WINDOW = 0.02
 
 # Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one LBFGS iteration overshoot per observation).
 # For a comparison with CTMRG3D at the same core budget, (cores × RUN_BUDGET_S) must be the same in both compare scripts (see the profiles).
-const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 32 h on 2 cores = the core budget of CTMRG3D)
+const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 21.3 h on 3 cores = the core budget of CTMRG3D)
 const MAX_SECONDS_OBS = P.max_seconds_obs     # per observation, twice the fair share over 6 β (lowered further when the case budget is running out)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 
@@ -148,8 +148,9 @@ VBPEPS_IMPL in (:pepskit, :betterpepskit) || error("VBPEPS_IMPL (CE_COMPARE_IMPL
 #   sparse: block-Krylov decompositions (true) or dense eigh/SVD (false); truncation_window, truncation_rtol: the gap cut (truncgap);
 #   gradient_maxiter, gradient_krylovdim: GMRES of ImplicitGradient (these two replace those of base_kwargs, which are for Arnoldi)
 #   (ising_model_3D_CE_vbPEPS_decompositions.jl times sparse = true against sparse = false for several bond dimensions)
-# sparse = false (dense): our estimate for these sizes (n = χenv·χpeps²·D_CE up to about 1000), the decompositions benchmark checks it
-const FAST_KWARGS = (; sparse = false, truncation_window = 4, truncation_rtol = 1.0e-3, gradient_maxiter = 20, gradient_krylovdim = 30)
+# sparse = true (block-Krylov): the decompositions benchmark of round 1 (20 Nov) was faster with block-Krylov at every size of <psi|O|psi> (×1.1-4.5)
+# (needs the one-line fix in BetterPEPSKit's projector_contraction_metrics, see the guide of 21 Nov)
+const FAST_KWARGS = (; sparse = true, truncation_window = 4, truncation_rtol = 1.0e-3, gradient_maxiter = 20, gradient_krylovdim = 30)
 
 # Settings of the vbPEPS (the same for all cases, except warm_start and differentiate_environment which are the 4 cases)
 # C4v symmetric CTMRG: the CE PEPOs are symmetric under the cube rotations and reflections (rot_invariance = true in build_pepos, stage 1), and RotateReflect()

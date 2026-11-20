@@ -18,11 +18,13 @@ ALGORITHMS="ctmrg vbpeps"                       # which compare scripts get jobs
 CTMRG_DIMS="16_5_3 16_6_3 18_6_3"               # pilot candidates (chienv_chipeps_DCE) of CTMRG3D; their 3 GiB plans must be timed (job_benchmark_plans.pbs)
 VBPEPS_DIMS="27_3_3 32_3_3 36_3_3"              # pilot candidates of vbPEPS
 CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1"
+# other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_cold_auto svdclass_warm_auto obliqueclass_cold_auto obliqueclass_warm_auto
+#   svdclass_cold_w1 svdclass_warm_w1 obliqueclass_cold_w1 obliqueclass_warm_w1 (class_projectors = true) octant_cold octant_warm (CTMRG3DOctant)
 VBPEPS_CASES="false_cold false_warm"
 VBPEPS_IMPLS_TIMING="pepskit betterpepskit"     # timing: pepskit = PEPSKit 0.8.1 (slow reference), betterpepskit = fast
 VBPEPS_IMPL_RUN="betterpepskit"                 # implementation of vbPEPS in the pilot and the full run
-VBPEPS_CORES=2                                  # cores of the vbPEPS pilot and full run (3 if the pilot shows that 2 have too little memory; then also
-                                                # julia_threads = 3 in the profiles :pilot and :hpc of the vbPEPS compare script, and its budgets)
+VBPEPS_CORES=3                                  # cores of the vbPEPS pilot and full run (2 cores ran out of memory in round 1); the same number as
+                                                # julia_threads in the profiles :pilot and :hpc of the vbPEPS compare script (and its budgets: 64 core h)
 VBPEPS_TIMING_CORES=4                           # cores of both implementations in the timing
 PEPO_D_CE=3                                     # the PEPO file of this D_CE must exist (data/pepos/, job_pepos.pbs)
 # walltimes: budget of the profile + compilation + plots, with some margin (only the time really used is charged)
@@ -30,7 +32,7 @@ CTMRG_WALLTIME_PILOT=03:30:00                   # 2 cases × 80 min + compilatio
 CTMRG_WALLTIME_HPC=17:30:00                     # 16 h + compilation
 VBPEPS_WALLTIME_PILOT=03:00:00                  # 2 cases × 1 h + compilation (betterpepskit: no Zygote compilation of the CTMRG)
 VBPEPS_WALLTIME_TIMING=04:30:00                 # 2 cases × 30 min + compilation (pepskit: about 2 h for `true`)
-VBPEPS_WALLTIME_HPC=34:00:00                    # 32 h + compilation
+VBPEPS_WALLTIME_HPC=23:00:00                    # 21.3 h + compilation
 # ------------------------------------------
 
 ls data/pepos/ising_3D_*_D${PEPO_D_CE}_*.jld2 > /dev/null 2>&1 || { echo "No PEPO file of D_CE = $PEPO_D_CE in data/pepos: run qsub development/hpc/job_pepos.pbs first"; exit 1; }

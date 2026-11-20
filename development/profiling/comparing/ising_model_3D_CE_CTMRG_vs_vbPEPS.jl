@@ -12,7 +12,8 @@
 #   - Only cases with the same PEPO (the same D_CE and Δβ) differ only in the contraction (χpeps, χenv, algorithm): warning if they differ.
 #   - The time budget of a case (budget_s) and the number of BLAS threads are printed per selected case. On Hortense the two algorithms have the same CORE budget
 #     (cores × budget_s: CTMRG3D 4 cores × 16 h, vbPEPS 2 cores × 32 h), so budget_s differs between them on purpose; the cores are in the job scripts.
-#   - There is no reference value yet: the right panel compares the cases with each other (the mean of the selected cases), not with an exact m.
+#   - The left panel also shows the references of ../../reference/ising_3d_reference.jl (Talapov-Blöte L = ∞ fit, Bethe/BP, the MC points if
+#     data/reference/ising3d_mc.csv exists); the right panel compares the cases with each other (the mean of the selected cases).
 # A cross marks an observation that was stopped by its time limit (both algorithms) or that did not converge (CTMRG3D).
 #
 # Note on m: at g = 0 the exact <σᶻ> is 0 below βc (Z2 symmetry) and has an arbitrary sign above βc, so we plot |m|.
@@ -29,6 +30,7 @@ using LinearAlgebra
 #   compare_tools.jl: ISING_RESULTS_PATH, read_ising_results, plot_spread, βc_ising
 include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
+include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   # Talapov-Blöte, Bethe, MC points in the magnetization plot
 
 # ======================================================================================================================
 # Settings
@@ -36,7 +38,7 @@ include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
 # The selected cases: (algorithm, run, case)
 #   algorithm = "CTMRG3D" or "vbPEPS"
 #   run       = name of the run folder of that compare script (for example "20261116_1500"); "" = the latest run of this algorithm that has this case
-#   case      = name of the case in that script: CTMRG3D "svd_cold", "svd_warm", "oblique_cold", "oblique_warm";
+#   case      = name of the case in that script: CTMRG3D e.g. "svd_cold_auto", "oblique_warm_w1", "octant_cold" (see CASES there);
 #               vbPEPS "false_cold", "false_warm", "true_cold", "true_warm"
 const SELECTION = [
     ("CTMRG3D", "", "svd_warm"),
@@ -123,6 +125,7 @@ function plot_magnetization(rows, specs)
         idx = findall(r -> r.timed_out || r.converged === false, sub)
         isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = c.color, markershape = :xcross, markersize = 9, markerstrokewidth = 2, label = "")
     end
+    plot_ising_references!(p, minimum(r.β for r in rows), maximum(r.β for r in rows))
     vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")
     return p
 end

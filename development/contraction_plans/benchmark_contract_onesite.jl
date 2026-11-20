@@ -55,7 +55,7 @@ const CE = ClusterExpansions
 #            reuse allocator (the one contract_onesite_auto uses by default)
 #   :validate Hortense (4 cores), the check of the benchmark method before the full :hpc benchmark: three sets (low, medium, high), only the current tree and the
 #            ome-sc tree (our fastest), both allocators; run once with the mock environment and once with the real one (CE_BENCH_ENV=real, env_loader_pepo.jl),
-#            so all four combinations (mock/real × reuse/manual) are timed (steps 1 and 2 of development/hpc/job_plans.pbs run both). If mock and reuse give the same
+#            so all four combinations (mock/real × reuse/manual) are timed (no job script of its own: set CE_BENCH_PROFILE=validate, and CE_BENCH_ENV=real for the second run). If mock and reuse give the same
 #            picture as real and manual, the full benchmark uses only reuse and mock.
 #   sources: the tree kinds that are timed (tree_kind of tools/benchmark_plots.jl: "current", "opt-true", "ome-flops", "ome-sc"); nothing = all
 # The time of a row goes into the plan file together with the machine (column machine). Both machines time 3 GiB plans, but of other dimensions

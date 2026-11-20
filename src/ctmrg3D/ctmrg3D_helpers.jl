@@ -102,6 +102,8 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     west_tol::Float64
     projectors::Symbol                 # :svd = U * sqrt(S) from the SVD of ONE enlarged tensor (original), :oblique = one projector pair per bond (Proposal 1, get_projectors_oblique)
     projector_exponent::Float64        # P of the :svd projectors U * S^P (original: P = 1/2; P = 0 = isometries U); not used by :oblique
+    class_projectors::Bool             # false (original): every new bond its own projector; true: one projector per class of translation-equivalent bonds
+                                       # (gauge fix, see get_projectors_svd_class / get_projectors_oblique_class), for :svd and :oblique
     max_seconds::Float64               # time limit of leading_boundary in seconds (Inf = none)
 
     # env0 = nothing: cold start, the 26 environment tensors depend on init:
@@ -116,7 +118,7 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     # env0 = an earlier CTMRG3D: warm start, we copy its C, E, A and only take the new O
 function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, 
                 maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol, 
-                projectors::Symbol = :svd, projector_exponent::Real = 0.5, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, 
+                projectors::Symbol = :svd, projector_exponent::Real = 0.5, class_projectors::Bool = false, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, 
                 max_seconds::Real = Inf) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
         init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
         if env0 === nothing && init === :nishino_okunishi
@@ -135,7 +137,7 @@ function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = spa
         
         max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
         new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, 
-                                                                verbosity, west_updates, west_tol, projectors, Float64(projector_exponent), Float64(max_seconds))
+                                                                verbosity, west_updates, west_tol, projectors, Float64(projector_exponent), class_projectors, Float64(max_seconds))
     end
 end
 
@@ -400,12 +402,139 @@ function get_projectors_oblique(ecs, ees, es, trunc_env, trunc_bpeps)
 end
 
 
+# ============================================================================================
+# class_projectors = true: one projector per class of translation-equivalent bonds (gauge fix)
+# ============================================================================================
+# Why: after a West update, the next update on an ADJACENT side (e.g. South, after rot_ud_90) glues the north leg of one copy of E4, A5, E12 to
+# the south leg of the next copy. With one projector per bond these two legs live in different bases (bond y_1 and bond z_2 got different
+# projectors), so the glued bond carries an arbitrary gauge matrix and the update is not exact even without truncation
+# (checked 20 Nov: m changes under a random orthogonal gauge on the new bonds).
+# Fix: the 12 new bonds of a West update form 6 classes of bonds that are related by a translation of the infinite network:
+#   for every West edge e (f = e+1): bond y_e (corner e <-> edge e) and bond z_f (edge e <-> corner f)
+#   for the West face: bonds f_1, f_3 (UP and DOWN pair) and bonds f_2, f_4 (NORTH and SOUTH pair)
+# Every class gets ONE projector (svd) or ONE pair (oblique), computed from all enlarged tensors of the class together, so the north and south
+# leg of a tensor end up in the same basis. Without truncation both versions are exact for any order of updates (checked 20 Nov: W, S, D updates).
+# The legs of the bonds of one class have the same dimensions but can differ in arrow direction: we flip legs to one common space for the
+# decomposition and flip every projector back to the space its renormalize_* call expects (flip does not change the numbers for ComplexSpace).
+
+# we flip the legs of the domain (codomain) of X whose arrow differs from the target space
+function _domain_to(X, target)
+    inds = [numout(X) + j for j in 1:numin(X) if domain(X)[j] != target[j]]
+    return isempty(inds) ? X : flip(X, inds)
+end
+function _codomain_to(Y, target)
+    inds = [j for j in 1:numout(Y) if codomain(Y)[j] != target[j]]
+    return isempty(inds) ? Y : flip(Y, inds)
+end
+
+# the same tensor with complex conjugated entries (same spaces); for real tensors nothing happens.
+# renormalize_corners and the NORTH pair in renormalize_edges apply conj(U), so a member that must act as itself there is passed conjugated.
+# Note: block-wise conj assumes a real fusion-tree basis (true for ComplexSpace and abelian sectors); not checked for fermionic/non-abelian.
+function _conj_entries(t::AbstractTensorMap)
+    scalartype(t) <: Real && return t
+    s = copy(t)
+    for (_, b) in blocks(s)
+        b .= conj.(b)
+    end
+    return s
+end
+
+# R of the stacked [X1; X2; ...] (the bond = the domain of every X) without forming the stack: QR of every X, then QR of the stacked R's
+function _R_left_joint(Xs)
+    Rs = [_R_left(X) for X in Xs]
+    return length(Rs) == 1 ? Rs[1] : _R_left(reduce(catcodomain, Rs))
+end
+# R of [Y1 Y2 ...] (the bond = the codomain of every Y)
+function _R_right_joint(Ys)
+    Rs = [_R_right(Y) for Y in Ys]
+    return length(Rs) == 1 ? Rs[1] : _R_right(reduce(catdomain, Rs))
+end
+
+# U * S^P of the joint SVD of [Y1 conj(Y2)] (bond = the codomain of every Y, flipped to the codomain of Y1); returned flipped back:
+# (U for Y1, conj(U) for Y2). Why the conj: the two legs that a later update glues together (e.g. the UP and DOWN pair of edge e, which both
+# get a plain U in renormalize_edges) must carry U and conj(U), so that the glued bond is U * U' = 1 on the support; for real tensors
+# conj does nothing. The tensor that is applied with conj(U) in renormalize_* then sees conj(Y2) * conj(conj(U)) = conj(Y2 * conj(U)),
+# so we decompose [Y1 conj(Y2)].
+function _svd_joint(Y1, Y2, trunc, P)
+    Π = codomain(Y1)
+    Ms = [(Y = _codomain_to(Y, Π); Y * isomorphism(scalartype(Y), domain(Y) ← fuse(domain(Y)))) for Y in (Y1, _conj_entries(Y2))]
+    U, S, _ = svd_trunc(reduce(catdomain, Ms); trunc)
+    U = P == 0 ? U : (P == 0.5 ? U * sqrt(S) : U * PEPSKit.sdiag_pow(S, P))
+    return _codomain_to(U, codomain(Y1)), _codomain_to(_conj_entries(U), codomain(Y2))
+end
+
+# svd version (original get_projectors_corner / get_projectors_edge, but per class):
+#   Uys[e] = U, Uzs[e+1] = conj(U), from the joint SVD of the UP pair of corner e and the NORTH pair of corner e+1
+#   Ws[1] = W, Ws[3] = conj(W) (and Ws[2], Ws[4]), from the joint SVD of the NORTH pairs of edges (1, 3) and (2, 4)
+# The corners (and the NORTH pair of the edges) get conj(U), the edges (the face) get U, as in the original.
+function get_projectors_svd_class(ecs, ees, trunc_env, trunc_bpeps; P = 0.5)
+    Uys = Vector{Any}(undef, 4); Uzs = Vector{Any}(undef, 4)
+    for e in 1:4
+        f = mod1(e + 1, 4)
+        Uys[e], Uzs[f] = _svd_joint(permute(ecs[e], ((1,2),(3,4,5))), permute(ecs[f], ((3,4),(1,2,5))), trunc_env, P)
+    end
+    Ws = Vector{Any}(undef, 4)
+    for (k1, k2) in ((1, 3), (2, 4))
+        Ws[k1], Ws[k2] = _svd_joint(permute(ees[k1], ((3,4),(1,2,5,6,7))), permute(ees[k2], ((3,4),(1,2,5,6,7))), trunc_bpeps, P)
+    end
+    return Uys, Uzs, Ws
+end
+
+# oblique version (original get_projectors_oblique, but one pair per class):
+# along the line  corner e -- edge e -- corner e+1  (a translation direction) the first tensor of every bond gets the X member P1 and the second
+# the Y member P2, so the two legs of edge e get the two DIFFERENT members of the same pair, as an edge in a 2D CTMRG with a 1x1 unit cell;
+# gluing the north leg of one copy to the south leg of the next then carries P1 * P2 (the identity on the support, exact without truncation).
+#   bond y_e: corner e (X, P1) -- edge e (Y, P2);   bond z_{e+1}: edge e (X, P1) -- corner e+1 (Y, P2)
+#   face: bond f_k1: edge k1 (X, P1) -- face (Y, P2);   bond f_k2: face (X, P1) -- edge k2 (Y, P2),   (k1, k2) = (1, 3), (2, 4)
+# The R's of all X (Y) of a class are stacked: R1 of [X1; X2], R2 of [Y1 Y2], then oblique_pair as in the original.
+# Returned in the form renormalize_* expects (P[pair; new]); the members that renormalize_* applies with conj are passed through _conj_entries.
+function get_projectors_oblique_class(ecs, ees, es, trunc_env, trunc_bpeps)
+    Uys_c = Vector{Any}(undef, 4); Uzs_c = Vector{Any}(undef, 4); Uys_e = Vector{Any}(undef, 4); Uzs_e = Vector{Any}(undef, 4)
+    for e in 1:4
+        f = mod1(e + 1, 4)
+        Πy = codomain(permute(ecs[e], ((1,2),(3,4,5))))           # the space of the y projectors of corner e and edge e
+        Πz = domain(permute(ees[e], ((3,4,5,6,7),(1,2))))         # the space of the z projectors of edge e and corner e+1
+        Xs = [_domain_to(permute(ecs[e], ((3,4,5),(1,2))), Πy), _domain_to(permute(ees[e], ((3,4,5,6,7),(1,2))), Πy)]
+        Ys = [_codomain_to(permute(ees[e], ((5,6),(1,2,3,4,7))), Πy), _codomain_to(permute(ecs[f], ((3,4),(1,2,5))), Πy)]
+        P1, P2 = oblique_pair(_R_left_joint(Xs), _R_right_joint(Ys), trunc_env)
+        P2t = _conj_entries(copy(P2'))                              # P2t[pair; new] has the entries of P2[new; pair]
+        Uys_c[e] = _codomain_to(_conj_entries(P1), Πy)              # corner e applies conj: X member P1
+        Uys_e[e] = _codomain_to(P2t, Πy)                            # edge e (DOWN pair) applies as is: Y member P2
+        Uzs_e[f] = _codomain_to(P1, Πz)                             # edge e (UP pair, read as Uzs[e+1]) applies as is: X member P1
+        Uzs_c[f] = _codomain_to(_conj_entries(P2t), Πz)             # corner e+1 applies conj: Y member P2
+    end
+    Ws_e = Vector{Any}(undef, 4); Ws_f = Vector{Any}(undef, 4)
+    fpair(k) = (2k, 2k+1)
+    frest(k) = Tuple(setdiff(1:9, fpair(k)))
+    Φ(k) = domain(permute(es, (frest(k), fpair(k))))
+    for (k1, k2) in ((1, 3), (2, 4))
+        T = Φ(k1)
+        Xs = [_domain_to(permute(ees[k1], ((1,2,5,6,7),(3,4))), T), _domain_to(permute(es, (frest(k2), fpair(k2))), T)]
+        Ys = [_codomain_to(permute(es, (fpair(k1), frest(k1))), T), _codomain_to(permute(ees[k2], ((3,4),(1,2,5,6,7))), T)]
+        P1, P2 = oblique_pair(_R_left_joint(Xs), _R_right_joint(Ys), trunc_bpeps)
+        P2t = _conj_entries(copy(P2'))
+        Ws_e[k1] = _codomain_to(_conj_entries(P1), Φ(k1))           # edge k1 (NORTH pair, applies conj): X member P1
+        Ws_f[k1] = _codomain_to(P2t, Φ(k1))                         # face pair k1 (applies as is): Y member P2
+        Ws_f[k2] = _codomain_to(P1, Φ(k2))                          # face pair k2: X member P1
+        Ws_e[k2] = _codomain_to(_conj_entries(P2t), Φ(k2))          # edge k2 (NORTH pair, applies conj): Y member P2
+    end
+    return Uys_c, Uzs_c, Uys_e, Uzs_e, Ws_e, Ws_f
+end
+
+
 function partial_ctmrgstep(env::CTMRG3D)
     ecs = @timeit to "enlarged_corners (4 contractions)" enlarged_corners(env)
     ees = @timeit to "enlarged_edges (4 contractions)" enlarged_edges(env)
     es = @timeit to "enlarged_side (1 contraction)" enlarged_side(env)
 
-    if env.projectors === :svd
+    if env.projectors === :svd && env.class_projectors
+        # svd, class projectors: one U per bond class, from the joint SVD of the enlarged corners (edges) of that class
+        Uys, Uzs, Ws = @timeit to "get_projectors_svd_class (6 joint SVDs)" get_projectors_svd_class(ecs, ees, env.trunc_env, env.trunc_bpeps; P = env.projector_exponent)
+
+        @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys, Uzs)
+        @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys, Uzs, Ws)
+        @timeit to "renormalize_side" renormalize_side(env, es, Ws)
+    elseif env.projectors === :svd
         # svd: one projector per bond, the same one on both sides
         Uys, Uzs = @timeit to "get_projectors_corner (8 SVDs)" get_projectors_corner(ecs, env.trunc_env; P = env.projector_exponent)
         Ws = @timeit to "get_projectors_edge (4 SVDs)" get_projectors_edge(ees, env.trunc_bpeps; P = env.projector_exponent)
@@ -415,7 +544,11 @@ function partial_ctmrgstep(env::CTMRG3D)
         @timeit to "renormalize_side" renormalize_side(env, es, Ws)
     else
         # oblique: one projector pair per bond, each side of the bond gets its own member
-        Uys_c, Uzs_c, Uys_e, Uzs_e, Ws_e, Ws_f = @timeit to "get_projectors_oblique (12 bonds)" get_projectors_oblique(ecs, ees, es, env.trunc_env, env.trunc_bpeps)
+        Uys_c, Uzs_c, Uys_e, Uzs_e, Ws_e, Ws_f = if env.class_projectors
+            @timeit to "get_projectors_oblique_class (6 bond classes)" get_projectors_oblique_class(ecs, ees, es, env.trunc_env, env.trunc_bpeps)
+        else
+            @timeit to "get_projectors_oblique (12 bonds)" get_projectors_oblique(ecs, ees, es, env.trunc_env, env.trunc_bpeps)
+        end
 
         @timeit to "renormalize_corners" renormalize_corners(env, ecs, Uys_c, Uzs_c)
         @timeit to "renormalize_edges" renormalize_edges(env, ees, Uys_e, Uzs_e, Ws_e)

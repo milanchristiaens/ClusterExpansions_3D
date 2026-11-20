@@ -21,7 +21,7 @@ JOBS_TIMING=yes
 JOBS_PILOTS=yes
 CTMRG_DIMS="16_5_3 16_6_3 18_6_3"               # pilot candidates of CTMRG3D
 VBPEPS_DIMS="27_3_3 32_3_3 36_3_3"              # pilot candidates of vbPEPS (Lander's)
-VBPEPS_CORES=2                                  # cores of the vbPEPS pilots (as the full run)
+VBPEPS_CORES=3                                  # cores of the vbPEPS pilots (as the full run; 2 cores ran out of memory on 20 Nov)
 TIMING_CORES=4                                  # cores of both implementations in the timing (PEPSKit needs them for its memory)
 PEPO_D_CE=3                                     # the PEPO file of this D_CE must exist (data/pepos/, job_pepos.pbs)
 # walltimes: estimate + compilation, with margin (only the time really used is charged)
