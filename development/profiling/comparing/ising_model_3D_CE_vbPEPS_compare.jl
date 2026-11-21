@@ -123,6 +123,11 @@ const P = PROFILES[PROFILE]
 # bond dimension 2, so D_CE of the dims must be 2; the setting column of the results file then ends in _exactpepo)
 const PEPO_KIND = Symbol(lowercase(get(ENV, "CE_COMPARE_PEPO", "ce")))
 PEPO_KIND in (:ce, :exact) || error("CE_COMPARE_PEPO = $PEPO_KIND: use ce or exact")
+# Optional changes of the profile for one job, as in the CTMRG3D compare (Hortense: qsub -v CE_COMPARE_...=...; added 21 Nov for the pilot at (16,5,3)):
+#   CE_COMPARE_BETAS      the β of the observations, separated by _ (for example 0.21_0.225)
+#   CE_COMPARE_BUDGET_S   seconds for the case, and also the most one observation may use
+#   CE_COMPARE_MAXITER    the most LBFGS iterations per observation (optimizer_maxiter of base_kwargs; default 100)
+const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_BUDGET_S", "CE_COMPARE_MAXITER", "CE_COMPARE_PEPO") if haskey(ENV, n)]
 BLAS.set_num_threads(P.blas_threads)
 Threads.nthreads() == P.julia_threads || @warn "Profile :$PROFILE expects julia -t $(P.julia_threads), but Threads.nthreads() = $(Threads.nthreads())"
 
@@ -136,7 +141,7 @@ const chienv, chipeps, D_CE = compare_dims(P.dims)
 PEPO_KIND === :exact && D_CE != 2 && error("CE_COMPARE_PEPO = exact has bond dimension 2: choose dims with D_CE = 2 (for example CE_COMPARE_DIMS = 27_3_2), not $D_CE")
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter): from the profile
-const β_obs = P.β_obs
+const β_obs = env_override("CE_COMPARE_BETAS", parse_betas, P.β_obs)
 
 const SEED_BASE = 1000              # observation i uses Random.seed!(SEED_BASE + i), the same in all cases
 const BETA_C = 0.2217               # warm cases: a β closer than WARM_WINDOW to BETA_C starts cold (nothing = always warm)
@@ -144,11 +149,11 @@ const WARM_WINDOW = 0.02
 
 # Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one LBFGS iteration overshoot per observation).
 # For a comparison with CTMRG3D at the same core budget, (cores × RUN_BUDGET_S) must be the same in both compare scripts (see the profiles).
-const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 21.3 h on 3 cores = the core budget of CTMRG3D)
+const RUN_BUDGET_S = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.run_budget_s)           # per case (laptop 1 h on 4 cores; Hortense 21.3 h on 3 cores = the core budget of CTMRG3D)
 # The most one observation may use, also: MAX_OBS_FACTOR × the fair share RUN_BUDGET_S / length(β_obs) (21 Nov: β near βc that do not converge would
 # otherwise take twice the fair share each and leave the last β, which converge fast, almost nothing)
 const MAX_OBS_FACTOR = 1.2
-const MAX_SECONDS_OBS = min(P.max_seconds_obs, MAX_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))   # per observation (lowered further when the case budget is running out)
+const MAX_SECONDS_OBS = min(env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.max_seconds_obs), MAX_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))   # per observation (lowered further when the case budget is running out)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 
 
@@ -171,7 +176,8 @@ const base_kwargs = (;
     boundary_alg_type = C4vCTMRG, symmetrization = RotateReflect(),
     boundary_tol = 1.0e-10, boundary_maxiter = 1500, boundary_verbosity = 1,
     gradient_tol = 1.0e-6, gradient_maxiter = 5, gradient_krylovdim = 20,
-    optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 100,     # optimizer_maxiter = 100 is super high, but it will be stopped due to time limit before that
+    optimizer_memory = 64, optimizer_tol = 1.0e-5,
+    optimizer_maxiter = env_override("CE_COMPARE_MAXITER", s -> parse(Int, s), 100),   # 100 is super high, but the time limit stops it before that
     maxiter_init = 20,            # must be MAXITER_INIT of ising_model_3D_CE_pepos.jl (the start states of the PEPO file)
     optimizer_verbosity = 2,
 )
@@ -461,6 +467,7 @@ function main()
         println(io, "PROFILE = $PROFILE, Julia $(VERSION), threads = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()), host = $(gethostname()), " *
                     "environment = $(Base.active_project())")
         println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, β_obs = $β_obs")
+        isempty(OVERRIDES) || println(io, "changed for this job: ", join(["$n = $(ENV[n])" for n in OVERRIDES], ", "))
         println(io, "PEPO = $PEPO_KIND", PEPO_KIND === :exact ? " (the exact file of stage 1, bond dimension 2)" : " (CE, PEPO file)")
         println(io, "SEED_BASE = $SEED_BASE, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS (MAX_OBS_FACTOR = $MAX_OBS_FACTOR), MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
         println(io, "VBPEPS_IMPL = $VBPEPS_IMPL", VBPEPS_IMPL === :betterpepskit ? ", FAST_KWARGS = $FAST_KWARGS" : "")
@@ -469,6 +476,7 @@ function main()
     end
     @info "Output directory: $outdir, results file: $resultspath (run = $run)"
     @info "PROFILE = $PROFILE, Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()), VBPEPS_IMPL = $VBPEPS_IMPL"
+    isempty(OVERRIDES) || @info "Changed for this job: β_obs = $β_obs, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, optimizer_maxiter = $(base_kwargs.optimizer_maxiter), PEPO = $PEPO_KIND"
     # Define the virtual spaces and the observable (:pepskit; :betterpepskit has M = the tensor of σᶻ in the PEPO file)
     pepsspace = ℂ^chipeps
     envspace = ℂ^chienv

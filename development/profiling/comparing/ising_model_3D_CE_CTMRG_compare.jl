@@ -122,7 +122,6 @@ const P = PROFILES[PROFILE]
 #   CE_COMPARE_VERBOSITY  verbosity of CTMRG3D / CTMRG3DOctant: 1 = ϵ of every iteration in the log (0 = nothing, the default)
 #   CE_COMPARE_PEPO       ce (default: the CE PEPOs of the PEPO file) or exact (exact_ising_pepo of ../tools/pepo_files.jl, bond dimension 2, so D_CE
 #                         of the dims must be 2; the setting column of the results file then ends in _exactpepo)
-env_override(name, parse_one, default) = haskey(ENV, name) ? parse_one(ENV[name]) : default
 const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY", "CE_COMPARE_PEPO") if haskey(ENV, n)]
 const PEPO_KIND = env_override("CE_COMPARE_PEPO", s -> Symbol(lowercase(s)), :ce)
 PEPO_KIND in (:ce, :exact) || error("CE_COMPARE_PEPO = $PEPO_KIND: use ce or exact")
@@ -137,7 +136,7 @@ const chienv, chipeps, D_CE = compare_dims(P.dims)   # D_CE must be the D_CE of 
 PEPO_KIND === :exact && D_CE != 2 && error("CE_COMPARE_PEPO = exact has bond dimension 2: choose dims with D_CE = 2 (for example CE_COMPARE_DIMS = 16_5_2), not $D_CE")
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter): from the profile
-const β_obs = env_override("CE_COMPARE_BETAS", s -> sort(parse.(Float64, split(s, r"[_,; ]+"; keepempty = false))), P.β_obs)
+const β_obs = env_override("CE_COMPARE_BETAS", parse_betas, P.β_obs)
 
 # Settings of CTMRG3D (the same for all cases, except projectors and the start, which are the 4 cases)
 const ctm_miniter = 3

@@ -43,6 +43,11 @@ function compare_figure(panels, title; height = 560, titlefontsize = 11)
                 plot_title = title, plot_titlefontsize = titlefontsize, plot_titlevspan = (count(==('\n'), title) + 1) * 2.2 * titlefontsize / height)
 end
 
+# A per-job setting of the compare scripts: the value of the environment variable name, read with parse_one, or default if it is not set
+env_override(name, parse_one, default) = haskey(ENV, name) ? parse_one(ENV[name]) : default
+# A β list of such a setting: separated by _ (qsub -v splits at commas), also , ; or spaces; sorted
+parse_betas(s) = sort(parse.(Float64, split(s, r"[_,; ]+"; keepempty = false)))
+
 # Warm start rule of the :warm cases (both compare scripts): warm from the previous β, except for a β closer than `window` to βc (`βc = nothing`:
 # always warm). Near βc a warm start stays in the (symmetric) state of the previous β, so there we start cold.
 warm_start_at(β, βc, window) = βc === nothing || abs(β - βc) >= window
