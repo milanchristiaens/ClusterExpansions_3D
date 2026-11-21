@@ -132,9 +132,9 @@ end
 
 function make_figure(rows, specs, outdir)
     p_dev = plot_spread(rows, specs; exclude_flagged = SPREAD_EXCLUDE_FLAGGED, exclude_timed_out = SPREAD_EXCLUDE_TIMED_OUT, outlier_tol = SPREAD_OUTLIER_TOL)
-    plt = plot(plot_magnetization(rows, specs), p_dev; layout = (1, 2), size = (1700, 620), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
-        plot_title = "CTMRG3D (blue, circles) against vbPEPS (red, diamonds); dashed = warm start (cross = timed out or not converged; dotted gray = βc)",
-        plot_titlefontsize = 10)
+    plt = compare_figure([plot_magnetization(rows, specs), p_dev],   # without p_dev (nothing) when no β has two cases
+        "CTMRG3D (blue, circles) against vbPEPS (red, diamonds); dashed = warm start (cross = timed out or not converged; dotted gray = βc)";
+        height = 620, titlefontsize = 10)
     file = joinpath(outdir, "compare_algorithms_magnetization.png")
     savefig(plt, file)
     @info "Plot saved: $file"

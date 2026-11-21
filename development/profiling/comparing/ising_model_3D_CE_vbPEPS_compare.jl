@@ -102,13 +102,15 @@ IN_FAST_ENV || include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_ref
 # development/hpc/submit_compare.sh).
 # Threads: vbPEPS works with small tensors, so every core is one Julia thread with 1 BLAS thread.
 const PROFILE = Symbol(get(ENV, "CE_COMPARE_PROFILE", "laptop"))
-const β_ALL = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]   # one point in each phase and four around βc ≈ 0.2217 (the finite-χ transition is shifted and smeared)
+const β_ALL = [0.15, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # one point deep in each phase and five around βc ≈ 0.2217 (21 Nov: also 0.22 and 0.225;
+                                                      # the finite-χ transition is shifted and smeared)
+const β_PILOT = [0.19, 0.22, 0.25]                    # the β of the pilots: paramagnet, just below βc (the slowest point), ordered
 const CASES_ALL = ["false_cold", "false_warm"]
 const HPC_DIMS = (32, 3, 3)                          # dims of :hpc: set to the choice of the pilot
 const PROFILES = Dict(
     :laptop => (; dims = (14, 2, 2), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 3600.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
                 julia_threads = 4, blas_threads = 1),
-    :pilot  => (; dims = (32, 3, 3), β_obs = [0.21], cases = ["false_cold"], run_budget_s = 3600.0, max_seconds_obs = 3600.0, min_seconds_obs = 60.0,
+    :pilot  => (; dims = (32, 3, 3), β_obs = β_PILOT, cases = ["false_cold"], run_budget_s = 3600.0, max_seconds_obs = 3600.0, min_seconds_obs = 60.0,
                 julia_threads = 3, blas_threads = 1),
     :timing => (; dims = (27, 3, 3), β_obs = [0.21], cases = ["false_cold"], run_budget_s = 1800.0, max_seconds_obs = 1800.0, min_seconds_obs = 60.0,
                 julia_threads = 4, blas_threads = 1),
@@ -117,6 +119,10 @@ const PROFILES = Dict(
 )
 haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot, timing or hpc")
 const P = PROFILES[PROFILE]
+# Which PEPO (environment variable CE_COMPARE_PEPO, as in the CTMRG3D compare): ce (default, the CE PEPOs) or exact (the file of the exact PEPOs of stage 1,
+# bond dimension 2, so D_CE of the dims must be 2; the setting column of the results file then ends in _exactpepo)
+const PEPO_KIND = Symbol(lowercase(get(ENV, "CE_COMPARE_PEPO", "ce")))
+PEPO_KIND in (:ce, :exact) || error("CE_COMPARE_PEPO = $PEPO_KIND: use ce or exact")
 BLAS.set_num_threads(P.blas_threads)
 Threads.nthreads() == P.julia_threads || @warn "Profile :$PROFILE expects julia -t $(P.julia_threads), but Threads.nthreads() = $(Threads.nthreads())"
 
@@ -127,6 +133,7 @@ const g = 0.0
 # chienv above the bond of the three-layer network (chipeps * D_CE * chipeps); the laptop keeps D_CE = 2 (with D_CE = 3 vbPEPS needs chipeps >= 3 and then
 # chienv is unaffordable on the laptop, tests of 16-17 Nov); on Hortense D_CE = 3, the same as CTMRG3D
 const chienv, chipeps, D_CE = compare_dims(P.dims)
+PEPO_KIND === :exact && D_CE != 2 && error("CE_COMPARE_PEPO = exact has bond dimension 2: choose dims with D_CE = 2 (for example CE_COMPARE_DIMS = 27_3_2), not $D_CE")
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter): from the profile
 const β_obs = P.β_obs
@@ -138,7 +145,10 @@ const WARM_WINDOW = 0.02
 # Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one LBFGS iteration overshoot per observation).
 # For a comparison with CTMRG3D at the same core budget, (cores × RUN_BUDGET_S) must be the same in both compare scripts (see the profiles).
 const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 21.3 h on 3 cores = the core budget of CTMRG3D)
-const MAX_SECONDS_OBS = P.max_seconds_obs     # per observation, twice the fair share over 6 β (lowered further when the case budget is running out)
+# The most one observation may use, also: MAX_OBS_FACTOR × the fair share RUN_BUDGET_S / length(β_obs) (21 Nov: β near βc that do not converge would
+# otherwise take twice the fair share each and leave the last β, which converge fast, almost nothing)
+const MAX_OBS_FACTOR = 1.2
+const MAX_SECONDS_OBS = min(P.max_seconds_obs, MAX_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))   # per observation (lowered further when the case budget is running out)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 
 
@@ -204,7 +214,7 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
     kwargs = (; base_kwargs..., differentiate_environment = diff)
     state = nothing           # holds (psi, env2, env3) for the warm start
     # the columns of the results file that are the same for every observation of this case
-    row_settings = (; algorithm = "vbPEPS", run, case = name, setting = (diff ? "diff_env_" : "fixed_env_") * String(VBPEPS_IMPL), warm, D_CE, chipeps, chienv,
+    row_settings = (; algorithm = "vbPEPS", run, case = name, setting = (diff ? "diff_env_" : "fixed_env_") * String(VBPEPS_IMPL) * (PEPO_KIND === :exact ? "_exactpepo" : ""), warm, D_CE, chipeps, chienv,
                     dβ = Δβ_iter, budget_s= RUN_BUDGET_S)
     t_case = time()
 
@@ -378,22 +388,21 @@ end
 
 # The two figures (each with two panels next to each other)
 # (the dimensions of the rows themselves: a replot can be made with another profile)
-figure_title(rows) = "vbPEPS ($(split(rows[1].setting, '_')[end])): χpeps = $(rows[1].chipeps), χenv = $(rows[1].chienv), D_CE = $(rows[1].D_CE), g = $g, C4v CTMRG (cross = timed out; dotted gray = βc)"
+figure_title(rows) = "vbPEPS ($(split(replace(rows[1].setting, "_exactpepo" => ""), '_')[end])): χpeps = $(rows[1].chipeps), χenv = $(rows[1].chienv), D_CE = $(rows[1].D_CE)" *
+                     "$(endswith(rows[1].setting, "_exactpepo") ? " (exact PEPO)" : ""), g = $g, C4v CTMRG\n(cross = timed out; dotted gray = βc)"
 
 # Figure 1: magnetization (left) and the difference of |m| of every case to the mean of the cases (right)
 function make_magnetization_figure(rows, outdir, spread_specs)
     p_dev = plot_spread(rows, spread_specs; exclude_cases = SPREAD_EXCLUDE_CASES, exclude_flagged = SPREAD_EXCLUDE_FLAGGED, exclude_timed_out = SPREAD_EXCLUDE_TIMED_OUT,
         outlier_tol = SPREAD_OUTLIER_TOL)
-    plt = plot(plot_magnetization(rows), p_dev; layout = (1, 2), size = (1600, 560), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
-        plot_title = figure_title(rows))
+    plt = compare_figure([plot_magnetization(rows), p_dev], figure_title(rows))   # without p_dev (nothing) when no β has two cases
     savefig(plt, joinpath(outdir, "compare_vbpeps_magnetization.png"))
     return nothing
 end
 
 # Figure 2: time per observation (left) and cost f (right)
 function make_cost_time_figure(rows, outdir)
-    plt = plot(plot_time(rows), plot_cost(rows); layout = (1, 2), size = (1600, 560), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
-        plot_title = figure_title(rows))
+    plt = compare_figure([plot_time(rows), plot_cost(rows)], figure_title(rows))
     savefig(plt, joinpath(outdir, "compare_vbpeps_cost_time.png"))
     return nothing
 end
@@ -452,7 +461,8 @@ function main()
         println(io, "PROFILE = $PROFILE, Julia $(VERSION), threads = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()), host = $(gethostname()), " *
                     "environment = $(Base.active_project())")
         println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, β_obs = $β_obs")
-        println(io, "SEED_BASE = $SEED_BASE, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
+        println(io, "PEPO = $PEPO_KIND", PEPO_KIND === :exact ? " (the exact file of stage 1, bond dimension 2)" : " (CE, PEPO file)")
+        println(io, "SEED_BASE = $SEED_BASE, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS (MAX_OBS_FACTOR = $MAX_OBS_FACTOR), MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
         println(io, "VBPEPS_IMPL = $VBPEPS_IMPL", VBPEPS_IMPL === :betterpepskit ? ", FAST_KWARGS = $FAST_KWARGS" : "")
         println(io, "base_kwargs = $base_kwargs")
         println(io, "cases = $CASES")
@@ -465,8 +475,9 @@ function main()
     obs = IN_FAST_ENV ? nothing : SpinOperators.σᶻ(T, spin_symmetry)
 
     # The PEPOs of stage 1 (ising_model_3D_CE_pepos.jl): the 3D PEPOs (:pepskit) or the packed 2D tensors and start states (:betterpepskit)
-    Os = IN_FAST_ENV ? load_bpeps_tensors(β_obs, Δβ_iter, D_CE, J, g, chipeps; maxiter_init = base_kwargs.maxiter_init) : load_pepos(β_obs, Δβ_iter, D_CE, J, g)
-    @info "CE PEPOs read from $(pepo_file(D_CE, Δβ_iter, J, g))"
+    Os = IN_FAST_ENV ? load_bpeps_tensors(β_obs, Δβ_iter, D_CE, J, g, chipeps; maxiter_init = base_kwargs.maxiter_init, kind = PEPO_KIND) :
+                       load_pepos(β_obs, Δβ_iter, D_CE, J, g; kind = PEPO_KIND)
+    @info "$(PEPO_KIND === :exact ? "EXACT" : "CE") PEPOs read from $(pepo_file(D_CE, Δβ_iter, J, g; kind = PEPO_KIND))"
 
     # compile and run, `false` first and `true` last
     # Compiled remembers wether warm-up has been done (for both false and true env)

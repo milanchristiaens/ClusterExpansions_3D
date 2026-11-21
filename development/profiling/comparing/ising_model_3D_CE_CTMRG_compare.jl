@@ -76,7 +76,7 @@ include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   
 # Profile: which machine and which run (the Hortense job scripts set CE_COMPARE_PROFILE; without it we use :laptop)
 #   :laptop  Milan's laptop, julia -t 4: 1 h per case (4 core hours), plans for 3 GiB
 #   :pilot   Hortense, dimension pilot: 1 β near βc, the two cold cases, 80 min each on 4 cores; one job per candidate (CE_COMPARE_DIMS)
-#   :pilot_octant  Hortense, octant pilot (21 Nov): octant_cold at (16,5,3), β = 0.21 (below βc), 0.23 and 0.25 (above), 3 h, at most 300 iterations
+#   :pilot_octant  Hortense, octant pilot (21 Nov): octant_cold at (16,5,3), β = β_PILOT, 3 h, at most 300 iterations
 #            per β (the octant needs about 9 s per iteration there, so the 80 iterations of the other profiles stop it long before its time is up)
 #   :hpc     Hortense, the full run: all β, 12.8 h per case on 5 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 10 jobs in parallel
 # The pilot does not use the plan file: it slices the current tree itself (plans = nothing in onesite_kwargs), because the Hortense plans are timed
@@ -88,7 +88,9 @@ include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   
 # dims = (chienv, chipeps, D_CE). The dims of :hpc are the choice of the dimension pilot (the candidates are in development/hpc/submit_compare.sh).
 # machine: contract_onesite_auto only uses the plan times measured on this machine (column machine of the plan file; Hortense: development/hpc/job_benchmark_plans.pbs).
 const PROFILE = Symbol(get(ENV, "CE_COMPARE_PROFILE", "laptop"))
-const β_ALL = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]   # one point in each phase and four around βc ≈ 0.2217 (the finite-χ transition is shifted and smeared)
+const β_ALL = [0.15, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # one point deep in each phase and five around βc ≈ 0.2217 (21 Nov: also 0.22 and 0.225;
+                                                      # the finite-χ transition is shifted and smeared)
+const β_PILOT = [0.19, 0.22, 0.25]                    # the β of the pilots: paramagnet, just below βc (the slowest point), ordered
 const CASES_ALL = ["svd_cold_auto", "svd_warm_auto", "oblique_cold_auto", "oblique_warm_auto", "svd_cold_w1", "svd_warm_w1", "oblique_cold_w1", "oblique_warm_w1"]
 # Extra cases, not in the default profiles; choose them with CE_COMPARE_CASES (for example svdclass_cold_auto+octant_cold):
 #   svdclass_* / obliqueclass_*: the 8 cases above with class_projectors = true (the gauge fix of ctmrg3D_helpers.jl)
@@ -102,9 +104,9 @@ const HPC_BUDGET_S = 64 * 3600.0 / HPC_CORES
 const PROFILES = Dict(
     :laptop => (; dims = (11, 5, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 3600.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
                 ram_gib = 3, machine = "laptop", julia_threads = 4, blas_threads = 4, plan_file = true, maxiter = 80),
-    :pilot  => (; dims = (16, 6, 3), β_obs = [0.21], cases = ["svd_cold_auto", "oblique_cold_auto"], run_budget_s = 4800.0, max_seconds_obs = 4800.0,
+    :pilot  => (; dims = (16, 6, 3), β_obs = β_PILOT, cases = ["svd_cold_auto", "oblique_cold_auto"], run_budget_s = 4800.0, max_seconds_obs = 4800.0,
                 min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = false, maxiter = 80),
-    :pilot_octant => (; dims = (16, 5, 3), β_obs = [0.21, 0.23, 0.25], cases = ["octant_cold"], run_budget_s = 10800.0, max_seconds_obs = 4800.0,
+    :pilot_octant => (; dims = (16, 5, 3), β_obs = β_PILOT, cases = ["octant_cold"], run_budget_s = 10800.0, max_seconds_obs = 4800.0,
                 min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = false, maxiter = 300),
     :hpc    => (; dims = (16, 6, 3), β_obs = β_ALL, cases = [CASES_ALL; "octant_cold"; "octant_warm"], run_budget_s = HPC_BUDGET_S, max_seconds_obs = HPC_BUDGET_S / 3,
                 min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = true,
@@ -151,7 +153,11 @@ const INIT_SEED = 1               # seed of the random numbers of the cold start
 
 # Time limits (seconds), the same rule as in ising_model_3D_CE_vbPEPS_compare.jl; for a comparison at the same core budget (cores × RUN_BUDGET_S) is the same in both
 const RUN_BUDGET_S = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.run_budget_s)           # per case (laptop 1 h on 4 cores; Hortense 64 core hours / HPC_CORES = the core budget of vbPEPS; Inf = no budget)
-const MAX_SECONDS_OBS = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.max_seconds_obs)     # per observation, twice the fair share over 6 β (lowered further when the case budget is running out; Inf = no limit)
+# The most one observation may use, also: MAX_OBS_FACTOR × the fair share RUN_BUDGET_S / length(β_obs) (21 Nov: β near βc that do not converge would
+# otherwise take twice the fair share each and leave the last β, which converge fast, almost nothing)
+const MAX_OBS_FACTOR = 1.2
+const MAX_SECONDS_OBS = min(env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.max_seconds_obs),
+                            MAX_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))   # per observation (lowered further when the case budget is running out; Inf = no limit)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 
 # (name, projectors, warm start, west_updates); the profile (or CE_COMPARE_CASES) chooses which of them we run
@@ -365,23 +371,21 @@ function plot_iterations(rows)
 end
 
 # (the dimensions and the budget of the rows themselves: a replot can be made with another profile)
-figure_title(rows) = "CTMRG3D: χpeps = $(rows[1].chipeps), χenv = $(rows[1].chienv), D_CE = $(rows[1].D_CE)$(PEPO_KIND === :exact ? " (exact PEPO)" : ""), g = $g, 
-                  cold start $INIT, budget $(rows[1].budget_s) s per case (cross = not converged or timed out; dotted gray = βc)"
+figure_title(rows) = "CTMRG3D: χpeps = $(rows[1].chipeps), χenv = $(rows[1].chienv), D_CE = $(rows[1].D_CE)$(endswith(rows[1].setting, "_exactpepo") ? " (exact PEPO)" : ""), g = $g,\n" *
+                     "cold start $INIT, budget $(rows[1].budget_s) s per case (cross = not converged or timed out; dotted gray = βc)"
 
 # Figure 1: magnetization (left) and the difference of |m| of every case to the mean of the cases (right)
 function make_magnetization_figure(rows, outdir, spread_specs)
     p_dev = plot_spread(rows, spread_specs; exclude_cases = SPREAD_EXCLUDE_CASES, exclude_flagged = SPREAD_EXCLUDE_FLAGGED, 
                         exclude_timed_out = SPREAD_EXCLUDE_TIMED_OUT, outlier_tol = SPREAD_OUTLIER_TOL)
-    plt = plot(plot_magnetization(rows), p_dev; layout = (1, 2), size = (1600, 560), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
-        plot_title = figure_title(rows))
+    plt = compare_figure([plot_magnetization(rows), p_dev], figure_title(rows))   # without p_dev (nothing) when no β has two cases
     savefig(plt, joinpath(outdir, "compare_ctmrg_magnetization.png"))
     return nothing
 end
 
 # Figure 2: time of the CTMRG3D iterations (left) and number of iterations (right)
 function make_time_iterations_figure(rows, outdir)
-    plt = plot(plot_time(rows), plot_iterations(rows); layout = (1, 2), size = (1600, 560), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
-        plot_title = figure_title(rows))
+    plt = compare_figure([plot_time(rows), plot_iterations(rows)], figure_title(rows))
     savefig(plt, joinpath(outdir, "compare_ctmrg_time_iterations.png"))
     return nothing
 end
@@ -434,7 +438,7 @@ function main()
         println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, β_obs = $β_obs")
         isempty(OVERRIDES) || println(io, "changed for this job: ", join(["$n = $(ENV[n])" for n in OVERRIDES], ", "))
         println(io, "ctm_miniter = $ctm_miniter, ctm_maxiter = $ctm_maxiter, ctm_verbosity = $ctm_verbosity, ctm_tol = $ctm_tol, BETA_C = $BETA_C, WARM_WINDOW = $WARM_WINDOW, RAM_GIB = $RAM_GIB, MACHINE = $MACHINE, INIT = $INIT, INIT_SEED = $INIT_SEED")
-        println(io, "RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
+        println(io, "RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS (MAX_OBS_FACTOR = $MAX_OBS_FACTOR), MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
         println(io, "cases = $CASES")
     end
     @info "Output directory: $outdir, results file: $resultspath (run = $run)"  

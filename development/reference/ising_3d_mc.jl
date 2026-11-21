@@ -4,12 +4,13 @@
 # ~ L^(-3/2) in the disordered phase), so compare several L, and use the Talapov-Blöte fit (ising_3d_reference.jl) as the L = ∞ curve.
 # Run from the clone (any environment, only the standard library is used):
 #   PowerShell:  julia development/reference/ising_3d_mc.jl
-#   Settings below, or environment variables (MC_LS, MC_BETAS, MC_SWEEPS, MC_THERM, MC_SEED, MC_OUT).
+#   Settings below, or environment variables (MC_LS, MC_BETAS, MC_SWEEPS, MC_THERM, MC_SEED, MC_OUT). Lists may be separated by , or _ (qsub -v splits at
+#   commas, so on Hortense: qsub -v "MC_BETAS=0.15_0.225" ...).
 using Random, Printf, Statistics
 include(joinpath(@__DIR__, "ising_3d_reference.jl"))
 
-const LS     = parse.(Int, split(get(ENV, "MC_LS", "8,16,32"), ","))
-const BETAS  = parse.(Float64, split(get(ENV, "MC_BETAS", "0.10,0.19,0.21,0.22,0.23,0.25,0.35"), ","))
+const LS     = parse.(Int, split(get(ENV, "MC_LS", "8,16,32"), r"[,_ ]+"; keepempty = false))
+const BETAS  = parse.(Float64, split(get(ENV, "MC_BETAS", "0.15,0.19,0.21,0.22,0.225,0.23,0.25,0.35"), r"[,_ ]+"; keepempty = false))
 const SWEEPS = parse(Int, get(ENV, "MC_SWEEPS", "20000"))    # measurements; one measurement after Wolff clusters with ≈ N spins flipped in total
 const THERM  = parse(Int, get(ENV, "MC_THERM", "2000"))      # the same unit, thrown away
 const SEED   = parse(Int, get(ENV, "MC_SEED", "1"))

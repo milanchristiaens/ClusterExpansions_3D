@@ -2,7 +2,9 @@
 # and every measurement (CTMRG3D compare, vbPEPS compare, dense against block-Krylov) reads them (stage 2). So all algorithms use exactly the same
 # PEPOs, and the vbPEPS of BetterPEPSKit can run in its own environment without ClusterExpansions.
 #
-# One JLD2 file per (D_CE, Δβ, J, g): data/pepos/ising_3D_J<J>_g<g>_D<D_CE>_dbeta<Δβ>.jld2 (see pepo_file), with
+# One JLD2 file per (D_CE, Δβ, J, g): data/pepos/ising_3D_J<J>_g<g>_D<D_CE>_dbeta<Δβ>.jld2 (see pepo_file), and one file of the EXACT PEPOs
+# (exact_ising_pepo below, bond dimension 2): data/pepos/ising_3D_exact_J<J>_g<g>_D2.jld2 (kind = :exact; same content, D_CE = 2, and dbeta only sets
+# the seeds of the start states, the same seeds as the CE file). Both with
 #   beta            the β values (increasing, multiples of dbeta)
 #   D_CE, dbeta, J, g, maxiter_init, psi0_seed_base, chipeps
 #   pepo3d[i]       the 3D PEPO at beta[i] (legs (P ⊗ P') ← (U, N, E, D, S, W)), for CTMRG3D and the vbPEPS of ClusterExpansions
@@ -16,8 +18,12 @@
 const PEPO_DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "pepos"))     # <repo>/data/pepos
 const PSI0_SEED_BASE = 2000
 
-# The file of these settings
-pepo_file(D_CE, Δβ, J, g) = joinpath(PEPO_DATA_DIR, "ising_3D_J$(Float64(J))_g$(Float64(g))_D$(D_CE)_dbeta$(Float64(Δβ)).jld2")
+# The file of these settings (kind = :ce, the CE PEPOs) or of the exact PEPOs (kind = :exact; D_CE and Δβ do not enter the name)
+function pepo_file(D_CE, Δβ, J, g; kind = :ce)
+    kind === :exact && return joinpath(PEPO_DATA_DIR, "ising_3D_exact_J$(Float64(J))_g$(Float64(g))_D2.jld2")
+    kind === :ce || error("pepo_file: kind = :$kind, use :ce or :exact")
+    return joinpath(PEPO_DATA_DIR, "ising_3D_J$(Float64(J))_g$(Float64(g))_D$(D_CE)_dbeta$(Float64(Δβ)).jld2")
+end
 
 # The seed of the start state of the vbPEPS at β (the same for every profile, so the same β always gets the same start state)
 psi0_seed(β, Δβ) = PSI0_SEED_BASE + round(Int, β / Δβ)
@@ -29,10 +35,11 @@ _pf_prodspace(vs) = isempty(vs) ? one(ComplexSpace) : ⊗(map(_pf_space, vs)...)
 unpack_tensor(p) = TensorMap(p.data, _pf_prodspace(p.cod) ← _pf_prodspace(p.dom))
 
 # The content of the file of these settings (a Dict); an error that says how to make it if it is not there
-function read_pepo_file(D_CE, Δβ, J, g)
-    path = pepo_file(D_CE, Δβ, J, g)
+function read_pepo_file(D_CE, Δβ, J, g; kind = :ce)
+    kind === :exact && D_CE != 2 && error("the exact PEPOs have bond dimension 2: choose dims with D_CE = 2, not $D_CE")
+    path = pepo_file(D_CE, Δβ, J, g; kind)
     isfile(path) || error("No PEPO file $path: run development/profiling/comparing/ising_model_3D_CE_pepos.jl first (in the ClusterExpansions environment), " *
-                          "with D_CE = $D_CE, Δβ = $Δβ, J = $J, g = $g in its settings")
+                          "with D_CE = $D_CE, Δβ = $Δβ, J = $J, g = $g in its settings" * (kind === :exact ? " and EXACT_FILE = true" : ""))
     return JLD2.load(path)
 end
 
@@ -44,8 +51,8 @@ function pepo_index(f, β)
 end
 
 # The 3D PEPOs at the β of β_obs (as TensorMaps; in the ClusterExpansions environment)
-function load_pepos(β_obs, Δβ, D_CE, J, g)
-    f = read_pepo_file(D_CE, Δβ, J, g)
+function load_pepos(β_obs, Δβ, D_CE, J, g; kind = :ce)
+    f = read_pepo_file(D_CE, Δβ, J, g; kind)
     return [unpack_tensor(f["pepo3d"][pepo_index(f, β)]) for β in β_obs]
 end
 
@@ -69,8 +76,8 @@ end
 
 # The 2D tensors of the vbPEPS at the β of β_obs, packed: [(; O, M, psi0)] with the start state of this chipeps.
 # maxiter_init must be the number of power-method steps of the file (the start state depends on it).
-function load_bpeps_tensors(β_obs, Δβ, D_CE, J, g, chipeps; maxiter_init)
-    f = read_pepo_file(D_CE, Δβ, J, g)
+function load_bpeps_tensors(β_obs, Δβ, D_CE, J, g, chipeps; maxiter_init, kind = :ce)
+    f = read_pepo_file(D_CE, Δβ, J, g; kind)
     k = findfirst(==(chipeps), f["chipeps"])
     k === nothing && error("chipeps = $chipeps has no start states in the PEPO file (chipeps = $(f["chipeps"])): add it to CHIPEPS of ising_model_3D_CE_pepos.jl and run it again")
     f["maxiter_init"] == maxiter_init || error("the start states of the PEPO file have maxiter_init = $(f["maxiter_init"]), not $maxiter_init: run ising_model_3D_CE_pepos.jl again")

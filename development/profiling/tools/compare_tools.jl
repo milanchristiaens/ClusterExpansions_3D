@@ -34,6 +34,15 @@ function Logging.handle_message(l::FlushingLogger, args...; kwargs...)
 end
 Logging.global_logger() isa FlushingLogger || Logging.global_logger(FlushingLogger(Logging.global_logger()))
 
+# A figure of the compare scripts: the panels next to each other (a panel that is nothing is left out, e.g. the spread panel of a run with one case),
+# 800 px wide per panel (at least 1100 px, so that a title line of about 120 characters fits), with the title above it. The title may have two lines ("\n"); plot_titlevspan gives them room, so that they do not run into the
+# titles of the panels (they did in the plots of 21 Nov).
+function compare_figure(panels, title; height = 560, titlefontsize = 11)
+    ps = filter(!isnothing, panels)
+    return plot(ps...; layout = (1, length(ps)), size = (max(800 * length(ps), 1100), height), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
+                plot_title = title, plot_titlefontsize = titlefontsize, plot_titlevspan = (count(==('\n'), title) + 1) * 2.2 * titlefontsize / height)
+end
+
 # Warm start rule of the :warm cases (both compare scripts): warm from the previous β, except for a β closer than `window` to βc (`βc = nothing`:
 # always warm). Near βc a warm start stays in the (symmetric) state of the previous β, so there we start cold.
 warm_start_at(β, βc, window) = βc === nothing || abs(β - βc) >= window
@@ -267,6 +276,7 @@ end
 # One panel: |m| of every case minus the mean |m| of the cases that we use (absolute difference, for all β, so it also works where |m| is almost 0). Returns the plot (the script puts it in a figure).
 # case_specs = [(name = "false_cold", label = "fixed env, cold", color = :royalblue, linestyle = :solid), ...]; spread_kwargs go to spread_points.
 # β with fewer than 2 remaining cases are not shown. The mean is over the cases that are left per β, so it can change from β to β when a case is left out.
+# Returns nothing when no β has 2 cases (compare_figure then leaves the panel out).
 function plot_spread(rows, case_specs; spread_kwargs...)
     kept = spread_points(rows; spread_kwargs...)
     absm(r) = hypot(r.m_re, r.m_im)
@@ -276,7 +286,7 @@ function plot_spread(rows, case_specs; spread_kwargs...)
         length(v) < 2 && continue
         push!(βs, β); push!(means, sum(v) / length(v))
     end
-    isempty(βs) && return plot(; title = "no β with at least 2 cases: no difference shown", xlabel = "β", legend = false)
+    isempty(βs) && return nothing
 
     # |m| of every case minus the mean, per β
     series = NamedTuple[]
