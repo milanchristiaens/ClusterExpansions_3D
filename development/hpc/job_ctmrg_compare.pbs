@@ -1,22 +1,24 @@
 #!/bin/bash
-# job_ctmrg_compare.pbs -- ising_model_3D_CE_CTMRG_compare.jl on 4 Hortense cores (about 7.4 GiB): one job of a pilot or of a full run.
+# job_ctmrg_compare.pbs -- ising_model_3D_CE_CTMRG_compare.jl on CORES Hortense cores (default 5, about 9.3 GiB; 4 cores were too few for (16,6,3)
+# on 21 Nov): one job of a pilot or of a full run.
 # Submitted by submit_compare.sh, which passes PROFILE (pilot or hpc), DIMS (one candidate of the pilot), CASE (one case of the full run) and RUN
 # (the run folder; the parallel jobs of one full run share it) with qsub -v, and sets the walltime. The same core budget per case as the vbPEPS
-# compare: 4 cores × 16 h = 2 cores × 32 h = 64 core hours (the time limits are in the profiles of the script). The PEPOs come from the PEPO file
+# compare: 64 core hours (5 cores × 12.8 h, 4 × 16 h; the time limits are in the profiles of the script, from CORES). The PEPOs come from the PEPO file
 # (job_pepos.pbs first).
 #PBS -A starting_2026_079
 #PBS -N ctmrg_compare
-#PBS -l nodes=1:ppn=4
-#PBS -l walltime=17:30:00
+#PBS -l nodes=1:ppn=5
+#PBS -l walltime=14:30:00
 #PBS -j oe
 
 # ---------------- settings ----------------
-JULIA_THREADS=4           # CTMRG3D: 4 Julia threads, 4 BLAS threads (the script sets the BLAS threads from its profile)
+JULIA_THREADS=${CORES:-5}  # CTMRG3D: Julia threads = BLAS threads = cores; submit_compare.sh passes CORES and ppn together (qsub -l nodes=1:ppn=..)
 # ------------------------------------------
 
 source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
 export OPENBLAS_NUM_THREADS=$JULIA_THREADS
 export CE_COMPARE_PROFILE=${PROFILE:-pilot}
+export CE_COMPARE_CORES=$JULIA_THREADS
 [ -n "${DIMS:-}" ] && export CE_COMPARE_DIMS=$DIMS
 [ -n "${CASE:-}" ] && export CE_COMPARE_CASES=$CASE
 [ -n "${RUN:-}" ] && export CE_COMPARE_RUN=$RUN

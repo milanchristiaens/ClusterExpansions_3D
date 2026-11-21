@@ -91,13 +91,17 @@ const CASES_ALL = ["svd_cold_auto", "svd_warm_auto", "oblique_cold_auto", "obliq
 #   octant_*: Proposal 2 (CTMRG3DOctant, ctmrg3D_octant.jl; west_updates has no meaning there)
 const CASES_EXTRA = ["svdclass_cold_auto", "svdclass_warm_auto", "obliqueclass_cold_auto", "obliqueclass_warm_auto",
                      "svdclass_cold_w1", "svdclass_warm_w1", "obliqueclass_cold_w1", "obliqueclass_warm_w1", "octant_cold", "octant_warm"]
+# Hortense: the number of cores of the job (job_ctmrg_compare.pbs passes CORES as CE_COMPARE_CORES; 4 GiB-cores were too few for (16,6,3), 21 Nov).
+# Julia and BLAS threads = cores; the full run keeps 64 core hours per case (16 h on 4 cores, 12.8 h on 5, 10.7 h on 6), at most a third per observation.
+const HPC_CORES = parse(Int, get(ENV, "CE_COMPARE_CORES", "5"))
+const HPC_BUDGET_S = 64 * 3600.0 / HPC_CORES
 const PROFILES = Dict(
     :laptop => (; dims = (11, 5, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 3600.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
                 ram_gib = 3, machine = "laptop", julia_threads = 4, blas_threads = 4, plan_file = true),
     :pilot  => (; dims = (16, 6, 3), β_obs = [0.21], cases = ["svd_cold_auto", "oblique_cold_auto"], run_budget_s = 4800.0, max_seconds_obs = 4800.0,
-                min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = 4, blas_threads = 4, plan_file = false),
-    :hpc    => (; dims = (16, 6, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 57600.0, max_seconds_obs = 19200.0, min_seconds_obs = 60.0,
-                ram_gib = 3, machine = "hortense", julia_threads = 4, blas_threads = 4, plan_file = true),   # dims: set to the choice of the pilot
+                min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = false),
+    :hpc    => (; dims = (16, 6, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = HPC_BUDGET_S, max_seconds_obs = HPC_BUDGET_S / 3, min_seconds_obs = 60.0,
+                ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = true),   # dims: set to the choice of the pilot
 )
 haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot or hpc")
 const P = PROFILES[PROFILE]
@@ -125,7 +129,7 @@ const WARM_WINDOW = 0.02
 const INIT_SEED = 1               # seed of the random numbers of the cold start
 
 # Time limits (seconds), the same rule as in ising_model_3D_CE_vbPEPS_compare.jl; for a comparison at the same core budget (cores × RUN_BUDGET_S) is the same in both
-const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 16 h on 4 cores = the core budget of vbPEPS; Inf = no budget)
+const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 64 core hours / HPC_CORES = the core budget of vbPEPS; Inf = no budget)
 const MAX_SECONDS_OBS = P.max_seconds_obs     # per observation, twice the fair share over 6 β (lowered further when the case budget is running out; Inf = no limit)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 

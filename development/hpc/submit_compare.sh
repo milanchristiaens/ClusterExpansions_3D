@@ -15,7 +15,8 @@ set -euo pipefail
 # ---------------- settings ----------------
 PROFILE=hpc                                     # pilot, timing or hpc (round 2: hpc)
 ALGORITHMS="ctmrg vbpeps"                       # which compare scripts get jobs: ctmrg and/or vbpeps (timing: only vbpeps)
-CTMRG_DIMS="16_5_3 16_6_3 18_6_3"               # pilot candidates (chienv_chipeps_DCE) of CTMRG3D; their 3 GiB plans must be timed (job_benchmark_plans.pbs)
+CTMRG_DIMS="16_6_3 18_6_3"                      # pilot candidates (chienv_chipeps_DCE) of CTMRG3D (16_5_3 was done on 4 cores in round 1)
+CTMRG_CORES=5                                   # cores of every CTMRG3D job (4 were too few for (16,6,3), 21 Nov); 64 core hours per case = 12.8 h on 5
 VBPEPS_DIMS="27_3_3 32_3_3 36_3_3"              # pilot candidates of vbPEPS
 CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1"
 # other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_cold_auto svdclass_warm_auto obliqueclass_cold_auto obliqueclass_warm_auto
@@ -29,7 +30,7 @@ VBPEPS_TIMING_CORES=4                           # cores of both implementations 
 PEPO_D_CE=3                                     # the PEPO file of this D_CE must exist (data/pepos/, job_pepos.pbs)
 # walltimes: budget of the profile + compilation + plots, with some margin (only the time really used is charged)
 CTMRG_WALLTIME_PILOT=03:30:00                   # 2 cases × 80 min + compilation
-CTMRG_WALLTIME_HPC=17:30:00                     # 16 h + compilation
+CTMRG_WALLTIME_HPC=14:30:00                     # 12.8 h (5 cores) + compilation; 17:30:00 for 4 cores, 12:30:00 for 6
 VBPEPS_WALLTIME_PILOT=03:00:00                  # 2 cases × 1 h + compilation (betterpepskit: no Zygote compilation of the CTMRG)
 VBPEPS_WALLTIME_TIMING=04:30:00                 # 2 cases × 30 min + compilation (pepskit: about 2 h for `true`)
 VBPEPS_WALLTIME_HPC=23:00:00                    # 21.3 h + compilation
@@ -41,9 +42,9 @@ for alg in $ALGORITHMS; do
     job="development/hpc/job_${alg}_compare.pbs"
     if [ "$alg" = ctmrg ]; then
         if [ "$PROFILE" = pilot ]; then
-            for d in $CTMRG_DIMS; do qsub -N "ctmrg_pilot_$d" -l walltime=$CTMRG_WALLTIME_PILOT -v "PROFILE=pilot,DIMS=$d,RUN=${RUN}_pilot_$d" "$job"; done
+            for d in $CTMRG_DIMS; do qsub -N "ctmrg_pilot_$d" -l nodes=1:ppn=$CTMRG_CORES -l walltime=$CTMRG_WALLTIME_PILOT -v "PROFILE=pilot,CORES=$CTMRG_CORES,DIMS=$d,RUN=${RUN}_pilot_$d" "$job"; done
         elif [ "$PROFILE" = hpc ]; then
-            for c in $CTMRG_CASES; do qsub -N "ctmrg_$c" -l walltime=$CTMRG_WALLTIME_HPC -v "PROFILE=hpc,CASE=$c,RUN=$RUN" "$job"; done
+            for c in $CTMRG_CASES; do qsub -N "ctmrg_$c" -l nodes=1:ppn=$CTMRG_CORES -l walltime=$CTMRG_WALLTIME_HPC -v "PROFILE=hpc,CORES=$CTMRG_CORES,CASE=$c,RUN=$RUN" "$job"; done
         elif [ "$PROFILE" != timing ]; then echo "unknown PROFILE $PROFILE (use pilot, timing or hpc)"; exit 1; fi
     elif [ "$alg" = vbpeps ]; then
         i=$VBPEPS_IMPL_RUN; c=$VBPEPS_CORES

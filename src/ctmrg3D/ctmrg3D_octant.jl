@@ -19,11 +19,12 @@
 # The same orthogonal P on both sides of a bond inserts P·Pᵀ, a projector: without truncation a step is exact.
 #
 # P_c: the top χenv eigenvectors of ρ_F = Q·Qᵀ, with Q the octant C·E³·A³·O as a matrix (one leg F) × (two other legs F²).
-#      Q (F³ numbers) is never stored: we only apply ρ_F to a block of vectors (Qᵀ·V, then Q·W) in a block subspace iteration with Rayleigh-Ritz,
-#      started from the P_c of the previous step. The part C·E_y·E_z·A_E of Q does not touch the vectors and is contracted once per step (B).
+#      Q (F³ numbers) is never stored: we only apply ρ_F to a block of vectors in a block subspace iteration with Rayleigh-Ritz, started from the
+#      P_c of the previous step. The part B = C·E_y·E_z·A_E of Q does not touch the vectors: we contract it once per step and form M = B·Bᵀ over its
+#      open legs, so that ρ_F·V = X·M·Xᵀ·V with X = E_x·A_U·A_N·O (about 10× fewer flops than Q·(Qᵀ·V) at (16,5,3)).
 # P_f: the top χpeps eigenvectors of the reduced matrix of the (face, O) part of a leg F, taken from the truncated ρ_F ≈ U·Λ·Uᵀ
 #      (an approximation: the discarded weight of ρ_F is ignored), averaged over the two faces in F.
-# C': Qᵀ·P_c is a linear combination of the last Qᵀ·V of the subspace iteration, so C' only needs P_c on the two other legs.
+# C': from Qᵀ·P_c (one product with the χenv columns of P_c per step), then P_c on the two other legs.
 #
 # ============================================================================================
 #  Conventions (plain arrays; directions as in ctmrg3D_helpers.jl: EAST = +x, NORTH = +y, UP = +z)
@@ -68,6 +69,8 @@ mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
     verbosity::Int
     max_seconds::Float64
     subspace_tol::Float64              # stop the subspace iteration when the residuals of the kept Ritz vectors are below subspace_tol · λ_max
+                                       # (default min(1e-6, 10·tol): the CTMRG3D change ϵ then still reaches tol; at 1e-6 the floor of ϵ was ≈ 4e-8,
+                                       # and m changed by at most 5e-6 against 1e-10 (sandbox, (8,3,3), 21 Nov), with 2-3× fewer products ρ_F·V)
     subspace_maxiter::Int              # at most this many products ρ_F·V per step
     oversample::Int                    # block size = χenv + oversample
 end
@@ -79,7 +82,7 @@ end
 #   env0: an earlier CTMRG3DOctant (warm start, e.g. the previous β): we copy c, e, a, P.
 function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]), Vbp = oneunit(space(O)[1]), trunc_env = nothing, trunc_bpeps = nothing,
                        miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0, env0 = nothing, init::Symbol = :random,
-                       init_seed::Int = 1, max_seconds::Real = Inf, subspace_tol::Real = 1e-10, subspace_maxiter::Int = 30, oversample::Int = 8,
+                       init_seed::Int = 1, max_seconds::Real = Inf, subspace_tol::Real = min(1e-6, 10 * tol), subspace_maxiter::Int = 30, oversample::Int = 8,
                        kwargs...) where {T,S}
     T <: Real || throw(ArgumentError("CTMRG3DOctant: O must be real (Float64), got $T"))
     sectortype(O) == Trivial || throw(ArgumentError("CTMRG3DOctant: O must have no symmetry sectors"))
@@ -133,29 +136,63 @@ function _octant_B(c, e, a)
     return B
 end
 
-# Qᵀ·V: V is F × b (F_x composite), the result W is F² × b (F_y composite, then F_z composite)
-function _octant_QtV(V, B, e, a, o)
+# The octant split in two parts: X = E_x·A_U·A_N·O (touches F_x) and B = C·E_y·E_z·A_E. They share the internal legs a = (cx, uy, nz, oE)
+# (dimension χ·χpeps²·D); the open legs of F_y and F_z are split into Y' = (FyU, FzN, FzO, FyO) (on X) and Y'' = (oy, oz, FyE, FzE) (on B).
+# Then ρ_F = Q·Qᵀ = X·M·Xᵀ with M[a, a'] = Σ_{Y''} B[a, Y''] B[a', Y''] (once per step), so a product ρ_F·V never forms the F²-sized Qᵀ·V:
+#   _octant_xfwd(V) = Xᵀ·V [a, Y', b] -> M · that -> _octant_xbwd(.) = X·(.) [F_x, b]
+
+# Xᵀ·V: V is F × b (F_x composite); the result X4[cx, β, uy, FyU, nz, FzN, oE, FzO, FyO]
+function _octant_xfwd(V, e, a, o)
     χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(V, 2)
     V5 = reshape(V, χ, p, p, D, b)
     @tensor X1[cx, ux, nx, FxU, FxN, FxO, β] := e[ox, cx, ux, nx] * V5[ox, FxU, FxN, FxO, β]
     @tensor X2[cx, nx, FxN, FxO, β, oU, uy, FyU] := X1[cx, ux, nx, FxU, FxN, FxO, β] * a[oU, uy, ux, FxU, FyU]
     @tensor X3[cx, FxO, β, oU, uy, FyU, oN, nz, FzN] := X2[cx, nx, FxN, FxO, β, oU, uy, FyU] * a[oN, nx, nz, FzN, FxN]
     @tensor X4[cx, β, uy, FyU, nz, FzN, oE, FzO, FyO] := X3[cx, FxO, β, oU, uy, FyU, oN, nz, FzN] * o[oU, oN, oE, FzO, FyO, FxO]
-    @tensor W[oy, FyE, FyU, FyO, oz, FzN, FzE, FzO, β] := X4[cx, β, uy, FyU, nz, FzN, oE, FzO, FyO] * B[cx, oy, uy, oz, nz, oE, FyE, FzE]
-    F = χ * p * p * D
-    return reshape(W, F * F, b)
+    return X4
 end
 
-# Q·W: W is F² × b, the result is F × b
-function _octant_QW(W, B, e, a, o)
-    χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(W, 2)
-    W9 = reshape(W, χ, p, p, D, χ, p, p, D, b)
-    @tensor Y1[β, FyU, FyO, FzN, FzO, cx, uy, nz, oE] := W9[oy, FyE, FyU, FyO, oz, FzN, FzE, FzO, β] * B[cx, oy, uy, oz, nz, oE, FyE, FzE]
+# X·Y: Y1[β, FyU, FyO, FzN, FzO, cx, uy, nz, oE]; the result is F × b (F_x composite)
+function _octant_xbwd(Y1, e, a, o)
+    χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(Y1, 1)
     @tensor Y2[β, FyU, FzN, cx, uy, nz, oU, oN, FxO] := Y1[β, FyU, FyO, FzN, FzO, cx, uy, nz, oE] * o[oU, oN, oE, FzO, FyO, FxO]
     @tensor Y3[β, FzN, cx, nz, oN, FxO, ux, FxU] := Y2[β, FyU, FzN, cx, uy, nz, oU, oN, FxO] * a[oU, uy, ux, FxU, FyU]
     @tensor Y4[β, cx, FxO, ux, FxU, nx, FxN] := Y3[β, FzN, cx, nz, oN, FxO, ux, FxU] * a[oN, nx, nz, FzN, FxN]
     @tensor R[ox, FxU, FxN, FxO, β] := Y4[β, cx, FxO, ux, FxU, nx, FxN] * e[ox, cx, ux, nx]
     return reshape(R, χ * p * p * D, b)
+end
+
+# M[(cx, uy, nz, oE), (cx', uy', nz', oE')] = Σ_{Y''} B B (a matrix of size (χ·χpeps²·D)²)
+function _octant_M(B)
+    χ, p, D = size(B, 1), size(B, 3), size(B, 6)
+    Bm = reshape(permutedims(B, (1, 3, 5, 6, 2, 4, 7, 8)), χ * p * p * D, :)
+    return Bm * transpose(Bm)
+end
+
+# ρ_F·V = X·M·Xᵀ·V
+function _octant_rhoV(V, M, e, a, o)
+    χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(V, 2)
+    X4 = _octant_xfwd(V, e, a, o)                                                   # [cx, β, uy, FyU, nz, FzN, oE, FzO, FyO]
+    Xa = reshape(permutedims(X4, (1, 3, 5, 7, 2, 4, 9, 6, 8)), χ * p * p * D, :)      # (cx, uy, nz, oE) × (β, FyU, FyO, FzN, FzO)
+    Z = reshape(M * Xa, χ, p, p, D, b, p, D, p, D)                                  # [cx, uy, nz, oE, β, FyU, FyO, FzN, FzO]
+    return _octant_xbwd(permutedims(Z, (5, 6, 7, 8, 9, 1, 2, 3, 4)), e, a, o)
+end
+
+# Qᵀ·V: V is F × b (F_x composite), the result W is F² × b (F_y composite, then F_z composite); only for C' (once per step, b = χenv)
+function _octant_QtV(V, B, e, a, o)
+    χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(V, 2)
+    X4 = _octant_xfwd(V, e, a, o)
+    @tensor W[oy, FyE, FyU, FyO, oz, FzN, FzE, FzO, β] := X4[cx, β, uy, FyU, nz, FzN, oE, FzO, FyO] * B[cx, oy, uy, oz, nz, oE, FyE, FzE]
+    F = χ * p * p * D
+    return reshape(W, F * F, b)
+end
+
+# Q·W: W is F² × b, the result is F × b (used by the checks)
+function _octant_QW(W, B, e, a, o)
+    χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(W, 2)
+    W9 = reshape(W, χ, p, p, D, χ, p, p, D, b)
+    @tensor Y1[β, FyU, FyO, FzN, FzO, cx, uy, nz, oE] := W9[oy, FyE, FyU, FyO, oz, FzN, FzE, FzO, β] * B[cx, oy, uy, oz, nz, oE, FyE, FzE]
+    return _octant_xbwd(Y1, e, a, o)
 end
 
 # Top nkeep eigenvectors of ρ_F = Q·Qᵀ by block subspace iteration with Rayleigh-Ritz.
@@ -165,6 +202,7 @@ function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
     F = size(e, 1) * size(e, 3)^2 * size(o, 1)
     b = min(F, nkeep + env.oversample)
     T = eltype(e)
+    M = @timeit to "octant: M = B·Bᵀ" _octant_M(B)
     if b == F
         V = Matrix{T}(I, F, F)                         # small F: the full space, one product gives ρ_F exactly
     else
@@ -175,10 +213,9 @@ function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
         end
         V = Matrix(qr(V).Q)
     end
-    local λ, S, W
+    local λ, S
     for it in 1:env.subspace_maxiter
-        W = @timeit to "octant: Qᵀ·V" _octant_QtV(V, B, e, a, o)
-        Y = @timeit to "octant: Q·W" _octant_QW(W, B, e, a, o)
+        Y = @timeit to "octant: ρ_F·V" _octant_rhoV(V, M, e, a, o)
         H = Symmetric(V' * Y)
         ev = eigen(H)
         order = sortperm(ev.values; rev = true)
@@ -191,7 +228,8 @@ function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
         V = Matrix(qr(Y * S).Q)                        # one power step (Y·S spans ρ_F·V)
     end
     U = V * S[:, 1:nkeep]
-    return U, λ[1:nkeep], W * S[:, 1:nkeep]
+    WU = @timeit to "octant: Qᵀ·P_c (for C')" _octant_QtV(U, B, e, a, o)
+    return U, λ[1:nkeep], WU
 end
 
 # P_f from the truncated ρ_F ≈ U·Λ·Uᵀ: reduced matrix of the (face, O) part of F, averaged over the two faces in F; top nkeep eigenvectors

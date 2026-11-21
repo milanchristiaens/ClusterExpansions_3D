@@ -64,7 +64,8 @@ const PROFILE = Symbol(get(ENV, "CE_BENCH_PROFILE", "laptop"))
 const PROFILES = Dict(
     :laptop   => (; machine = "laptop",   ram_min = 0, ram_max = 3, dims = [(11, 5, 3)],                         allocators = ["reuse", "manual"], max_hours = 10,
                   sources = nothing, run_dir = ""),
-    :hpc      => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(16, 5, 3), (16, 6, 3), (18, 6, 3)], allocators = ["reuse"],           max_hours = 16,
+    :hpc      => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(8, 4, 3), (10, 5, 3), (12, 4, 3), (12, 5, 3), (16, 4, 3), (16, 5, 3), (16, 6, 3), (18, 6, 3)],
+                  allocators = ["reuse"], max_hours = 16,
                   sources = nothing, run_dir = ""),
     :validate => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(8, 4, 3), (11, 5, 3), (18, 6, 3)],  allocators = ["reuse", "manual"], max_hours = 13,
                   sources = ["current", "ome-sc"], run_dir = ""),
@@ -556,6 +557,14 @@ function main()
                 addrow(norow(res.msg))
                 # failed or skipped by the child: the note says why
                 planfile_update(key, (note = res.msg,), envkind)
+                continue
+            end
+            # a complete line without any timing (seen on Hortense, 20 Nov: it stopped the whole run at minimum(res.times)): we keep it as a failed row
+            if isempty(res.times)
+                msg = "failed: the child returned no timings"
+                addrow(norow(msg))
+                planfile_update(key, (note = msg,), envkind)
+                println(stderr, "    ", msg)
                 continue
             end
 

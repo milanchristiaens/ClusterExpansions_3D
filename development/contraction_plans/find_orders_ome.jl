@@ -29,11 +29,11 @@ const CE = ClusterExpansions
 const DEFAULT_DIMS = [
     # D = 3: chi_peps = 4 and 5 (1.5*3 = 4.5), chi_env = 2, 3, 4 times chi_peps
     (8, 4, 3),      # 0.5%    the low set of the validation of the benchmark (profile :validate of benchmark_contract_onesite.jl)
-#    (12, 4, 3),     # 3.7%
-#    (16, 4, 3),     # 27.3%
-#    (10, 5, 3),     # 7.9%
+    (12, 4, 3),     # 3.7%    (12,4,3), (16,4,3), (10,5,3), (12,5,3): the plan benchmark on Hortense (development/hpc/job_plans.pbs)
+    (16, 4, 3),     # 27.3%
+    (10, 5, 3),     # 7.9%
     (11, 5, 3),     # 13.8%   laptop (CTMRG3D compare, profile :laptop)
-#    (12, 5, 3),     # 23.1%
+    (12, 5, 3),     # 23.1%
     # Hortense: the candidates of the CTMRG3D dimension pilot (development/hpc/job_ctmrg_compare.pbs)
     (16, 5, 3),
     (16, 6, 3),
@@ -45,6 +45,8 @@ const DEFAULT_DIMS = [
 #    (7, 5, 5)       # 4.5%
     # Higher dimensions are for now too costly
 ]
+# only some of the sets: CE_ORDERS_DIMS = "10_5_3,12_4_3" (chienv_chipeps_D, comma separated); otherwise all of DEFAULT_DIMS
+const DIMS = haskey(ENV, "CE_ORDERS_DIMS") ? [Tuple(parse.(Int, split(x, "_"))) for x in split(ENV["CE_ORDERS_DIMS"], ",")] : DEFAULT_DIMS
 const RAM_GIBS  = [3, 7, 29]                    # RAM budgets in GiB for which a plan is made (3 = laptop and Hortense on 4 cores (the CTMRG3D compare); Hortense: 7 = 6 cores, 29 = 16 cores)
 const KMAX      = 5                             # TREE_CURRENT and OPT_TRUE: at most this many cut bonds (brute force over all cut sets, at most 5 is possible; 4 takes ~4 s per tree at 54 bonds)
 const ELTYPE    = Float64                       # element type of the tensors (Float64: 8 bytes, ComplexF64: 16 bytes); the CE Ising PEPOs are Float64
@@ -61,8 +63,8 @@ const PLAN_FILE = CE.ONESITE_PLAN_FILE          # plan file that rows are append
 
 function main()
     nplans, nnew = 0, 0
-    for (i, (χenv, χpeps, D)) in enumerate(DEFAULT_DIMS)
-        println("\n===== combination $i of $(length(DEFAULT_DIMS)): (chi_env, chi_peps, D) = ($χenv, $χpeps, $D) =====")
+    for (i, (χenv, χpeps, D)) in enumerate(DIMS)
+        println("\n===== combination $i of $(length(DIMS)): (chi_env, chi_peps, D) = ($χenv, $χpeps, $D) =====")
         rows = CE.onesite_find_plans(χenv, χpeps, D;
             ram_gibs = RAM_GIBS,
             T = ELTYPE,
@@ -85,7 +87,7 @@ function main()
         flush(stdout)
     end
 
-    println("\n$nplans plans found for $(length(DEFAULT_DIMS)) combinations, $nnew of them were new and appended to $PLAN_FILE")
+    println("\n$nplans plans found for $(length(DIMS)) combinations, $nnew of them were new and appended to $PLAN_FILE")
     println("Next: time all plans that have no time yet (the times are written back into the plan file):")
     println("  julia +1.12 -O1 -t 8 --project=. development/contraction_plans/benchmark_contract_onesite.jl")
     println("  (if you changed PLAN_FILE here, change it in benchmark_contract_onesite.jl too)")
