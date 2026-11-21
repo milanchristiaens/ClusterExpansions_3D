@@ -39,7 +39,9 @@
 # Machine and run: PROFILE (see the settings) chooses the bond dimensions, β_obs, the cases, the time limits, the RAM budget, the machine of the plan times
 # and the BLAS threads: :laptop (default), :pilot or :hpc (Hortense, 4 cores and about 7 GiB). The Hortense job scripts in development/hpc/ set it with the
 # environment variable CE_COMPARE_PROFILE, and can choose the dimensions (CE_COMPARE_DIMS), the cases (CE_COMPARE_CASES) and the run (CE_COMPARE_RUN) of one job
-# (see compare_dims in ../tools/compare_tools.jl): the cases of a full run are parallel jobs that write into the same run.
+# (see compare_dims in ../tools/compare_tools.jl): the cases of a full run are parallel jobs that write into the same run. One job can also change
+# β_obs, the iteration cap, the time budget and the verbosity of the profile (CE_COMPARE_BETAS, CE_COMPARE_MAXITER, CE_COMPARE_BUDGET_S,
+# CE_COMPARE_VERBOSITY; see the settings).
 # CTMRG3D gets its parallelism from BLAS, so it uses as many BLAS threads as cores.
 # Note on m: at g = 0 the exact <σᶻ> is 0 below βc (Z2 symmetry) and has an arbitrary sign above βc, so we plot |m|.
 
@@ -110,6 +112,14 @@ const PROFILES = Dict(
 )
 haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot, pilot_octant or hpc")
 const P = PROFILES[PROFILE]
+# Optional changes of the profile for one job (Hortense: qsub -v CE_COMPARE_...=...; added 21 Nov for the octant pilots at β = 0.21). Without them
+# the profile holds.
+#   CE_COMPARE_BETAS      the β of the observations, separated by _ (qsub -v splits at commas), for example 0.21 or 0.21_0.23
+#   CE_COMPARE_MAXITER    the iteration cap of every case
+#   CE_COMPARE_BUDGET_S   seconds for the case, and also the most one observation may use
+#   CE_COMPARE_VERBOSITY  verbosity of CTMRG3D / CTMRG3DOctant: 1 = ϵ of every iteration in the log (0 = nothing, the default)
+env_override(name, parse_one, default) = haskey(ENV, name) ? parse_one(ENV[name]) : default
+const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY") if haskey(ENV, n)]
 BLAS.set_num_threads(P.blas_threads)
 Threads.nthreads() == P.julia_threads || @warn "Profile :$PROFILE expects julia -t $(P.julia_threads), but Threads.nthreads() = $(Threads.nthreads())"
 
@@ -120,11 +130,12 @@ const g = 0.0
 const chienv, chipeps, D_CE = compare_dims(P.dims)   # D_CE must be the D_CE of the vbPEPS run that we compare with (the same PEPO)
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter): from the profile
-const β_obs = P.β_obs
+const β_obs = env_override("CE_COMPARE_BETAS", s -> sort(parse.(Float64, split(s, r"[_,; ]+"; keepempty = false))), P.β_obs)
 
 # Settings of CTMRG3D (the same for all cases, except projectors and the start, which are the 4 cases)
 const ctm_miniter = 3
-const ctm_maxiter = P.maxiter     # from the profile (80, the octant pilot 300)
+const ctm_maxiter = env_override("CE_COMPARE_MAXITER", s -> parse(Int, s), P.maxiter)   # from the profile (80, the octant pilot 300)
+const ctm_verbosity = env_override("CE_COMPARE_VERBOSITY", s -> parse(Int, s), 0)
 const ctm_tol = 1e-7
 const RAM_GIB = P.ram_gib         # nothing = contract_onesite (unsliced); a number = contract_onesite_auto with this RAM budget in GiB (uses the plan file)
 const MACHINE = P.machine         # contract_onesite_auto only uses the plan times measured on this machine
@@ -134,8 +145,8 @@ const WARM_WINDOW = 0.02
 const INIT_SEED = 1               # seed of the random numbers of the cold start
 
 # Time limits (seconds), the same rule as in ising_model_3D_CE_vbPEPS_compare.jl; for a comparison at the same core budget (cores × RUN_BUDGET_S) is the same in both
-const RUN_BUDGET_S = P.run_budget_s           # per case (laptop 1 h on 4 cores; Hortense 64 core hours / HPC_CORES = the core budget of vbPEPS; Inf = no budget)
-const MAX_SECONDS_OBS = P.max_seconds_obs     # per observation, twice the fair share over 6 β (lowered further when the case budget is running out; Inf = no limit)
+const RUN_BUDGET_S = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.run_budget_s)           # per case (laptop 1 h on 4 cores; Hortense 64 core hours / HPC_CORES = the core budget of vbPEPS; Inf = no budget)
+const MAX_SECONDS_OBS = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.max_seconds_obs)     # per observation, twice the fair share over 6 β (lowered further when the case budget is running out; Inf = no limit)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
 
 # (name, projectors, warm start, west_updates); the profile (or CE_COMPARE_CASES) chooses which of them we run
@@ -201,7 +212,7 @@ contract_s(t) = sum(section_s(t, SEC_OBS, s) for s in SEC_CONTRACT)
 
 # (the pilot slices the current tree itself: plans = nothing)
 # projectors of a case: :svd, :oblique, :svdclass, :obliqueclass (class_projectors = true) or :octant (ctm_alg = CTMRG3DOctant)
-ctm_kwargs(projectors, west_updates) = (; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol, verbosity = 0, west_updates,
+ctm_kwargs(projectors, west_updates) = (; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol, verbosity = ctm_verbosity, west_updates,
                            projectors = projectors in (:oblique, :obliqueclass) ? :oblique : :svd, class_projectors = projectors in (:svdclass, :obliqueclass),
                            ctm_alg = projectors === :octant ? CTMRG3DOctant : CTMRG3D,
                            ram_gib = RAM_GIB, init = INIT, init_seed = INIT_SEED, onesite_kwargs = P.plan_file ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing))
@@ -415,12 +426,14 @@ function main()
     open(joinpath(outdir, "settings.txt"), "a") do io
         println(io, "PROFILE = $PROFILE, Julia $(VERSION), threads = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()), host = $(gethostname())")
         println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, β_obs = $β_obs")
-        println(io, "ctm_miniter = $ctm_miniter, ctm_maxiter = $ctm_maxiter, ctm_tol = $ctm_tol, BETA_C = $BETA_C, WARM_WINDOW = $WARM_WINDOW, RAM_GIB = $RAM_GIB, MACHINE = $MACHINE, INIT = $INIT, INIT_SEED = $INIT_SEED")
+        isempty(OVERRIDES) || println(io, "changed for this job: ", join(["$n = $(ENV[n])" for n in OVERRIDES], ", "))
+        println(io, "ctm_miniter = $ctm_miniter, ctm_maxiter = $ctm_maxiter, ctm_verbosity = $ctm_verbosity, ctm_tol = $ctm_tol, BETA_C = $BETA_C, WARM_WINDOW = $WARM_WINDOW, RAM_GIB = $RAM_GIB, MACHINE = $MACHINE, INIT = $INIT, INIT_SEED = $INIT_SEED")
         println(io, "RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, MIN_SECONDS_OBS = $MIN_SECONDS_OBS")
         println(io, "cases = $CASES")
     end
     @info "Output directory: $outdir, results file: $resultspath (run = $run)"  
     @info "PROFILE = $PROFILE, Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads())"
+    isempty(OVERRIDES) || @info "Changed for this job: β_obs = $β_obs, ctm_maxiter = $ctm_maxiter, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, ctm_verbosity = $ctm_verbosity"
 
     pepsspace = ℂ^chipeps
     envspace = ℂ^chienv
