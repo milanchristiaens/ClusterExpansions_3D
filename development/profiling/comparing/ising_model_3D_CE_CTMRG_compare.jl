@@ -118,8 +118,12 @@ const P = PROFILES[PROFILE]
 #   CE_COMPARE_MAXITER    the iteration cap of every case
 #   CE_COMPARE_BUDGET_S   seconds for the case, and also the most one observation may use
 #   CE_COMPARE_VERBOSITY  verbosity of CTMRG3D / CTMRG3DOctant: 1 = ϵ of every iteration in the log (0 = nothing, the default)
+#   CE_COMPARE_PEPO       ce (default: the CE PEPOs of the PEPO file) or exact (exact_ising_pepo of ../tools/pepo_files.jl, bond dimension 2, so D_CE
+#                         of the dims must be 2; the setting column of the results file then ends in _exactpepo)
 env_override(name, parse_one, default) = haskey(ENV, name) ? parse_one(ENV[name]) : default
-const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY") if haskey(ENV, n)]
+const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY", "CE_COMPARE_PEPO") if haskey(ENV, n)]
+const PEPO_KIND = env_override("CE_COMPARE_PEPO", s -> Symbol(lowercase(s)), :ce)
+PEPO_KIND in (:ce, :exact) || error("CE_COMPARE_PEPO = $PEPO_KIND: use ce or exact")
 BLAS.set_num_threads(P.blas_threads)
 Threads.nthreads() == P.julia_threads || @warn "Profile :$PROFILE expects julia -t $(P.julia_threads), but Threads.nthreads() = $(Threads.nthreads())"
 
@@ -128,6 +132,7 @@ const spin_symmetry = Trivial
 const J = 1.0
 const g = 0.0
 const chienv, chipeps, D_CE = compare_dims(P.dims)   # D_CE must be the D_CE of the vbPEPS run that we compare with (the same PEPO)
+PEPO_KIND === :exact && D_CE != 2 && error("CE_COMPARE_PEPO = exact has bond dimension 2: choose dims with D_CE = 2 (for example CE_COMPARE_DIMS = 16_5_2), not $D_CE")
 const Δβ_iter = 0.005
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter): from the profile
 const β_obs = env_override("CE_COMPARE_BETAS", s -> sort(parse.(Float64, split(s, r"[_,; ]+"; keepempty = false))), P.β_obs)
@@ -223,7 +228,7 @@ function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace,
     ClusterExpansions.reset_max_alloc!()
     env_prev = nothing          # the converged environment of the previous β (warm start)
     # the columns of the results file that are the same for every observation of this case 
-    row_settings = (; algorithm = "CTMRG3D", run, case = name, setting = "$(projectors)_west$(west_updates)", warm, D_CE, chipeps, chienv, dβ = Δβ_iter, budget_s = RUN_BUDGET_S)
+    row_settings = (; algorithm = "CTMRG3D", run, case = name, setting = "$(projectors)_west$(west_updates)" * (PEPO_KIND === :exact ? "_exactpepo" : ""), warm, D_CE, chipeps, chienv, dβ = Δβ_iter, budget_s = RUN_BUDGET_S)
     t_case = time()
 
     for i in eachindex(Os)
@@ -360,7 +365,7 @@ function plot_iterations(rows)
 end
 
 # (the dimensions and the budget of the rows themselves: a replot can be made with another profile)
-figure_title(rows) = "CTMRG3D: χpeps = $(rows[1].chipeps), χenv = $(rows[1].chienv), D_CE = $(rows[1].D_CE), g = $g, 
+figure_title(rows) = "CTMRG3D: χpeps = $(rows[1].chipeps), χenv = $(rows[1].chienv), D_CE = $(rows[1].D_CE)$(PEPO_KIND === :exact ? " (exact PEPO)" : ""), g = $g, 
                   cold start $INIT, budget $(rows[1].budget_s) s per case (cross = not converged or timed out; dotted gray = βc)"
 
 # Figure 1: magnetization (left) and the difference of |m| of every case to the mean of the cases (right)
@@ -425,6 +430,7 @@ function main()
     # appended: the parallel jobs of one run write into the same folder
     open(joinpath(outdir, "settings.txt"), "a") do io
         println(io, "PROFILE = $PROFILE, Julia $(VERSION), threads = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()), host = $(gethostname())")
+        println(io, "PEPO = $PEPO_KIND", PEPO_KIND === :exact ? " (exact_ising_pepo, bond dimension 2; Δβ_iter is not used)" : " (CE, PEPO file)")
         println(io, "J = $J, g = $g, D_CE = $D_CE, chipeps = $chipeps, chienv = $chienv, Δβ_iter = $Δβ_iter, β_obs = $β_obs")
         isempty(OVERRIDES) || println(io, "changed for this job: ", join(["$n = $(ENV[n])" for n in OVERRIDES], ", "))
         println(io, "ctm_miniter = $ctm_miniter, ctm_maxiter = $ctm_maxiter, ctm_verbosity = $ctm_verbosity, ctm_tol = $ctm_tol, BETA_C = $BETA_C, WARM_WINDOW = $WARM_WINDOW, RAM_GIB = $RAM_GIB, MACHINE = $MACHINE, INIT = $INIT, INIT_SEED = $INIT_SEED")
@@ -433,15 +439,21 @@ function main()
     end
     @info "Output directory: $outdir, results file: $resultspath (run = $run)"  
     @info "PROFILE = $PROFILE, Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads())"
-    isempty(OVERRIDES) || @info "Changed for this job: β_obs = $β_obs, ctm_maxiter = $ctm_maxiter, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, ctm_verbosity = $ctm_verbosity"
+    isempty(OVERRIDES) || @info "Changed for this job: β_obs = $β_obs, ctm_maxiter = $ctm_maxiter, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, ctm_verbosity = $ctm_verbosity, PEPO = $PEPO_KIND"
 
     pepsspace = ℂ^chipeps
     envspace = ℂ^chienv
     obs = SpinOperators.σᶻ(T, spin_symmetry)
 
     # the PEPOs of stage 1 (ising_model_3D_CE_pepos.jl)
-    Os = load_pepos(β_obs, Δβ_iter, D_CE, J, g)
-    @info "CE PEPOs read from $(pepo_file(D_CE, Δβ_iter, J, g))"
+    if PEPO_KIND === :exact
+        g == 0 || error("CE_COMPARE_PEPO = exact is only the Ising model at g = 0")
+        Os = [exact_ising_pepo(β; J) for β in β_obs]
+        @info "EXACT PEPOs (exact_ising_pepo, bond dimension 2), not the CE PEPOs"
+    else
+        Os = load_pepos(β_obs, Δβ_iter, D_CE, J, g)
+        @info "CE PEPOs read from $(pepo_file(D_CE, Δβ_iter, J, g))"
+    end
 
     try
         warmup(Os, pepsspace, envspace, obs)

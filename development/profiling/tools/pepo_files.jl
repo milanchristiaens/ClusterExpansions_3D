@@ -49,6 +49,24 @@ function load_pepos(β_obs, Δβ, D_CE, J, g)
     return [unpack_tensor(f["pepo3d"][pepo_index(f, β)]) for β in β_obs]
 end
 
+# The EXACT 3D PEPO of the classical Ising model at g = 0 (added 21 Nov, to separate the CE error from the contraction error): all terms commute, so
+# e^{-βH} = Π_bonds e^{βJ sᵢsⱼ} exactly. We split every bond weight W[s, t] = e^{βJ s t} as W = Q·Qᵀ with Q = [√cosh(βJ) √sinh(βJ); √cosh(βJ) −√sinh(βJ)]
+# (rows s = +1, −1) and put one Q on each of the six legs of a site:
+#     O[p, p'; U, N, E, D, S, W] = δ_{p p'} Q[p, U] Q[p, N] Q[p, E] Q[p, D] Q[p, S] Q[p, W].
+# Bond dimension 2, real, cube-symmetric; no Δβ, no CE order, no truncation. The leg spaces are those of the CE PEPOs ((P ⊗ P') ← (U, N, E, D, S, W),
+# U/N/E non-dual, D/S/W dual, P non-dual, P' dual; checked against the D_CE = 2 file), so it replaces a CE PEPO of D_CE = 2 everywhere.
+function exact_ising_pepo(β; J = 1.0)
+    β * J >= 0 || error("exact_ising_pepo: only βJ ≥ 0 (ferromagnet; for βJ < 0, √sinh(βJ) is not real)")
+    c, s = sqrt(cosh(β * J)), sqrt(sinh(β * J))
+    Q = [c s; c -s]
+    a = zeros(Float64, 2, 2, 2, 2, 2, 2, 2, 2)
+    for p in 1:2, u in 1:2, n in 1:2, e in 1:2, d in 1:2, so in 1:2, w in 1:2
+        a[p, p, u, n, e, d, so, w] = Q[p, u] * Q[p, n] * Q[p, e] * Q[p, d] * Q[p, so] * Q[p, w]
+    end
+    V = ComplexSpace(2)
+    return TensorMap(a, (V ⊗ V') ← (V ⊗ V ⊗ V ⊗ V' ⊗ V' ⊗ V'))
+end
+
 # The 2D tensors of the vbPEPS at the β of β_obs, packed: [(; O, M, psi0)] with the start state of this chipeps.
 # maxiter_init must be the number of power-method steps of the file (the start state depends on it).
 function load_bpeps_tensors(β_obs, Δβ, D_CE, J, g, chipeps; maxiter_init)
