@@ -232,6 +232,7 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
             
             # Print/save result
             println("OBS $name β = $(round(β; digits = 3)): f = $(res.cost), calls = $(res.numfg), time = $(round(dt; digits = 1)) s, timed out = $(res.timed_out), m = $(res.m), ", check)
+            flush(stdout)       # the line is in the job log at once (also when the job is killed later)
 
             append_ising_row(resultspath; row_settings..., β, m = ComplexF64(res.m), f = res.cost, iters = res.numfg, timed_out = res.timed_out,
                              allowed_s = allowed, time_s = dt, check)

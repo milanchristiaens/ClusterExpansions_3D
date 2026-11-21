@@ -6,6 +6,7 @@
 #   build_pepos                     the CE PEPOs at all β of a list, built once
 #   compare_dims, compare_cases, compare_run_dir
 #                                   the parts of a profile that the Hortense job scripts choose with environment variables (CE_COMPARE_DIMS, _CASES, _RUN)
+#   FlushingLogger                  log messages flushed at once (installed on include; the Hortense job log of a killed job stays complete)
 #   warm_start_at                   the warm-start rule of the :warm cases (cold near βc)
 #   obs_seconds_allowed             the time limit of one observation, from the time budget of a case (the same rule for vbPEPS and CTMRG3D)
 #   ISING_RESULTS_PATH, ISING_CSV_HEADER, ising_results_file, append_ising_row, read_ising_results
@@ -14,6 +15,24 @@
 # The functions get their settings as arguments; they do not read the settings of the script that includes this file (only compare_* read the environment variables).
 # Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots, LinearAlgebra
 # The timing plots of the compare scripts are in timing_plots.jl.
+
+# Log lines that reach the job log at once. Julia buffers stderr and stdout when they are a file (the Hortense job log): a job that is killed
+# (time limit, out of memory) lost its whole log (ctmrg_pilot5_16_6_3, 21 Nov). This logger passes every message on to the logger we had and
+# then flushes both streams; we install it when this file is included. Lines of println are flushed by the next log message (or by flush(stdout)).
+import Logging
+struct FlushingLogger <: Logging.AbstractLogger
+    inner::Logging.AbstractLogger
+end
+Logging.min_enabled_level(l::FlushingLogger) = Logging.min_enabled_level(l.inner)
+Logging.shouldlog(l::FlushingLogger, args...) = Logging.shouldlog(l.inner, args...)
+Logging.catch_exceptions(l::FlushingLogger) = Logging.catch_exceptions(l.inner)
+function Logging.handle_message(l::FlushingLogger, args...; kwargs...)
+    Logging.handle_message(l.inner, args...; kwargs...)
+    flush(stdout)
+    flush(stderr)
+    return nothing
+end
+Logging.global_logger() isa FlushingLogger || Logging.global_logger(FlushingLogger(Logging.global_logger()))
 
 # Warm start rule of the :warm cases (both compare scripts): warm from the previous β, except for a β closer than `window` to βc (`βc = nothing`:
 # always warm). Near βc a warm start stays in the (symmetric) state of the previous β, so there we start cold.

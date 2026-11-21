@@ -74,7 +74,9 @@ include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   
 # Profile: which machine and which run (the Hortense job scripts set CE_COMPARE_PROFILE; without it we use :laptop)
 #   :laptop  Milan's laptop, julia -t 4: 1 h per case (4 core hours), plans for 3 GiB
 #   :pilot   Hortense, dimension pilot: 1 β near βc, the two cold cases, 80 min each on 4 cores; one job per candidate (CE_COMPARE_DIMS)
-#   :hpc     Hortense, the full run: all β, 16 h per case on 4 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 8 jobs in parallel
+#   :pilot_octant  Hortense, octant pilot (21 Nov): octant_cold at (16,5,3), β = 0.21 (below βc), 0.23 and 0.25 (above), 3 h, at most 300 iterations
+#            per β (the octant needs about 9 s per iteration there, so the 80 iterations of the other profiles stop it long before its time is up)
+#   :hpc     Hortense, the full run: all β, 12.8 h per case on 5 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 10 jobs in parallel
 # The pilot does not use the plan file: it slices the current tree itself (plans = nothing in onesite_kwargs), because the Hortense plans are timed
 # in the same round.
 # The same CORE budget per case as the vbPEPS compare (cores × time): on Hortense CTMRG3D runs on 4 cores and vbPEPS on 2, so CTMRG3D gets half
@@ -97,13 +99,16 @@ const HPC_CORES = parse(Int, get(ENV, "CE_COMPARE_CORES", "5"))
 const HPC_BUDGET_S = 64 * 3600.0 / HPC_CORES
 const PROFILES = Dict(
     :laptop => (; dims = (11, 5, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 3600.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
-                ram_gib = 3, machine = "laptop", julia_threads = 4, blas_threads = 4, plan_file = true),
+                ram_gib = 3, machine = "laptop", julia_threads = 4, blas_threads = 4, plan_file = true, maxiter = 80),
     :pilot  => (; dims = (16, 6, 3), β_obs = [0.21], cases = ["svd_cold_auto", "oblique_cold_auto"], run_budget_s = 4800.0, max_seconds_obs = 4800.0,
-                min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = false),
-    :hpc    => (; dims = (16, 6, 3), β_obs = β_ALL, cases = CASES_ALL, run_budget_s = HPC_BUDGET_S, max_seconds_obs = HPC_BUDGET_S / 3, min_seconds_obs = 60.0,
-                ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = true),   # dims: set to the choice of the pilot
+                min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = false, maxiter = 80),
+    :pilot_octant => (; dims = (16, 5, 3), β_obs = [0.21, 0.23, 0.25], cases = ["octant_cold"], run_budget_s = 10800.0, max_seconds_obs = 4800.0,
+                min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = false, maxiter = 300),
+    :hpc    => (; dims = (16, 6, 3), β_obs = β_ALL, cases = [CASES_ALL; "octant_cold"; "octant_warm"], run_budget_s = HPC_BUDGET_S, max_seconds_obs = HPC_BUDGET_S / 3,
+                min_seconds_obs = 60.0, ram_gib = 3, machine = "hortense", julia_threads = HPC_CORES, blas_threads = HPC_CORES, plan_file = true,
+                maxiter = 80),   # dims: set to the choice of the pilot; maxiter: to be decided after the octant pilot (80 stops the octant early)
 )
-haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot or hpc")
+haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot, pilot_octant or hpc")
 const P = PROFILES[PROFILE]
 BLAS.set_num_threads(P.blas_threads)
 Threads.nthreads() == P.julia_threads || @warn "Profile :$PROFILE expects julia -t $(P.julia_threads), but Threads.nthreads() = $(Threads.nthreads())"
@@ -119,7 +124,7 @@ const β_obs = P.β_obs
 
 # Settings of CTMRG3D (the same for all cases, except projectors and the start, which are the 4 cases)
 const ctm_miniter = 3
-const ctm_maxiter = 80
+const ctm_maxiter = P.maxiter     # from the profile (80, the octant pilot 300)
 const ctm_tol = 1e-7
 const RAM_GIB = P.ram_gib         # nothing = contract_onesite (unsliced); a number = contract_onesite_auto with this RAM budget in GiB (uses the plan file)
 const MACHINE = P.machine         # contract_onesite_auto only uses the plan times measured on this machine
@@ -231,6 +236,7 @@ function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace,
 
             println("OBS $name β = $(round(β; digits = 3)): m = $m, $(length(ϵs)) iterations, ϵ = $(ϵs[end]), CTMRG $(round(t_ctm; digits = 1)) s ",
                     "(allowed $(round(allowed; digits = 1)) s), contraction $(round(t_con; digits = 1)) s, total $(round(dt; digits = 1)) s, $check")
+            flush(stdout)       # the line is in the job log at once (also when the job is killed later)
             
             append_ising_row(resultspath; row_settings..., β, m = ComplexF64(m), iters = length(ϵs), converged = conv, eps = ϵs[end], timed_out,
                              allowed_s = allowed, time_s = dt, t_ctmrg = t_ctm, t_contract = t_con, check)

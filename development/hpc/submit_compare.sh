@@ -7,7 +7,7 @@
 #                   vbPEPS with betterpepskit on VBPEPS_CORES cores
 #   PROFILE=timing: vbPEPS only, fast against slow at the dims of the full run (HPC_DIMS in the vbPEPS compare script, set them to the choice of the
 #                   pilot before): one job per implementation (pepskit, betterpepskit), both on VBPEPS_TIMING_CORES cores (pepskit needs them for its memory)
-#   PROFILE=hpc:    full run, one job per case (8 CTMRG3D, 2 vbPEPS), all in parallel and in one run folder <date>_<time> (vbPEPS: <date>_<time>_<impl>);
+#   PROFILE=hpc:    full run, one job per case (10 CTMRG3D, 2 vbPEPS), all in parallel and in one run folder <date>_<time> (vbPEPS: <date>_<time>_<impl>);
 #                   the dimensions are the dims of the hpc profile in the compare scripts (set them to the choice of the pilot before)
 # All settings are below; nothing is given on the command line.
 set -euo pipefail
@@ -15,12 +15,12 @@ set -euo pipefail
 # ---------------- settings ----------------
 PROFILE=hpc                                     # pilot, timing or hpc (round 2: hpc)
 ALGORITHMS="ctmrg vbpeps"                       # which compare scripts get jobs: ctmrg and/or vbpeps (timing: only vbpeps)
-CTMRG_DIMS="16_6_3 18_6_3"                      # pilot candidates (chienv_chipeps_DCE) of CTMRG3D (16_5_3 was done on 4 cores in round 1)
+CTMRG_DIMS="16_6_3"                             # pilot candidates (chienv_chipeps_DCE) of CTMRG3D (16_5_3 fits on 5 cores; 18_6_3 dropped: out of memory on 5, 21 Nov)
 CTMRG_CORES=5                                   # cores of every CTMRG3D job (4 were too few for (16,6,3), 21 Nov); 64 core hours per case = 12.8 h on 5
 VBPEPS_DIMS="27_3_3 32_3_3 36_3_3"              # pilot candidates of vbPEPS
-CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1"
+CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1 octant_cold octant_warm"
 # other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_cold_auto svdclass_warm_auto obliqueclass_cold_auto obliqueclass_warm_auto
-#   svdclass_cold_w1 svdclass_warm_w1 obliqueclass_cold_w1 obliqueclass_warm_w1 (class_projectors = true) octant_cold octant_warm (CTMRG3DOctant)
+#   svdclass_cold_w1 svdclass_warm_w1 obliqueclass_cold_w1 obliqueclass_warm_w1 (class_projectors = true); octant_cold octant_warm (CTMRG3DOctant) are in the run
 VBPEPS_CASES="false_cold false_warm"
 VBPEPS_IMPLS_TIMING="pepskit betterpepskit"     # timing: pepskit = PEPSKit 0.8.1 (slow reference), betterpepskit = fast
 VBPEPS_IMPL_RUN="betterpepskit"                 # implementation of vbPEPS in the pilot and the full run
