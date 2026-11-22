@@ -3,7 +3,7 @@
 #
 #     dE/dψ = ∂E/∂ψ + (∂E/∂env)(∂env/∂ψ)
 #
-# At the optimum of a converged environment both should give the same state (the second term is small there), so the compare runs use false only.
+# Theoretically for C4V and Oh symmetry, both should give the same result, while differentiate_environment = false should cost way less resources, so the compare runs use false only.
 # For every set in DIMS and every β in BETAS: one cold observation for each value of differentiate_environment, from the same start state (the PEPO file)
 # and seed, with the settings of the vbPEPS compare (FAST_KWARGS there: dense decompositions, C4v CTMRG). Per run we store the cost f, m = <σᶻ>,
 # the number of cost-function calls, timed out or not, and the time; the summary prints |Δf| and |Δm| between false and true.

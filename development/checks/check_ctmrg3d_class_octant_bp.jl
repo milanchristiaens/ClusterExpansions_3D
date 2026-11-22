@@ -17,6 +17,7 @@ const RAM_GIB = 5                   # RAM budget (GiB) of the sliced contraction
 const BP_BETAS = [0.10, 0.19, 0.21, 0.23, 0.25, 0.35]
 # ------------------------------------------
 
+# Build the O and M tensors
 function OM(PEPO, σ)
     @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
     O = flip(permute(O, ((), (1, 2, 3, 4, 5, 6))), [4 5 6])
@@ -33,14 +34,24 @@ if :class in PARTS
         V = ℂ^2
         PEPO = randn(T, V ⊗ V' ← V ⊗ V ⊗ V ⊗ V' ⊗ V' ⊗ V')
         O, M = OM(PEPO, TensorMap(T[1 0; 0 -1], V ← V))
+        # Helper: Calculate the expectation value given env
         mval(env) = CE.contract_onesite(env, M) / CE.contract_onesite(env, O)
+        # For all 4 variants
         for (lab, proj, Pexp, class) in (("svd P=0", :svd, 0.0, false), ("oblique", :oblique, 0.5, false), ("svd P=0, class", :svd, 0.0, true), ("oblique, class", :oblique, 0.5, true))
+            # Build initial environment, seed 1
             env = CE.CTMRG3D(O; trunc_env = TR, trunc_bpeps = TR, Vbp = ℂ^2, Vv = ℂ^2, init = :random, init_seed = 1, projectors = proj,
                              projector_exponent = Pexp, class_projectors = class)
+            # obs            
             ms = [mval(env)]
+            
+            # Perform partial update + obs
             CE.partial_ctmrgstep(env); push!(ms, mval(env))
+            # Perform extra partial update on S + obs
             CE.rot_ud_90(env); CE.partial_ctmrgstep(env); foreach(_ -> CE.rot_ud_90(env), 1:3); push!(ms, mval(env))
+            # Perform extra partial update on D + obs
             CE.rot_ns_90(env); CE.partial_ctmrgstep(env); foreach(_ -> CE.rot_ns_90(env), 1:3); push!(ms, mval(env))
+            
+            # Print the 4 obs
             println(@sprintf("  %-10s %-15s %s", T, lab, join(map(x -> @sprintf("%.10f%+.10fi", real(x), imag(x)), ms), "  ")))
         end
     end
@@ -53,6 +64,7 @@ if :octant in PARTS
     function ohgroup()
         gens = [(2,1,3,5,4,6), (3,2,1,6,5,4), (1,3,2,4,6,5), (4,5,6,1,2,3), (4,2,3,1,5,6)]
         G = Set([Tuple(1:6)]); frontier = collect(G)
+        # Compose k[i] = g[h[i]] untill nothing news appears
         while !isempty(frontier)
             new = []
             for g in frontier, h in gens
@@ -63,16 +75,23 @@ if :octant in PARTS
         end
         return collect(G)
     end
+
+    # Construct random o by averaging over all Oh group elements
     G = ohgroup(); D = 2
     Random.seed!(3)
     o = randn(D, D, D, D, D, D); o = sum(permutedims(o, g) for g in G) / length(G)
+    # Construct random observable m
     S1 = randn(D, D); S2 = randn(D, D)
     @tensor m[u, n, e, d, s, w] := S1[u, u2] * S2[e, e2] * o[u2, n, e2, d, s, w]     # some observable (not proportional to O)
     spaceO = space(CE.CTMRG3D(TensorMap(o, one(ℂ^1) ← ℂ^D ⊗ ℂ^D ⊗ ℂ^D ⊗ ℂ^D ⊗ ℂ^D ⊗ ℂ^D); Vv = ℂ^1, Vbp = ℂ^1).O)
     Ot, Mt = TensorMap(o, spaceO), TensorMap(m, spaceO)
+    # Helper function for obs
     mval27(env27) = CE.contract_onesite_auto(env27, Mt; ram_gib = RAM_GIB) / CE.contract_onesite_auto(env27, Ot; ram_gib = RAM_GIB)
+    # Define random initial :nishino_okunishi octant env
     oct = CTMRG3DOctant(Ot; Vv = ℂ^16, Vbp = ℂ^4, init = :random, init_seed = 5)
+    # Copy single CEA into 8 C's 12 E's and 6 A's 
     start27 = CE.expand_to_ctmrg3d(oct)
+
     function symmetry_errors(env)
         c, e, a = env.c, env.e, env.a
         sym = (norm(permutedims(c, (2,3,1)) - c) / norm(c), norm(permutedims(e, (2,1,4,3)) - e) / norm(e), norm(permutedims(a, (1,3,4,5,2)) - a) / norm(a))
@@ -86,6 +105,8 @@ if :octant in PARTS
     CE.ctmrgstep(oct)      # one octant step: F = 2·2·2·2 = 16 = χenv, p·D = 4 = χpeps, so nothing is truncated
     sym, rot = symmetry_errors(oct)
     println("  (1) after one step: symmetry errors of c (C3), e (C2), a (C4): ", sym, "; 27-tensor copy under rot_ud_90, rot_ns_90, rot_we_90: ", rot, " (expected ≈ 1e-16)")
+    
+    # Now compare octant obs with reference svd (P=0) obs, both after one exact step
     m1 = mval27(CE.expand_to_ctmrg3d(oct))
     env = CE.CTMRG3D(Ot; trunc_env = notrunc(), trunc_bpeps = notrunc(), Vv = ℂ^2, Vbp = ℂ^2, projectors = :svd, projector_exponent = 0.0,
                      class_projectors = true, west_updates = 1, env0 = start27)
@@ -98,6 +119,7 @@ end
 if :bp in PARTS
     println("===== :bp =====")
     σz = TensorMap([1.0 0.0; 0.0 -1.0], ℂ^2 ← ℂ^2)
+    # Define the exact Ising network, and get exact O and M
     function exact_OM(β, spaceO)
         W = [exp(β) exp(-β); exp(-β) exp(β)]
         F = eigen(Symmetric(W)); Q = F.vectors * Diagonal(sqrt.(F.values)) * F.vectors'
@@ -109,9 +131,11 @@ if :bp in PARTS
         return TensorMap(o, spaceO), TensorMap(m, spaceO)
     end
     for β in BP_BETAS
+        # Load the CE PEPOS for D=2 and D=3
         P2 = only(load_pepos([β], 0.005, 2, 1.0, 0.0)); P3 = only(load_pepos([β], 0.005, 3, 1.0, 0.0))
         Oce, _ = OM(P2, σz)
         Oex, Mex = exact_OM(β, space(Oce))
+        # Calculate the exact BP fixed point and obs
         μ, ϵ = bp_fixed_point(Oex)
         mex = bp_expectation_value(Oex, Mex, μ)
         println(@sprintf("  β %.2f  Bethe (analytic) %.6f | BP exact network %.6f (%d it) | BP CE PEPO D_CE 2: %.6f, D_CE 3: %.6f", β, bethe_ising_magnetization(β),
