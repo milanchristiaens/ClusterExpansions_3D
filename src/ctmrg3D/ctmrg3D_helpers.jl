@@ -455,10 +455,17 @@ end
 # get a plain U in renormalize_edges) must carry U and conj(U), so that the glued bond is U * U' = 1 on the support; for real tensors
 # conj does nothing. The tensor that is applied with conj(U) in renormalize_* then sees conj(Y2) * conj(conj(U)) = conj(Y2 * conj(U)),
 # so we decompose [Y1 conj(Y2)].
+# Lean version (22 Nov): the stacked matrix [Y1 conj(Y2)] is never built. Its left singular vectors and singular values are those of
+# the small Gram matrix G = Y1 Y1' + conj(Y2) conj(Y2)' (Π ← Π): G = U S² U'. We take U, S² from an SVD of G (G is positive semidefinite,
+# so its SVD is its eigendecomposition), then an SVD of the square R = U·S (singular values S, left vectors U) applies trunc to S itself.
+# Memory: the two Gram products instead of two fused copies, their concatenation and the SVD of a matrix twice as wide (the old version ran
+# out of memory on 4 Hortense cores at (16,6,2)). Price: S comes from S², so singular values below about 1e-8·S_max lose relative precision.
 function _svd_joint(Y1, Y2, trunc, P)
     Π = codomain(Y1)
-    Ms = [(Y = _codomain_to(Y, Π); Y * isomorphism(scalartype(Y), domain(Y) ← fuse(domain(Y)))) for Y in (Y1, _conj_entries(Y2))]
-    U, S, _ = svd_trunc(reduce(catdomain, Ms); trunc)
+    Y2c = _codomain_to(_conj_entries(Y2), Π)
+    G = Y1 * Y1' + Y2c * Y2c'
+    U0, Λ, _ = svd_compact(G)
+    U, S, _ = svd_trunc(U0 * sqrt(Λ); trunc)
     U = P == 0 ? U : (P == 0.5 ? U * sqrt(S) : U * PEPSKit.sdiag_pow(S, P))
     return _codomain_to(U, codomain(Y1)), _codomain_to(_conj_entries(U), codomain(Y2))
 end
