@@ -5,7 +5,7 @@
 #
 # Theoretically for C4V and Oh symmetry, both should give the same result, while differentiate_environment = false should cost way less resources, so the compare runs use false only.
 # For every set in DIMS and every β in BETAS: one cold observation for each value of differentiate_environment, from the same start state (the PEPO file)
-# and seed, with the settings of the vbPEPS compare (FAST_KWARGS there: dense decompositions, C4v CTMRG). Per run we store the cost f, m = <σᶻ>,
+# and seed, with the settings of the vbPEPS compare (FAST_KWARGS there: block-Krylov decompositions (sparse = true, since 20 Nov), C4v CTMRG). Per run we store the cost f, m = <σᶻ>,
 # the number of cost-function calls, timed out or not, and the time; the summary prints |Δf| and |Δm| between false and true.
 # Error source: contraction/optimization (3) only.
 #
@@ -42,7 +42,7 @@ const Δβ_iter = 0.005
 const MAXITER_INIT = 20                  # power-method steps of the start states in the PEPO file
 
 # The settings of the vbPEPS compare (FAST_KWARGS and base_kwargs there)
-const FAST_KWARGS = (; boundary_c4v = true, symmetric = true, sparse = false, truncation_window = 4, truncation_rtol = 1.0e-3, gradient_maxiter = 20,
+const FAST_KWARGS = (; boundary_c4v = true, symmetric = true, sparse = true, truncation_window = 4, truncation_rtol = 1.0e-3, gradient_maxiter = 20,
                      gradient_krylovdim = 30, boundary_tol = 1.0e-10, boundary_maxiter = 1500, boundary_verbosity = 1, gradient_tol = 1.0e-6,
                      optimizer_memory = 64, optimizer_tol = 1.0e-5, optimizer_maxiter = 100, optimizer_verbosity = 1)
 

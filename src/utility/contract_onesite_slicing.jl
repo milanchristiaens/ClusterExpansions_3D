@@ -218,7 +218,8 @@ end
 # This computes the same number as contract_onesite(env, M), but using slices, number of slices chosen automatically from RAM budget
 function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30, allocator::Symbol = :reuse, cuts = nothing,
                                tree = TREE_CURRENT, plans = ONESITE_PLAN_FILE, select::Symbol = :measured, kmax::Int = 5,
-                               margin::Real = 0.8, rules = ONESITE_RAM_RULES, force::Bool = false, verbosity::Int = 0, machine = nothing)
+                               margin::Real = 0.8, rules = ONESITE_RAM_RULES, force::Bool = false, verbosity::Int = 0, machine = nothing,
+                               gc_every::Int = 1)
 
     # ram_gib: memory this PROCESS may use. Default=Sys.total_memory(), pass it explicitely if needed (e.g. = 64)
     # allocator: :reuse or :manual (:reuse = `ReuseAllocator`: 13-19 % faster than `:manual` in Windows runs)
@@ -230,6 +231,7 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
     # kmax: largest number of cuts to try (<= 5).  `margin`: fraction of `ram_gib` the prediction may fill.
     # force: run even if nothing is predicted to fit (will probably swap or be killed).
     # machine: nothing (times of every machine) or the machine whose measured times count ("laptop", "hortense"; column machine of the plan file)
+    # gc_every: garbage collection after every gc_every slices (see contract_onesite_sliced; 1 = after every slice, 0 = never)
     # The element type T of env and M decides which plans of the file are used (column eltype) and the memory per element (see onesite_eltype).
 
     # Check if allowed allocator
@@ -264,7 +266,7 @@ function contract_onesite_auto(env, M; ram_gib::Real = Sys.total_memory() / 2^30
 
     # Perform the sliced contraction
     try
-        return contract_onesite_sliced(env, M, onesite_full_cuts(env, M, plan.cuts); kernel, allocator = alloc, verbosity)
+        return contract_onesite_sliced(env, M, onesite_full_cuts(env, M, plan.cuts); kernel, allocator = alloc, verbosity, gc_every)
     finally
         # Release memory if not ReuseAllocator
         allocator === :reuse && release!(alloc)
@@ -1417,12 +1419,18 @@ onesite_nslices(env, M, cuts) = prod((npieces(BondCut(env, M, lab, n)) for (lab,
 # IMPORTANT: this function computes the same scalar as contract_onesite(env, M), as a serial sum over slices.
 function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}};
                                  kernel = contract_onesite_kernel, allocator = ManualAllocator(), max_slices::Int = typemax(Int),
-                                 verbosity::Int = 0)
+                                 verbosity::Int = 0, gc_every::Int = 1)
     # cuts = vector of (label => n) pairs
     # kernel = contraction order
     # allocator = chosen allocator
     # max_slices = makes result a partial sum
     # verbosity = if > 2: logs the value of every slice and the accumulated sum
+    # gc_every = run the garbage collector after every gc_every slices (0 = never). Every slice makes sliced copies of the tensors and temporary
+    #            arrays that are garbage afterwards. When Julia believes it has a lot of memory (on Hortense it sees the whole node, 251 GiB, not
+    #            the memory of the job), it collects that garbage too late: the measured peak memory grew with the number of slices (plan benchmark
+    #            of 21 Nov on Hortense: 3.0 GiB for 144 slices, 11.2 GiB for 720, 14.0 GiB for 10800 slices of (12,5,3), all plans of about 0.1-0.3 GiB)
+    #            and the jobs of 21-22 Nov were killed at 9-11 GiB. We collect the young objects after every gc_every slices (cheap) and do a full
+#            collection after every 10 gc_every slices.
     
     # Create the kernel once, for the whole call
     kern = _os_resolve_kernel(kernel)
@@ -1475,6 +1483,12 @@ function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}
         zslice = kern(C, E, A, Mj; allocator)
         dt = (time_ns() - t0) / 1e9
         acc += zslice
+
+        # Free the garbage of this slice now (see gc_every above); C, E, A, Mj of this slice are no longer needed
+        C = E = A = Mj = nothing
+        # (a quick collection of the young objects every gc_every slices, a full one every 10 gc_every slices: a full collection after every slice
+        #  cost 0.7 s per slice in the sandbox, 18 % of the contraction at (12,5,2))
+        gc_every > 0 && n % gc_every == 0 && GC.gc(n % (10 * gc_every) == 0)
 
         # Per-slice progress: value of this slice and the accumulated sum so far
         verbosity > 2 && @info "contract_onesite_sliced: slice $n/$nslices, pieces $(js), value = $zslice, accumulated = $acc, $(round(dt; digits = 2)) s"
