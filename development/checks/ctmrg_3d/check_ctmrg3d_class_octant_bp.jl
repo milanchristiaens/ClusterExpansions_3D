@@ -5,11 +5,11 @@
 #            3×3×3 start, one octant step without truncation and one full ctmrgstep of CTMRG3D without truncation (class :svd P = 0, west_updates = 1,
 #            six exact one-sided updates) describe the same 5×5×5 cube: equal m (sandbox: 0.266665790505 both). Contractions sliced to RAM_GIB.
 #   :bp      bp_fixed_point on the exact Ising network against the analytic bethe_ising_magnetization (6 digits), and on the CE PEPO of the PEPO file.
-# Run from the clone (PowerShell): julia +1.12 -t 4 --project=. development/checks/check_ctmrg3d_class_octant_bp.jl
+# Run from the clone (PowerShell): julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_class_octant_bp.jl
 # Time in the sandbox (2 cores): :class about 8 min, :octant about 7 min, :bp about 1 min (D_CE 2 and 3 PEPO files needed for :bp).
 using ClusterExpansions, TensorKit, MatrixAlgebraKit, MPSKit, LinearAlgebra, Random, Printf, JLD2
 const CE = ClusterExpansions
-include(joinpath(@__DIR__, "..", "profiling", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 
 # ---------------- settings ----------------
 const PARTS = Symbol.(split(get(ENV, "CE_CHECK_PARTS", "class,octant,bp"), ","))

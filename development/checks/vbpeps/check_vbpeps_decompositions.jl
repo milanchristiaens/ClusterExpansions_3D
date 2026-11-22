@@ -11,17 +11,17 @@
 #   The contractions of a step are the same for both methods, so the difference is the decomposition. n = χenv · bond is the size of the enlarged
 #   corner that is decomposed (dense: cost ∝ n³; block-Krylov: only the χenv largest values, warm-started from the previous step).
 #
-# Every set is appended to results.csv of a new run folder data/profiling/comparing/ising_model_3D_CE_vbPEPS_decompositions/<date>_<time>/
+# Every set is appended to results.csv of a new run folder data/checks/check_vbpeps_decompositions/<date>_<time>/
 # immediately, so a crash halfway keeps the earlier sets; the run folder also gets settings.txt and (made afterwards with REPLOT_DIR, see below) the plot
 # decompositions_times.png: time per CTMRG step against the sets (sorted by n), left ⟨ψ|ψ⟩, right ⟨ψ|O|ψ⟩, one colour per method. The summary
 # prints per network and set the faster method and from which n on block-Krylov is always faster.
 #
 # Two environments (as the vbPEPS compare):
 #   the runs:  the BetterPEPSKit environment (see development/fast_vbpeps/README.md), which has no Plots; at the end we print the summary:
-#                  julia -t 4 --project=development/fast_vbpeps development/profiling/comparing/ising_model_3D_CE_vbPEPS_decompositions.jl
+#                  julia -t 4 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_decompositions.jl
 #   the plot:  REPLOT_DIR = the run folder, in the ClusterExpansions environment:
-#                  julia --project=. development/profiling/comparing/ising_model_3D_CE_vbPEPS_decompositions.jl
-# The PEPO file (ising_model_3D_CE_pepos.jl) must have BETA, the D_CE of D_CES and start states for the χpeps of CHIPEPS.
+#                  julia --project=. development/checks/vbpeps/check_vbpeps_decompositions.jl
+# The PEPO file (development/initial_pepos/ising_model_3D_CE_pepos.jl) must have BETA, the D_CE of D_CES and start states for the χpeps of CHIPEPS.
 # PROFILE (see the settings) chooses the threads: :laptop (julia -t 4, as the vbPEPS compare on the laptop) or :hpc (Hortense, julia -t 2 on 2 cores,
 # as the full vbPEPS run there; development/hpc/job_decompositions.pbs sets CE_DECOMP_PROFILE), so that the result holds for the compare run on that
 # machine. On Hortense this benchmark runs after the dimension pilot and before the timing (see the Hortense guide).
@@ -45,11 +45,12 @@ else
     using Plots.PlotMeasures
 end
 
-# The helper functions of this script, in ../tools/:
-#   timing_io.jl:   new_run_dir, existing_run_dir
+# The helper functions of this script, in development/profiling/tools/:
 #   pepo_files.jl:  load_bpeps_tensors, unpack_tensor (the PEPO file of stage 1)
-include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
-include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
+
+# The data of this check: one run folder per run, named by the date and time (as the other checks, in data/checks/)
+const CHECK_DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "checks", "check_vbpeps_decompositions"))
 
 # ======================================================================================================================
 # Settings
@@ -65,7 +66,7 @@ Threads.nthreads() == JULIA_THREADS || @warn "This benchmark expects julia -t $J
 
 # The grid: every combination of these (the x axis of the plot is sorted by n = χenv · bond of the network)
 const CHIENVS = [8, 16, 24, 32, 48]
-const CHIPEPS = [2, 3, 4]                # needs start states for these χpeps in the PEPO file (CHIPEPS of ising_model_3D_CE_pepos.jl)
+const CHIPEPS = [2, 3, 4]                # needs start states for these χpeps in the PEPO file (CHIPEPS of development/initial_pepos/ising_model_3D_CE_pepos.jl)
 const D_CES = [2, 3]
 const BETA = 0.21                        # one β near βc ≈ 0.2217 (as the pilot of the vbPEPS compare)
 const WARM_STEPS = 3                     # CTMRG steps before the timing (not timed)
@@ -82,7 +83,7 @@ const TRUNCATION_RTOL = 1.0e-3
 const METHODS = [("dense", false, :darkorange), ("block-Krylov", true, :royalblue)]
 const NETWORKS = [("<psi|psi>", :circle), ("<psi|O|psi>", :square)]
 
-# If REPLOT_DIR is the NAME of a run folder (for example "20261118_1800") in data/profiling/comparing/ising_model_3D_CE_vbPEPS_decompositions/,
+# If REPLOT_DIR is the NAME of a run folder (for example "20261118_1800") in data/checks/check_vbpeps_decompositions/,
 # we only redo the summary and the plot from its results.csv (in the ClusterExpansions environment). Leave it "" for a normal run.
 const REPLOT_DIR = ""
 
@@ -209,7 +210,8 @@ end
 function main()
     if !isempty(REPLOT_DIR)
         IN_FAST_ENV && error("REPLOT_DIR needs Plots: run this script in the ClusterExpansions environment (julia --project=. <this file>)")
-        outdir = existing_run_dir(@__FILE__, REPLOT_DIR)
+        outdir = joinpath(CHECK_DATA_DIR, REPLOT_DIR)
+        isdir(outdir) || error("REPLOT_DIR = \"$REPLOT_DIR\": there is no folder $outdir")
         rows = read_decomp_results(joinpath(outdir, "results.csv"))
         print_summary(rows)
         make_plot(rows, outdir)
@@ -219,7 +221,7 @@ function main()
     IN_FAST_ENV || error("The runs need the BetterPEPSKit environment: julia -t 4 --project=development/fast_vbpeps <this file> (the ClusterExpansions " *
                          "environment only makes the plot, with REPLOT_DIR)")
     t_run = time()
-    outdir = new_run_dir(@__FILE__)
+    outdir = mkpath(joinpath(CHECK_DATA_DIR, Libc.strftime("%Y%m%d_%H%M", time())))
     resultspath = joinpath(outdir, "results.csv")
     write(resultspath, DECOMP_HEADER * "\n")
     open(joinpath(outdir, "settings.txt"), "w") do io

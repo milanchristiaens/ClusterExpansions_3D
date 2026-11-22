@@ -1,16 +1,16 @@
 # Stage 1 of the Ising compare runs: the CE PEPOs of the 3D Ising model, evolved ONCE to all β in BETAS for every D_CE in D_CES, and saved to
-# data/pepos/ising_3D_J<J>_g<g>_D<D_CE>_dbeta<Δβ>.jld2 (one file per D_CE; see ../tools/pepo_files.jl for the content). With EXACT_FILE also the file of the
-# EXACT PEPOs (exact_ising_pepo of ../tools/pepo_files.jl, bond dimension 2): data/pepos/ising_3D_exact_J<J>_g<g>_D2.jld2, the same content (O, M and the
+# data/pepos/ising_3D_J<J>_g<g>_D<D_CE>_dbeta<Δβ>.jld2 (one file per D_CE; see pepo_files.jl in this folder for the content). With EXACT_FILE also the file of the
+# EXACT PEPOs (exact_ising_pepo of pepo_files.jl, bond dimension 2): data/pepos/ising_3D_exact_J<J>_g<g>_D2.jld2, the same content (O, M and the
 # start states of the vbPEPS with the same seeds), so CE_COMPARE_PEPO = exact can use it in both compare scripts.
 # Stage 2 reads these files: ising_model_3D_CE_CTMRG_compare.jl (the 3D PEPOs), ising_model_3D_CE_vbPEPS_compare.jl and
-# ising_model_3D_CE_vbPEPS_decompositions.jl (the 2D tensors O and M of the vbPEPS and its start states). So all algorithms use exactly the same PEPOs,
+# development/checks/vbpeps/check_vbpeps_decompositions.jl (the 2D tensors O and M of the vbPEPS and its start states). So all algorithms use exactly the same PEPOs,
 # and the vbPEPS of BetterPEPSKit runs in its own environment, without ClusterExpansions.
 #
 # Run it in the ClusterExpansions environment (julia --project=.) before stage 2, and again after a change of the settings below
 # (an existing file of the same D_CE, Δβ, J and g is replaced). The compare scripts stop with an error if a β, D_CE or χpeps that they need is not in a file.
 #
 # Per file:
-#   the PEPOs: as build_pepos of ../tools/compare_tools.jl (rot_invariance = true, Float64), at every β of BETAS
+#   the PEPOs: build_pepos of pepo_files.jl (rot_invariance = true, Float64), at every β of BETAS
 #   O and M: bpeps_pepo_tensor(PEPO) and bpeps_pepo_tensor(PEPO, σᶻ) of ClusterExpansions
 #   the start states of the vbPEPS for every χpeps of CHIPEPS: bpeps_initial_state (power method, MAXITER_INIT steps) after Random.seed!(psi0_seed(β, Δβ)),
 #   exactly as bpeps_optimize makes its start state (so the vbPEPS of PEPSKit and of BetterPEPSKit start from the same state)
@@ -24,9 +24,10 @@ using Random
 using LinearAlgebra
 using JLD2
 
-#   compare_tools.jl: build_pepos;  pepo_files.jl: pepo_file, psi0_seed, pack_tensor, PSI0_SEED_BASE
-include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
-include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
+#   pepo_files.jl (this folder): build_pepos, exact_ising_pepo, pepo_file, psi0_seed, pack_tensor, PSI0_SEED_BASE
+#   compare_tools.jl (development/profiling/tools): only for FlushingLogger (the log of a killed Hortense job stays complete)
+include(joinpath(@__DIR__, "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "profiling", "tools", "compare_tools.jl"))
 
 # ======================================================================================================================
 # Settings

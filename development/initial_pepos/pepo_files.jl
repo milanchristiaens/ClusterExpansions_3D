@@ -1,4 +1,5 @@
-# pepo_files.jl -- the PEPO files of the Ising compare runs: the CE PEPOs are evolved ONCE to all β (ising_model_3D_CE_pepos.jl, stage 1) and saved,
+# pepo_files.jl -- the PEPOs of the Ising compare runs and their files: the CE PEPOs are evolved ONCE to all β (build_pepos below, called by
+# ising_model_3D_CE_pepos.jl in this folder, stage 1) and saved,
 # and every measurement (CTMRG3D compare, vbPEPS compare, dense against block-Krylov) reads them (stage 2). So all algorithms use exactly the same
 # PEPOs, and the vbPEPS of BetterPEPSKit can run in its own environment without ClusterExpansions.
 #
@@ -13,9 +14,10 @@
 # Every tensor is stored as plain data (pack_tensor): [(dimension, isdual)] of the codomain and domain legs and the dense array, not as a TensorMap,
 # because the BetterPEPSKit environment has another TensorKit version than ClusterExpansions. Only for spaces without symmetry (ComplexSpace).
 #
-# Used in both environments (ClusterExpansions and development/fast_vbpeps); the script that includes this file needs `using TensorKit` and `using JLD2`.
+# Used in both environments (ClusterExpansions and development/fast_vbpeps); the script that includes this file needs `using TensorKit` and `using JLD2`
+# (build_pepos also needs `using ClusterExpansions`: only stage 1 calls it).
 
-const PEPO_DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "pepos"))     # <repo>/data/pepos
+const PEPO_DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "data", "pepos"))     # <repo>/data/pepos
 const PSI0_SEED_BASE = 2000
 
 # The file of these settings (kind = :ce, the CE PEPOs) or of the exact PEPOs (kind = :exact; D_CE and Δβ do not enter the name)
@@ -38,7 +40,7 @@ unpack_tensor(p) = TensorMap(p.data, _pf_prodspace(p.cod) ← _pf_prodspace(p.do
 function read_pepo_file(D_CE, Δβ, J, g; kind = :ce)
     kind === :exact && D_CE != 2 && error("the exact PEPOs have bond dimension 2: choose dims with D_CE = 2, not $D_CE")
     path = pepo_file(D_CE, Δβ, J, g; kind)
-    isfile(path) || error("No PEPO file $path: run development/profiling/comparing/ising_model_3D_CE_pepos.jl first (in the ClusterExpansions environment), " *
+    isfile(path) || error("No PEPO file $path: run development/initial_pepos/ising_model_3D_CE_pepos.jl first (in the ClusterExpansions environment), " *
                           "with D_CE = $D_CE, Δβ = $Δβ, J = $J, g = $g in its settings" * (kind === :exact ? " and EXACT_FILE = true" : ""))
     return JLD2.load(path)
 end
@@ -46,7 +48,7 @@ end
 # The index of β in the file (error if it is not there)
 function pepo_index(f, β)
     i = findfirst(b -> isapprox(b, β; atol = 1.0e-10), f["beta"])
-    i === nothing && error("β = $β is not in the PEPO file (D_CE = $(f["D_CE"]), β = $(f["beta"])): add it to BETAS of ising_model_3D_CE_pepos.jl and run it again")
+    i === nothing && error("β = $β is not in the PEPO file (D_CE = $(f["D_CE"]), β = $(f["beta"])): add it to BETAS of development/initial_pepos/ising_model_3D_CE_pepos.jl and run it again")
     return i
 end
 
@@ -74,12 +76,39 @@ function exact_ising_pepo(β; J = 1.0)
     return TensorMap(a, (V ⊗ V') ← (V ⊗ V ⊗ V ⊗ V' ⊗ V' ⊗ V'))
 end
 
+# ======================================================================================================================
+# CE: the PEPOs for all β, built once (stage 1; moved here from development/profiling/tools/compare_tools.jl on 22 Nov)
+# ======================================================================================================================
+# CE: the PEPOs at all β of the list β_obs (increasing, multiples of Δβ_iter), built once; stage 1 saves them, so every compare script uses exactly these.
+function build_pepos(β_obs, Δβ_iter, D, J, g)
+    @assert issorted(β_obs) "β_obs must be increasing"
+    trunc_alg = NoEnvTruncation(truncrank(D))
+    ce_alg = ising_operators(J, g, 0.0; T = BigFloat, symmetry = nothing)
+    ΔO = ClusterExpansions.evolution_operator_cubic(ce_alg, Δβ_iter; T_conv = Float64)
+    O = ClusterExpansions.evolution_operator_cubic(ce_alg, 0.0; T_conv = Float64)
+    Os = Any[]
+    β_now = 0.0
+    for β in β_obs
+        # number of time steps from the previous β to this one
+        nsteps = round(Int, (β - β_now) / Δβ_iter)
+        @assert abs(nsteps - (β - β_now) / Δβ_iter) < 1.0e-8 "β = $β is not a multiple of Δβ_iter = $Δβ_iter"
+        for _ in 1:nsteps
+            # rot_invariance = true: one Takagi projector pair for all six legs, so every O is exactly symmetric under the cube rotations and
+            # reflections (needed by the C4v CTMRG of vbPEPS); it stays Float64 (see takagi_trunc)
+            O, = approximate_state((O, ΔO), trunc_alg; rot_invariance = true)
+        end
+        β_now = β
+        push!(Os, deepcopy(O))   # copy, so that later steps cannot change an earlier O
+    end
+    return Os
+end
+
 # The 2D tensors of the vbPEPS at the β of β_obs, packed: [(; O, M, psi0)] with the start state of this chipeps.
 # maxiter_init must be the number of power-method steps of the file (the start state depends on it).
 function load_bpeps_tensors(β_obs, Δβ, D_CE, J, g, chipeps; maxiter_init, kind = :ce)
     f = read_pepo_file(D_CE, Δβ, J, g; kind)
     k = findfirst(==(chipeps), f["chipeps"])
-    k === nothing && error("chipeps = $chipeps has no start states in the PEPO file (chipeps = $(f["chipeps"])): add it to CHIPEPS of ising_model_3D_CE_pepos.jl and run it again")
-    f["maxiter_init"] == maxiter_init || error("the start states of the PEPO file have maxiter_init = $(f["maxiter_init"]), not $maxiter_init: run ising_model_3D_CE_pepos.jl again")
+    k === nothing && error("chipeps = $chipeps has no start states in the PEPO file (chipeps = $(f["chipeps"])): add it to CHIPEPS of development/initial_pepos/ising_model_3D_CE_pepos.jl and run it again")
+    f["maxiter_init"] == maxiter_init || error("the start states of the PEPO file have maxiter_init = $(f["maxiter_init"]), not $maxiter_init: run development/initial_pepos/ising_model_3D_CE_pepos.jl again")
     return [(; O = f["O"][i], M = f["M"][i], psi0 = f["psi0"][k][i]) for i in (pepo_index(f, β) for β in β_obs)]
 end

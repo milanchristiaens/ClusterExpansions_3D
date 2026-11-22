@@ -3,8 +3,8 @@
 `fast_bpeps.jl` is the vbPEPS of ClusterExpansions (`src/bpeps/`) on BetterPEPSKit (Lander Burgelman e.a., not registered; see the top of
 `fast_bpeps.jl` for what is faster). BetterPEPSKit needs MPSKit 0.14 and OptimKit 0.5 and ClusterExpansions MPSKit 0.13 and OptimKit 0.4, so this
 environment runs WITHOUT ClusterExpansions: the vbPEPS compare (`development/profiling/comparing/ising_model_3D_CE_vbPEPS_compare.jl`,
-`VBPEPS_IMPL = :betterpepskit`) and the dense against block-Krylov benchmark (`ising_model_3D_CE_vbPEPS_decompositions.jl`) are run in it and read the
-PEPOs from the PEPO files that ClusterExpansions made first (`ising_model_3D_CE_pepos.jl`, in the environment of the clone), for example
+`VBPEPS_IMPL = :betterpepskit`) and the dense against block-Krylov benchmark (`development/checks/vbpeps/check_vbpeps_decompositions.jl`) are run in it and read the
+PEPOs from the PEPO files that ClusterExpansions made first (`development/initial_pepos/ising_model_3D_CE_pepos.jl`, in the environment of the clone), for example
 
     julia +1.12 -t 4 --project=development/fast_vbpeps development/profiling/comparing/ising_model_3D_CE_vbPEPS_compare.jl
 

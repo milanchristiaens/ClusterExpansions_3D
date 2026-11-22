@@ -1,5 +1,5 @@
 #!/bin/bash
-# job_decompositions.pbs -- dense against block-Krylov decompositions in the CTMRG of the fast vbPEPS (ising_model_3D_CE_vbPEPS_decompositions.jl,
+# job_decompositions.pbs -- dense against block-Krylov decompositions in the CTMRG of the fast vbPEPS (development/checks/vbpeps/check_vbpeps_decompositions.jl,
 # profile hpc) on 2 Hortense cores, as the full vbPEPS run: time per CTMRG step on a broad grid of (χenv, χpeps, D_CE), only the CTMRG (not the whole
 # vbPEPS). Its result sets FAST_KWARGS.sparse of the vbPEPS compare before the timing and the full run. Runs in the BetterPEPSKit environment and needs the PEPO file
 # (job_pepos.pbs first); the plot afterwards with REPLOT_DIR in the environment of the clone (see the Hortense guide).
@@ -16,4 +16,4 @@ source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/developme
 export CE_DECOMP_PROFILE=hpc
 export OPENBLAS_NUM_THREADS=1
 cd "$REPO"
-julia -t 2 --project=development/fast_vbpeps development/profiling/comparing/ising_model_3D_CE_vbPEPS_decompositions.jl
+julia -t 2 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_decompositions.jl

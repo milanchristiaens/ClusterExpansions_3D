@@ -1,8 +1,10 @@
-# This file compares the CTMRG3D option `west_updates` (:auto, 1, 2, 4) on the 3D Ising model near βc:
+# Check (moved from development/profiling/comparing/compare_west_updates.jl on 22 Nov): the CTMRG3D option `west_updates` (:auto, 1, 2, 4)
+# on the 3D Ising model near βc:
 # magnetization, needed CTMRG iterations, number of partial_ctmrgstep calls and timings.
 # One extra case: :auto with PEPO bond dimension D = 5.
 #
-# Output: table on screen + CSV in data/profiling/comparing/compare_west_updates/.
+# Output: table on screen + CSV in data/checks/check_ctmrg3d_west_updates/.
+# Run from the clone: julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_west_updates.jl
 
 using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, TimerOutputs, Random, LinearAlgebra, Printf
 using ClusterExpansions: contract_onesite_dispatch
@@ -159,7 +161,7 @@ for β in β_obs
 end
 
 # Saving the CSV
-outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "compare_west_updates"))
+outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "checks", "check_ctmrg3d_west_updates"))
 mkpath(outdir)
 csvpath = joinpath(outdir, "west_updates_comparison.csv")
 open(csvpath, "w") do io

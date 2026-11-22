@@ -6,7 +6,7 @@
 # ClusterExpansions needs MPSKit 0.13 and OptimKit 0.4 (and PEPSKit 0.8.1): the two cannot be loaded in one environment. So this file runs in its own
 # environment (development/fast_vbpeps/Project.toml), without ClusterExpansions: the scripts that include it (the vbPEPS compare and the dense against
 # block-Krylov benchmark, run with julia --project=development/fast_vbpeps) read the 2D tensors O and M and the start states from the PEPO file that
-# ClusterExpansions made (stage 1, development/profiling/comparing/ising_model_3D_CE_pepos.jl), as plain arrays (unpack_tensor below).
+# ClusterExpansions made (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl), as plain arrays (unpack_tensor below).
 # The states of the warm start stay in this module (STATES).
 #
 # The algorithm is that of bpeps_optimize / bpeps_observables of ClusterExpansions (src/bpeps/bpeps_main.jl, bpeps_helpers.jl; same names, same
@@ -38,7 +38,7 @@ const PEPSKit = BetterPEPSKit   # the PEPSKit-qualified names of ClusterExpansio
 const to = TimerOutput()
 
 # ----------------------------------------------------------------------------------------------------------------------
-# Tensors as plain data (pack_tensor of development/profiling/tools/pepo_files.jl): (; cod, dom, data) with cod/dom = [(dimension, isdual) per leg] and the dense array
+# Tensors as plain data (pack_tensor of development/initial_pepos/pepo_files.jl): (; cod, dom, data) with cod/dom = [(dimension, isdual) per leg] and the dense array
 # (legs: codomain first, then domain). Only for spaces without symmetry (ComplexSpace), as the Ising PEPOs.
 # ----------------------------------------------------------------------------------------------------------------------
 _space(v) = v[2] ? ComplexSpace(v[1])' : ComplexSpace(v[1])

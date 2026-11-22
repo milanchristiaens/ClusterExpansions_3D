@@ -132,7 +132,7 @@ end
 #    * false (default): the two environments are converged with leading_boundary OUTSIDE of the automatic differentiation, and only the explicit
 #      dependence of the two network values on psi is differentiated (environments fixed). The omitted term is dE/denv * denv/dpsi. It is NOT
 #      negligible: this is an approximate gradient; cheap, and the automatic differentiation of it is correct
-#      (test/bpeps.jl), but LBFGS minimises a cost whose exact gradient it does not get. development/checks/check_bpeps_gradient.jl prints these numbers.
+#      (test/bpeps.jl), but LBFGS minimises a cost whose exact gradient it does not get. development/checks/vbpeps/check_bpeps_gradient.jl prints these numbers.
 #    * true: the network values are evaluated with the output of hook_pullback, so that the
 #      gradient also contains the fixed-point (geometric sum / Arnoldi) term through the CTMRG. Much more expensive, and the first call compiles
 #      the pullback of a CTMRG iteration (Zygote: minutes on a normal machine). Not tested yet!

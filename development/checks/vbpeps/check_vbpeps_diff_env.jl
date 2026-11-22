@@ -10,7 +10,7 @@
 # Error source: contraction/optimization (3) only.
 #
 # Runs in the BetterPEPSKit environment (no Plots); every run is appended to data/checks/check_vbpeps_diff_env/<date>_<time>.csv immediately.
-#   julia +1.12 -t 2 --project=development/fast_vbpeps development/checks/check_vbpeps_diff_env.jl
+#   julia +1.12 -t 2 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_diff_env.jl
 # On Hortense: development/hpc/job_check_vbpeps_diff_env.pbs (2 cores, round 1 of the Hortense guide). Needs the PEPO file (stage 1).
 
 using TensorKit
@@ -20,11 +20,11 @@ using LinearAlgebra
 using JLD2
 
 basename(dirname(Base.active_project())) == "fast_vbpeps" ||
-    error("Run this check in the BetterPEPSKit environment: julia -t 2 --project=development/fast_vbpeps development/checks/check_vbpeps_diff_env.jl")
-include(joinpath(@__DIR__, "..", "fast_vbpeps", "fast_bpeps.jl"))           # module FastBpeps
+    error("Run this check in the BetterPEPSKit environment: julia -t 2 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_diff_env.jl")
+include(joinpath(@__DIR__, "..", "..", "fast_vbpeps", "fast_bpeps.jl"))           # module FastBpeps
 using BetterPEPSKit
 #   pepo_files.jl:  load_bpeps_tensors (the PEPO file of stage 1)
-include(joinpath(@__DIR__, "..", "profiling", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 
 # ======================================================================================================================
 # Settings
@@ -53,7 +53,7 @@ const HEADER = "chi_env,chi_peps,D_CE,beta,diff_env,f,m,calls,timed_out,time_s,c
 
 function main()
     BLAS.set_num_threads(BLAS_THREADS)
-    outdir = normpath(joinpath(@__DIR__, "..", "..", "data", "checks", "check_vbpeps_diff_env"))
+    outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "checks", "check_vbpeps_diff_env"))
     mkpath(outdir)
     path = joinpath(outdir, Libc.strftime("%Y%m%d_%H%M", time()) * ".csv")
     write(path, HEADER * "\n")

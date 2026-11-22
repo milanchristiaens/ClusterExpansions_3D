@@ -73,6 +73,8 @@ mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
                                        # and m changed by at most 5e-6 against 1e-10 (sandbox, (8,3,3), 21 Nov), with 2-3× fewer products ρ_F·V)
     subspace_maxiter::Int              # at most this many products ρ_F·V per step
     oversample::Int                    # block size = χenv + oversample
+    trunc_window::Int                  # gap cut (see _gap_cut): the cuts of P_c (χenv) and P_f (χpeps) may move by at most trunc_window
+    trunc_rtol::Float64                # gap cut: two values count as one group when they differ by at most trunc_rtol (relative)
 end
 
 # Same keywords as CTMRG3D (so that expectation_value(...; ctm_alg = CTMRG3DOctant) works); projectors, projector_exponent, class_projectors,
@@ -80,10 +82,12 @@ end
 #   init: the start is the 3×3×3 cube of O tensors with the outer legs closed by a vector v (as init = :nishino_okunishi of CTMRG3D):
 #         :random or :nishino_okunishi -> v Gaussian (seed init_seed), :ones -> v = ones. The bonds start at D and grow to χenv, χpeps.
 #   env0: an earlier CTMRG3DOctant (warm start, e.g. the previous β): we copy c, e, a, P.
+#   trunc_window, trunc_rtol: the gap cut of P_c and P_f (_gap_cut), the same rule and defaults as truncgap of BetterPEPSKit in the vbPEPS compare
+#         (window 4, rtol 1e-3); trunc_window = 0 gives the plain cut at χenv, χpeps.
 function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]), Vbp = oneunit(space(O)[1]), trunc_env = nothing, trunc_bpeps = nothing,
                        miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0, env0 = nothing, init::Symbol = :random,
                        init_seed::Int = 1, max_seconds::Real = Inf, subspace_tol::Real = min(1e-6, 10 * tol), subspace_maxiter::Int = 30, oversample::Int = 8,
-                       kwargs...) where {T,S}
+                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, kwargs...) where {T,S}
     T <: Real || throw(ArgumentError("CTMRG3DOctant: O must be real (Float64), got $T"))
     sectortype(O) == Trivial || throw(ArgumentError("CTMRG3DOctant: O must have no symmetry sectors"))
     init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
@@ -104,7 +108,7 @@ function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]),
     end
     max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
     return CTMRG3DOctant{T, typeof(O)}(O, o, c, ed, a, P, chi_env, chi_peps, miniter, maxiter, tol, verbosity, Float64(max_seconds),
-                                       Float64(subspace_tol), subspace_maxiter, oversample)
+                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol))
 end
 
 function _check_cube_symmetric(o)
@@ -195,8 +199,33 @@ function _octant_QW(W, B, e, a, o)
     return _octant_xbwd(Y1, e, a, o)
 end
 
+# The gap cut (22 Nov), the rule of truncgap in BetterPEPSKit (the truncation of the vbPEPS compare), for values without symmetry sectors:
+#   vals: the values, descending (≥ 0: eigenvalues of ρ_F or of the face matrix); target: the number we want to keep (χenv or χpeps).
+#   Two neighbours v ≥ v′ form one group if v - v′ <= rtol·v. If the cut at target splits a group, we look for the cut within target ± window
+#   that splits none, nearest to target (on a tie: the larger gap, i.e. the smaller ratio v′/v). The last `margin` values are not trusted (the
+#   last Ritz values of the block are not converged, as the last value of the block-Krylov decomposition in BetterPEPSKit): the first dropped
+#   value must lie above them. If no cut fits, we keep the largest k < target that splits no group (all of the group is dropped, as truncmultiplets).
+#   Returns the number of values to keep.
+function _gap_cut(vals, target; window = 4, rtol = 1e-3, margin = 0)
+    n = length(vals)
+    (window <= 0 || target >= n) && return min(target, n)
+    splits(k) = vals[k] - vals[k + 1] <= rtol * vals[k]
+    splits(target) || return target
+    floor = margin > 0 && n > margin ? vals[n - margin] : -Inf
+    cands = [k for k in max(1, target - window):min(n - 1, target + window) if !splits(k) && vals[k + 1] >= floor]
+    if isempty(cands)
+        k = target - 1
+        while k >= 1 && splits(k)
+            k -= 1
+        end
+        return k >= 1 ? k : target
+    end
+    return cands[argmin([(abs(k - target), vals[k + 1] / vals[k]) for k in cands])]
+end
+
 # Top nkeep eigenvectors of ρ_F = Q·Qᵀ by block subspace iteration with Rayleigh-Ritz.
-# Returns (U, λ, WU): U (F × nkeep) orthonormal, λ the eigenvalues (descending), WU = Qᵀ·U (F² × nkeep).
+# Returns (U, λ, WU): U (F × k) orthonormal, λ the eigenvalues (descending), WU = Qᵀ·U (F² × k), where k = nkeep moved by the gap cut
+# (_gap_cut; with the block of nkeep + oversample Ritz values we can also see the gap above nkeep).
 function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
     e, a, o = env.e, env.a, env.o
     F = size(e, 1) * size(e, 3)^2 * size(o, 1)
@@ -227,13 +256,17 @@ function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
         res < env.subspace_tol && break
         V = Matrix(qr(Y * S).Q)                        # one power step (Y·S spans ρ_F·V)
     end
-    U = V * S[:, 1:nkeep]
+    # gap cut: on the full space (b == F) all values are exact (margin 0), otherwise the last Ritz value is not trusted (margin 1)
+    k = _gap_cut(λ, nkeep; window = env.trunc_window, rtol = env.trunc_rtol, margin = b == F ? 0 : 1)
+    k != nkeep && env.verbosity > 0 && @info "octant: the cut of P_c at $nkeep splits a near-degenerate group (λ ratio $(round(λ[nkeep + 1] / λ[nkeep]; sigdigits = 4))); keeping $k"
+    U = V * S[:, 1:k]
     WU = @timeit to "octant: Qᵀ·P_c (for C')" _octant_QtV(U, B, e, a, o)
-    return U, λ[1:nkeep], WU
+    return U, λ[1:k], WU
 end
 
-# P_f from the truncated ρ_F ≈ U·Λ·Uᵀ: reduced matrix of the (face, O) part of F, averaged over the two faces in F; top nkeep eigenvectors
-function _octant_face_projector(U, λ, χ, p, D, nkeep)
+# P_f from the truncated ρ_F ≈ U·Λ·Uᵀ: reduced matrix of the (face, O) part of F, averaged over the two faces in F; top nkeep eigenvectors,
+# nkeep moved by the gap cut (_gap_cut, margin 0: a dense eigendecomposition)
+function _octant_face_projector(U, λ, χ, p, D, nkeep; window = 4, rtol = 1e-3, verbosity = 0)
     U5 = reshape(U, χ, p, p, D, size(U, 2))
     Ul = U5 .* reshape(max.(λ, 0), 1, 1, 1, 1, :)
     @tensor ρ1[f, d, f2, d2] := U5[x, f, g, d, k] * Ul[x, f2, g, d2, k]
@@ -241,7 +274,10 @@ function _octant_face_projector(U, λ, χ, p, D, nkeep)
     ρf = Symmetric(reshape(ρ1 + ρ2, p * D, p * D) / 2)
     ev = eigen(ρf)
     order = sortperm(ev.values; rev = true)
-    return ev.vectors[:, order[1:nkeep]]
+    μ = max.(ev.values[order], 0)
+    k = _gap_cut(μ, nkeep; window, rtol, margin = 0)
+    k != nkeep && verbosity > 0 && @info "octant: the cut of P_f at $nkeep splits a near-degenerate group (ratio $(round(μ[nkeep + 1] / μ[nkeep]; sigdigits = 4))); keeping $k"
+    return ev.vectors[:, order[1:k]]
 end
 
 # New c, e, a from P_c (F × χ'), P_f (p·D × p') and WP = Qᵀ·P_c (F² × χ')
@@ -278,7 +314,7 @@ function ctmrgstep(env::CTMRG3DOctant)
     pn = min(env.chi_peps, p * D)
     B = @timeit to "octant: B = C·E·E·A" _octant_B(env.c, env.e, env.a)
     U, λ, WU = @timeit to "octant: P_c (subspace iteration)" _octant_top_eigvecs(env, B, χn)
-    Pf = @timeit to "octant: P_f" _octant_face_projector(U, λ, χ, p, D, pn)
+    Pf = @timeit to "octant: P_f" _octant_face_projector(U, λ, χ, p, D, pn; window = env.trunc_window, rtol = env.trunc_rtol, verbosity = env.verbosity)
     @timeit to "octant: new C, E, A" _octant_renormalize(env, U, Pf, WU)
     return corner_spectrum(env)
 end

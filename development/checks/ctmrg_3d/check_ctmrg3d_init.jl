@@ -1,6 +1,6 @@
 # Check of the cold start of CTMRG3D (src/ctmrg3D/): init = :ones against init = :random and init = :nishino_okunishi (several seeds each), for both
 # projector kinds (:svd and :oblique),
-# on the 3D Ising PEPOs of the PEPO file (stage 1, development/profiling/comparing/ising_model_3D_CE_pepos.jl). Prints numbers, tests nothing.
+# on the 3D Ising PEPOs of the PEPO file (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl). Prints numbers, tests nothing.
 #
 # For every set in DIMS, every β in BETAS and every projector kind in PROJECTORS we run MPSKit.expectation_value (the same call and CTMRG3D settings as
 # the CTMRG3D compare) from the all-ones start, and from a random start and a Nishino-Okunishi start (the 3×3×3 cube of O, outer legs closed by one
@@ -16,7 +16,7 @@
 #
 # Every run is appended to data/checks/check_ctmrg3d_init/<date>_<time>.csv immediately (a crash keeps the earlier runs).
 # Run in the ClusterExpansions environment, with the threads of the CTMRG3D compare (PowerShell, in the clone folder):
-#   julia +1.12 -t 4 --project=. development/checks/check_ctmrg3d_init.jl
+#   julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_init.jl
 # On Hortense: development/hpc/job_check_ctmrg3d.pbs (round 1 of the Hortense guide; MACHINE is then "hortense" via CE_CHECK_MACHINE).
 
 using TensorKit
@@ -30,7 +30,7 @@ using JLD2
 const CE = ClusterExpansions
 
 # load_pepos, pepo_file (the PEPO file of stage 1)
-include(joinpath(@__DIR__, "..", "profiling", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 
 # ======================================================================================================================
 # Settings
@@ -128,7 +128,7 @@ end
 # ======================================================================================================================
 function main()
     BLAS.set_num_threads(BLAS_THREADS)
-    outdir = normpath(joinpath(@__DIR__, "..", "..", "data", "checks", "check_ctmrg3d_init"))
+    outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "checks", "check_ctmrg3d_init"))
     mkpath(outdir)
     path = joinpath(outdir, Libc.strftime("%Y%m%d_%H%M", time()) * ".csv")
     write(path, HEADER * "\n")

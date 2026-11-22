@@ -1,5 +1,5 @@
 # env_loader_pepo.jl -- the REAL environment of the contraction benchmark (benchmark_contract_onesite.jl, ENV_LOADER), for ANY bond dimensions
-# (chi_env, chi_peps, D): a CTMRG3D environment of the Ising PEPO of the PEPO file (stage 1, development/profiling/comparing/ising_model_3D_CE_pepos.jl)
+# (chi_env, chi_peps, D): a CTMRG3D environment of the Ising PEPO of the PEPO file (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl)
 # at β = BETA with D_CE = D, after ENV_ITERS CTMRG3D iterations from a random start (init = :random, so that every bond has its full dimension).
 # It is not converged on purpose: the time of the contraction depends on the shapes and the memory layout of the tensors, not on their values, and a
 # converged environment would cost an hour or more per set. M = O (the "norm" tensor; an observable-dressed M has the same cost).
@@ -15,7 +15,7 @@ using MatrixAlgebraKit: truncrank
 using ClusterExpansions
 
 # pepo_file, load_pepos, pack_tensor, unpack_tensor
-include(joinpath(@__DIR__, "..", "profiling", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "initial_pepos", "pepo_files.jl"))
 
 # ---------------- settings ----------------
 const ENV_BETA = 0.21            # β of the PEPO (in the PEPO file)

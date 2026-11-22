@@ -26,8 +26,8 @@
 #     compare_ctmrg_timing_phases.png and compare_ctmrg_timing_self.png (timings per section, 4 bars per section)
 #
 # With REPLOT_DIR (see the settings) we only redo all plots from the results of an earlier run, without running anything.
-# The helper functions (results file, time limit, spread plot, timing plots, PEPO file) are in ../tools/ (compare_tools.jl, timing_io.jl, timing_plots.jl,
-# pepo_files.jl).
+# The helper functions (results file, time limit, spread plot, timing plots, PEPO file) are in ../tools/ (compare_tools.jl, timing_io.jl, timing_plots.jl)
+# and development/initial_pepos/ (pepo_files.jl).
 # This is the CTMRG3D counterpart of ising_model_3D_CE_vbPEPS_compare.jl.
 #
 # Compilation happens once per process (warm-up with tiny settings, not measured).
@@ -63,11 +63,11 @@ const to = ClusterExpansions.to # the timer that the package code writes to
 #   timing_io.jl:    timer_rows, write_timer_csv, new_run_dir, existing_run_dir
 #   timing_plots.jl: make_timing_phases_plot, make_timing_self_plot
 #   compare_tools.jl: obs_seconds_allowed, ising_results_file, append_ising_row, read_ising_results, plot_spread, βc_ising
-#   pepo_files.jl:    load_pepos (the PEPOs of stage 1, ising_model_3D_CE_pepos.jl)
+#   pepo_files.jl (development/initial_pepos/): load_pepos (the PEPOs of stage 1, ising_model_3D_CE_pepos.jl)
 include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
-include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   # Talapov-Blöte, Bethe, MC points in the magnetization plot
 
 # ======================================================================================================================
@@ -120,7 +120,7 @@ const P = PROFILES[PROFILE]
 #   CE_COMPARE_MAXITER    the iteration cap of every case
 #   CE_COMPARE_BUDGET_S   seconds for the case, and also the most one observation may use
 #   CE_COMPARE_VERBOSITY  verbosity of CTMRG3D / CTMRG3DOctant: 1 = ϵ of every iteration in the log (0 = nothing, the default)
-#   CE_COMPARE_PEPO       ce (default: the CE PEPOs of the PEPO file) or exact (exact_ising_pepo of ../tools/pepo_files.jl, bond dimension 2, so D_CE
+#   CE_COMPARE_PEPO       ce (default: the CE PEPOs of the PEPO file) or exact (exact_ising_pepo of development/initial_pepos/pepo_files.jl, bond dimension 2, so D_CE
 #                         of the dims must be 2; the setting column of the results file then ends in _exactpepo)
 const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY", "CE_COMPARE_PEPO") if haskey(ENV, n)]
 const PEPO_KIND = env_override("CE_COMPARE_PEPO", s -> Symbol(lowercase(s)), :ce)

@@ -3,7 +3,6 @@
 # and ising_model_3D_CE_vbPEPS_profiling.jl (check_cost).
 # Contents:
 #   βc_ising, check_cost            sanity check of the cost f of a vbPEPS optimization
-#   build_pepos                     the CE PEPOs at all β of a list, built once
 #   compare_dims, compare_cases, compare_run_dir
 #                                   the parts of a profile that the Hortense job scripts choose with environment variables (CE_COMPARE_DIMS, _CASES, _RUN)
 #   FlushingLogger                  log messages flushed at once (installed on include; the Hortense job log of a killed job stays complete)
@@ -14,7 +13,7 @@
 #   median_of, spread_points, plot_spread   difference of |m| of every case to the mean |m| of the cases
 # The functions get their settings as arguments; they do not read the settings of the script that includes this file (only compare_* read the environment variables).
 # Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots, LinearAlgebra
-# The timing plots of the compare scripts are in timing_plots.jl.
+# The timing plots of the compare scripts are in timing_plots.jl; the PEPOs (build_pepos, the PEPO files) in development/initial_pepos/pepo_files.jl.
 
 # Log lines that reach the job log at once. Julia buffers stderr and stdout when they are a file (the Hortense job log): a job that is killed
 # (time limit, out of memory) lost its whole log (ctmrg_pilot5_16_6_3, 21 Nov). This logger passes every message on to the logger we had and
@@ -103,33 +102,6 @@ function check_cost(β, f; reference = false)
         f < fref - 0.01 && push!(msgs, "f more than 0.01 below the high-temperature series: unphysical")
     end
     return (isempty(msgs) ? "ok" : "CHECK: " * join(msgs, " / ")) * ref
-end
-
-# ======================================================================================================================
-# CE: the PEPOs for all β, built once
-# ======================================================================================================================
-# CE: the PEPOs at all β of the list β_obs (increasing, multiples of Δβ_iter), built once; a compare script uses exactly these for all its cases.
-function build_pepos(β_obs, Δβ_iter, D, J, g)
-    @assert issorted(β_obs) "β_obs must be increasing"
-    trunc_alg = NoEnvTruncation(truncrank(D))
-    ce_alg = ising_operators(J, g, 0.0; T = BigFloat, symmetry = nothing)
-    ΔO = ClusterExpansions.evolution_operator_cubic(ce_alg, Δβ_iter; T_conv = Float64)
-    O = ClusterExpansions.evolution_operator_cubic(ce_alg, 0.0; T_conv = Float64)
-    Os = Any[]
-    β_now = 0.0
-    for β in β_obs
-        # number of time steps from the previous β to this one
-        nsteps = round(Int, (β - β_now) / Δβ_iter)
-        @assert abs(nsteps - (β - β_now) / Δβ_iter) < 1.0e-8 "β = $β is not a multiple of Δβ_iter = $Δβ_iter"
-        for _ in 1:nsteps
-            # rot_invariance = true: one Takagi projector pair for all six legs, so every O is exactly symmetric under the cube rotations and
-            # reflections (needed by the C4v CTMRG of vbPEPS); it stays Float64 (see takagi_trunc)
-            O, = approximate_state((O, ΔO), trunc_alg; rot_invariance = true)
-        end
-        β_now = β
-        push!(Os, deepcopy(O))   # copy, so that later steps cannot change an earlier O
-    end
-    return Os
 end
 
 # ======================================================================================================================

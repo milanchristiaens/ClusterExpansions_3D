@@ -2,7 +2,7 @@
 #
 #     start (cold / warm), with the fixed environment (differentiate_environment = false)
 #
-# The extra term of the gradient (differentiate_environment = true) is not part of the compare any more: development/checks/check_vbpeps_diff_env.jl
+# The extra term of the gradient (differentiate_environment = true) is not part of the compare any more: development/checks/vbpeps/check_vbpeps_diff_env.jl
 # checks that it gives the same result. (The table CASES below can still hold true cases for a test.)
 # warm = every β starts from the optimized state of the previous β, the first β is always cold, and a β closer than WARM_WINDOW to BETA_C also starts cold
 #        (warm_start_at in ../tools/compare_tools.jl); the check column of the results file says "cold start near βc" there.
@@ -21,7 +21,7 @@
 #
 # With REPLOT_DIR (see the settings) we only redo all plots from the results of an earlier run, without running anything.
 # The helper functions (check_cost, results file, time limit, spread plot, timing plots, PEPO file) are in ../tools/ (compare_tools.jl, timing_io.jl,
-# timing_plots.jl, pepo_files.jl).
+# timing_plots.jl) and development/initial_pepos/ (pepo_files.jl).
 #
 # Order: the order of CASES (a true case would need the compilation of its pullback first, ~1h40 with :pepskit in an earlier run).
 # Compilation happens once per process (warm-up with tiny settings, not measured).
@@ -74,12 +74,12 @@ end
 #   timing_io.jl:    timer_rows, write_timer_csv, read_timer_csv, new_run_dir, existing_run_dir
 #   timing_plots.jl: make_timing_phases_plot, make_timing_self_plot, ...
 #   compare_tools.jl: check_cost, obs_seconds_allowed, ising_results_file, append_ising_row, read_ising_results, plot_spread, ...
-#   pepo_files.jl:    load_pepos, load_bpeps_tensors, psi0_seed (the PEPO file of stage 1, ising_model_3D_CE_pepos.jl)
+#   pepo_files.jl (development/initial_pepos/): load_pepos, load_bpeps_tensors, psi0_seed (the PEPO file of stage 1, ising_model_3D_CE_pepos.jl)
 # (timing_plots.jl loads Plots: only in the ClusterExpansions environment)
 include(joinpath(@__DIR__, "..", "tools", "timing_io.jl"))
 IN_FAST_ENV || include(joinpath(@__DIR__, "..", "tools", "timing_plots.jl"))
 include(joinpath(@__DIR__, "..", "tools", "compare_tools.jl"))
-include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 # Talapov-Blöte, Bethe and the MC points of development/reference/ising_3d_mc.jl in the magnetization plot (plots only in the ClusterExpansions environment)
 IN_FAST_ENV || include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))
 
@@ -164,7 +164,7 @@ VBPEPS_IMPL in (:pepskit, :betterpepskit) || error("VBPEPS_IMPL (CE_COMPARE_IMPL
 # Settings that only :betterpepskit uses (the values of Lander's example.jl):
 #   sparse: block-Krylov decompositions (true) or dense eigh/SVD (false); truncation_window, truncation_rtol: the gap cut (truncgap);
 #   gradient_maxiter, gradient_krylovdim: GMRES of ImplicitGradient (these two replace those of base_kwargs, which are for Arnoldi)
-#   (ising_model_3D_CE_vbPEPS_decompositions.jl times sparse = true against sparse = false for several bond dimensions)
+#   (development/checks/vbpeps/check_vbpeps_decompositions.jl times sparse = true against sparse = false for several bond dimensions)
 # sparse = true (block-Krylov): the decompositions benchmark of round 1 (20 Nov) was faster with block-Krylov at every size of <psi|O|psi> (×1.1-4.5)
 # (needs the one-line fix in BetterPEPSKit's projector_contraction_metrics, see the guide of 21 Nov)
 const FAST_KWARGS = (; sparse = true, truncation_window = 4, truncation_rtol = 1.0e-3, gradient_maxiter = 20, gradient_krylovdim = 30)
