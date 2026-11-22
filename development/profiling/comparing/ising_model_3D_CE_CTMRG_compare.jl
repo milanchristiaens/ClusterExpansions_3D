@@ -254,9 +254,10 @@ function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace,
             m = expvals[1]
             conv = ϵs[end] < ctm_tol
             check = (conv ? "ok" : timed_out ? "timed out" : "not converged") * (warm && !use_warm ? "; cold start near βc" : "")
+            GC.gc()             # the garbage of the contraction (see memory_note in ../tools/compare_tools.jl); after dt, so not in the timings
 
             println("OBS $name β = $(round(β; digits = 3)): m = $m, $(length(ϵs)) iterations, ϵ = $(ϵs[end]), CTMRG $(round(t_ctm; digits = 1)) s ",
-                    "(allowed $(round(allowed; digits = 1)) s), contraction $(round(t_con; digits = 1)) s, total $(round(dt; digits = 1)) s, $check")
+                    "(allowed $(round(allowed; digits = 1)) s), contraction $(round(t_con; digits = 1)) s, total $(round(dt; digits = 1)) s, $check; ", memory_note())
             flush(stdout)       # the line is in the job log at once (also when the job is killed later)
             
             append_ising_row(resultspath; row_settings..., β, m = ComplexF64(m), iters = length(ϵs), converged = conv, eps = ϵs[end], timed_out,
@@ -293,6 +294,8 @@ function warmup(Os, pepsspace, envspace, obs)
         MPSKit.expectation_value(Os[min(2, end)], [obs], pepsspace, envspace; env0 = env, tiny...)
     end
     @info "Warm-up took $(round(time() - t0; digits = 1)) s"
+    GC.gc()
+    @info "After the warm-up: " * memory_note()
     return nothing
 end
 
@@ -442,6 +445,7 @@ function main()
     end
     @info "Output directory: $outdir, results file: $resultspath (run = $run)"  
     @info "PROFILE = $PROFILE, Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads())"
+    @info memory_info()
     isempty(OVERRIDES) || @info "Changed for this job: β_obs = $β_obs, ctm_maxiter = $ctm_maxiter, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, ctm_verbosity = $ctm_verbosity, PEPO = $PEPO_KIND"
 
     pepsspace = ℂ^chipeps

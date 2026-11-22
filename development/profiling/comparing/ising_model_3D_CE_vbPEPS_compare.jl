@@ -245,9 +245,10 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
             dt = time() - t_obs
             # See if f is realistic
             check = check_cost(β, res.cost) * (warm && !use_warm ? "; cold start near βc" : "")
-            
+            GC.gc()             # the garbage of the optimization (see memory_note in ../tools/compare_tools.jl); after dt, so not in the timings
+
             # Print/save result
-            println("OBS $name β = $(round(β; digits = 3)): f = $(res.cost), calls = $(res.numfg), time = $(round(dt; digits = 1)) s, timed out = $(res.timed_out), m = $(res.m), ", check)
+            println("OBS $name β = $(round(β; digits = 3)): f = $(res.cost), calls = $(res.numfg), time = $(round(dt; digits = 1)) s, timed out = $(res.timed_out), m = $(res.m), ", check, "; ", memory_note())
             flush(stdout)       # the line is in the job log at once (also when the job is killed later)
 
             append_ising_row(resultspath; row_settings..., β, m = ComplexF64(res.m), f = res.cost, iters = res.numfg, timed_out = res.timed_out,
@@ -290,6 +291,8 @@ function warmup(diff, Os, pepsspace, envspace, obs)
     _, state = observe("warmup", 1, Os[1], pepsspace, envspace, obs, false, nothing, Inf, tiny)
     observe("warmup", min(2, length(Os)), Os[min(2, end)], pepsspace, envspace, obs, true, state, Inf, tiny)
     @info "Warm-up for differentiate_environment = $diff took $(round(time() - t0; digits = 1)) s"
+    GC.gc()
+    @info "After the warm-up: " * memory_note()
     return nothing
 end
 
@@ -476,6 +479,7 @@ function main()
     end
     @info "Output directory: $outdir, results file: $resultspath (run = $run)"
     @info "PROFILE = $PROFILE, Threads.nthreads() = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()), VBPEPS_IMPL = $VBPEPS_IMPL"
+    @info memory_info()
     isempty(OVERRIDES) || @info "Changed for this job: β_obs = $β_obs, RUN_BUDGET_S = $RUN_BUDGET_S, MAX_SECONDS_OBS = $MAX_SECONDS_OBS, optimizer_maxiter = $(base_kwargs.optimizer_maxiter), PEPO = $PEPO_KIND"
     # Define the virtual spaces and the observable (:pepskit; :betterpepskit has M = the tensor of σᶻ in the PEPO file)
     pepsspace = ℂ^chipeps

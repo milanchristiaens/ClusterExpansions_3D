@@ -43,6 +43,16 @@ function compare_figure(panels, title; height = 560, titlefontsize = 11)
                 plot_title = title, plot_titlefontsize = titlefontsize, plot_titlevspan = (count(==('\n'), title) + 1) * 2.2 * titlefontsize / height)
 end
 
+# Memory of this Julia process. On 21–22 Nov jobs died of out-of-memory (9.3–11.1 GiB) while the live data was much smaller: on Hortense Julia
+# sees the whole node (Sys.total_memory ≈ 251 GiB), so its garbage collector lets garbage grow far past the job limit. The job scripts therefore pass
+# --heap-size-hint, the compare scripts call GC.gc() after every observation, and we log the memory (memory_info once, memory_note per observation).
+gib_str(x) = string(round(x / 2^30; digits = 2))
+memory_note() = "peak RSS $(gib_str(Sys.maxrss())) GiB, live $(gib_str(Base.gc_live_bytes())) GiB"
+function memory_info()
+    hint = try Int(Base.JLOptions().heap_size_hint) catch; 0 end
+    return "Julia memory: Sys.total_memory = $(gib_str(Sys.total_memory())) GiB, heap-size hint = " * (hint > 0 ? "$(gib_str(hint)) GiB" : "none")
+end
+
 # A per-job setting of the compare scripts: the value of the environment variable name, read with parse_one, or default if it is not set
 env_override(name, parse_one, default) = haskey(ENV, name) ? parse_one(ENV[name]) : default
 # A β list of such a setting: separated by _ (qsub -v splits at commas), also , ; or spaces; sorted

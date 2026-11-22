@@ -34,8 +34,8 @@ include(joinpath(@__DIR__, "..", "tools", "pepo_files.jl"))
 const D_CES = [2, 3]                                    # one file per D_CE (laptop D_CE = 2 for vbPEPS, D_CE = 3 for CTMRG3D and on Hortense)
 const BETAS = [0.15, 0.19, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # β_ALL of the compare scripts and the β of their pilots (increasing, multiples of Δβ_iter)
 const EXACT_FILE = true                                 # also the file of the exact PEPOs (bond dimension 2; only g = 0)
-const CHIPEPS = [2, 3, 4, 5, 6, 7]                      # χpeps of the start states of the vbPEPS (4: the decompositions benchmark; 5, 6: since 21 Nov,
-                                                        # χpeps = 5 as in Sander's CE + vbPEPS figure; 7: since 22 Nov, the vbPEPS pilot (16,7,2))
+const CHIPEPS = [2, 3, 4, 5, 6, 7, 8]                   # χpeps of the start states of the vbPEPS (4: the decompositions benchmark; 5, 6: since 21 Nov,
+                                                        # χpeps = 5 as in Sander's CE + vbPEPS figure; 7, 8: since 22 Nov, the vbPEPS pilots (·,7,2), (·,8,2))
 const Δβ_iter = 0.005
 const J = 1.0
 const g = 0.0
