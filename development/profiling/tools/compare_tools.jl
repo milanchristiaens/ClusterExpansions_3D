@@ -3,6 +3,7 @@
 # and ising_model_3D_CE_vbPEPS_profiling.jl (check_cost).
 # Contents:
 #   βc_ising, check_cost            sanity check of the cost f of a vbPEPS optimization
+#   check_m                         sanity check of m below βc (both compare scripts)
 #   compare_dims, compare_cases, compare_run_dir
 #                                   the parts of a profile that the Hortense job scripts choose with environment variables (CE_COMPARE_DIMS, _CASES, _RUN)
 #   FlushingLogger                  log messages flushed at once (installed on include; the Hortense job log of a killed job stays complete)
@@ -102,6 +103,16 @@ function check_cost(β, f; reference = false)
         f < fref - 0.01 && push!(msgs, "f more than 0.01 below the high-temperature series: unphysical")
     end
     return (isempty(msgs) ? "ok" : "CHECK: " * join(msgs, " / ")) * ref
+end
+
+# Check of m (22 Nov): below βc the exact m is 0, so a clearly nonzero m there means that the symmetry was broken by the finite bond dimensions
+# (as the Bethe approximation, which orders from β ≈ 0.203) or by a failed optimization ((24,8,2) of the vbPEPS gave m = −0.25 at β = 0.21
+# with an f that passed check_cost). Returns "" or "; CHECK: ..." (appended to the check text). window and tol are our choice.
+const M_CHECK_WINDOW = 0.01      # only β ≤ βc − M_CHECK_WINDOW (near βc a small m of a finite system is expected)
+const M_CHECK_TOL = 0.05         # |m| above this counts as clearly nonzero
+function check_m(β, m; βc = βc_ising, window = M_CHECK_WINDOW, tol = M_CHECK_TOL)
+    (β <= βc - window && abs(m) > tol) || return ""
+    return "; CHECK: |m| = $(round(abs(m); sigdigits = 3)) below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization"
 end
 
 # ======================================================================================================================

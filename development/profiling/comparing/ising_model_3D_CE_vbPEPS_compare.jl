@@ -244,7 +244,7 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
             # Total time of this observation (optimisation + observation)
             dt = time() - t_obs
             # See if f is realistic
-            check = check_cost(β, res.cost) * (warm && !use_warm ? "; cold start near βc" : "")
+            check = check_cost(β, res.cost) * (warm && !use_warm ? "; cold start near βc" : "") * check_m(β, real(res.m))   # check_m: m below βc
             GC.gc()             # the garbage of the optimization (see memory_note in ../tools/compare_tools.jl); after dt, so not in the timings
 
             # Print/save result

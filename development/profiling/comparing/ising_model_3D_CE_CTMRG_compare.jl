@@ -149,6 +149,10 @@ const INIT = :random              # cold start: :ones (all ones), :random (rando
 const BETA_C = 0.2217             # warm cases: a β closer than WARM_WINDOW to BETA_C starts cold (nothing = always warm)
 const WARM_WINDOW = 0.02
 const INIT_SEED = 1               # seed of the random numbers of the cold start
+# Warm-up (compilation, not measured) at these small bond dimensions instead of the real ones (22 Nov): the code compiles the same way, but at
+# (16,6,2) the warm-up at the real dimensions took 73 min on 6 cores (4 calls, each with the two full sliced contractions of the observable)
+const WARMUP_CHIENV = 4
+const WARMUP_CHIPEPS = 2
 
 # Time limits (seconds), the same rule as in ising_model_3D_CE_vbPEPS_compare.jl; for a comparison at the same core budget (cores × RUN_BUDGET_S) is the same in both
 const RUN_BUDGET_S = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.run_budget_s)           # per case (laptop 1 h on 4 cores; Hortense 64 core hours / HPC_CORES = the core budget of vbPEPS; Inf = no budget)
@@ -253,7 +257,7 @@ function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace,
             t_ctm, t_con = section_s(to, SEC_OBS, SEC_CTMRG) - tc0, contract_s(to) - tk0
             m = expvals[1]
             conv = ϵs[end] < ctm_tol
-            check = (conv ? "ok" : timed_out ? "timed out" : "not converged") * (warm && !use_warm ? "; cold start near βc" : "")
+            check = (conv ? "ok" : timed_out ? "timed out" : "not converged") * (warm && !use_warm ? "; cold start near βc" : "") * check_m(β, real(m))   # check_m: m below βc
             GC.gc()             # the garbage of the contraction (see memory_note in ../tools/compare_tools.jl); after dt, so not in the timings
 
             println("OBS $name β = $(round(β; digits = 3)): m = $m, $(length(ϵs)) iterations, ϵ = $(ϵs[end]), CTMRG $(round(t_ctm; digits = 1)) s ",
@@ -284,9 +288,11 @@ function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace,
     return nothing
 end
 
-# Warm-up: compile everything with tiny settings (not measured, nothing is saved): both projector kinds, cold and warm start
+# Warm-up: compile everything with tiny settings (not measured, nothing is saved): both projector kinds, cold and warm start, at the small bond
+# dimensions WARMUP_CHIENV, WARMUP_CHIPEPS (at most the real ones). The first real sliced contraction may still compile a few slicing methods (seconds).
 function warmup(Os, pepsspace, envspace, obs)
-    @info "Warm-up (compilation): not measured"
+    pepsspace, envspace = ℂ^min(WARMUP_CHIPEPS, dim(pepsspace)), ℂ^min(WARMUP_CHIENV, dim(envspace))
+    @info "Warm-up (compilation): not measured, at χenv = $(dim(envspace)), χpeps = $(dim(pepsspace))"
     t0 = time()
     for projectors in unique(c[2] for c in CASES)
         tiny = (; ctm_kwargs(projectors, :auto)..., miniter = 0, maxiter = 1)
