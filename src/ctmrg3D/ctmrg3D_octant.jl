@@ -114,7 +114,7 @@ end
 function _check_cube_symmetric(o)
     D = size(o, 1)
     all(==(D), size(o)) || throw(ArgumentError("CTMRG3DOctant needs the same bond dimension on all six legs of O, got $(size(o))"))
-    for perm in ((2, 1, 3, 5, 4, 6), (3, 2, 1, 6, 5, 4), (1, 3, 2, 4, 6, 5), (4, 5, 6, 1, 2, 3))
+    for perm in ((2, 1, 3, 5, 4, 6), (3, 2, 1, 6, 5, 4), (1, 3, 2, 4, 6, 5), (4, 5, 6, 1, 2, 3), (4, 2, 3, 1, 5, 6))
         norm(permutedims(o, perm) - o) <= 1e-8 * norm(o) ||
             throw(ArgumentError("CTMRG3DOctant needs an O that is symmetric under the cube rotations and reflections (rot_invariance = true)"))
     end
