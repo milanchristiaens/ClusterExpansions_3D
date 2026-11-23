@@ -1,14 +1,5 @@
-# Check of the gradient of the variational boundary PEPS (src/bpeps/bpeps_main.jl, bpeps_helpers.jl): prints numbers, tests nothing.
-#
-# For a small 3D Ising PEPO (the one of test/bpeps.jl: g = 2, β = 0.2, D = 2) and a PEPS ψ1 = ψ0 + 0.1 η away from the optimum it compares, for one random direction η2:
-#   * <grad, η2>                  the gradient of the cost function with fixed environments (differentiate_environment = false),
-#   * FD frozen                   a finite difference of the cost with the environments kept fixed (must agree with <grad, η2>: tests the automatic differentiation),
-#   * FD total                    a finite difference of the TOTAL cost, the environments re-converged for every ψ (differs from <grad, η2> by the omitted
-#                                 environment term d(cost)/d(env) * d(env)/d(psi)).
-# The CTMRG convergence error is printed for every environment: the finite difference of the total cost only means something when it is small (< 1e-8).
-# Warning: in this small case the 2D CTMRG converges to different fixed points for different random starting environments, so the loop at the end repeats the whole comparison for several seeds.
-#
-# To compare other environment dimensions, change the tuple of χenv values in the for loop at the end (every value costs several minutes).
+# Check of the gradient of the variational boundary PEPS (bpeps_main.jl, bpeps_helpers.jl) for a small 3D Ising PEPO (the one of test/bpeps.jl): <grad, η2> against finite differences of the cost with fixed environments (FD frozen) and of the total cost (FD total); prints numbers, tests nothing.
+# The 2D CTMRG converges to different fixed points for different random environments here, so the loop at the end repeats the comparison for several seeds.
 using TensorKit
 using TensorKitTensors
 using MPSKit

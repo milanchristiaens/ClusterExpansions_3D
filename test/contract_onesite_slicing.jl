@@ -6,8 +6,7 @@ using Test, TensorKit, LinearAlgebra
 using ClusterExpansions
 const CE = ClusterExpansions
 
-# Reference results of the cost model at (χenv, χpeps, D) = (8, 5, 5), calculated independently with the python model of the old cotengra script:
-# name, tree, cuts, flops, peak (elements), slices
+# Reference results of the cost model at (χenv, χpeps, D) = (8, 5, 5), calculated independently with a python model: name, tree, cuts, flops, peak (elements), slices
 const SELFCHECK = [
     ("current (no cuts)", CE.TREE_CURRENT, Symbol[], 2272611776512.0, 2601600000.0, 1.0),
     ("current + L5", CE.TREE_CURRENT, Symbol[:L5], 2276800938496.0, 326600000.0, 8.0),

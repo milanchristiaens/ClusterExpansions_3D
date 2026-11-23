@@ -1,32 +1,5 @@
-# Dense against block-Krylov decompositions in the CTMRG of the fast vbPEPS (BetterPEPSKit), for a broad grid of bond dimensions: for which
-# (χenv, χpeps, D_CE) is the dense eigh of the enlarged corner faster than the block-Krylov decomposition? The answer chooses FAST_KWARGS.sparse of
-# ising_model_3D_CE_vbPEPS_compare.jl.
-#
-# Only the CTMRG is timed, not the whole vbPEPS (no LBFGS, no gradient). For every set (χenv, χpeps, D_CE) of the grid (CHIENVS × CHIPEPS × D_CES):
-#   ψ = the start state of the vbPEPS for χpeps (power method, from the PEPO file of stage 1 at β = BETA, symmetrized and normalized as in the vbPEPS),
-#   O = the 2D PEPO tensor for D_CE (same file); the two networks of the vbPEPS: ⟨ψ|ψ⟩ (bond χpeps²) and ⟨ψ|O|ψ⟩ (bond χpeps²·D_CE).
-#   For each network: one start environment (grown from a product state, with the dense decomposition), the same for both methods. Per method
-#   (dense = sparse false, block-Krylov = sparse true; the C4v CTMRG and gap cut of the vbPEPS compare): WARM_STEPS CTMRG steps that are not timed,
-#   then TIMED_STEPS steps in one leading_boundary call (as one cost-function call of the vbPEPS does), timed: t_step = time / TIMED_STEPS.
-#   The contractions of a step are the same for both methods, so the difference is the decomposition. n = χenv · bond is the size of the enlarged
-#   corner that is decomposed (dense: cost ∝ n³; block-Krylov: only the χenv largest values, warm-started from the previous step).
-#
-# Every set is appended to results.csv of a new run folder data/checks/check_vbpeps_decompositions/<date>_<time>/
-# immediately, so a crash halfway keeps the earlier sets; the run folder also gets settings.txt and (made afterwards with REPLOT_DIR, see below) the plot
-# decompositions_times.png: time per CTMRG step against the sets (sorted by n), left ⟨ψ|ψ⟩, right ⟨ψ|O|ψ⟩, one colour per method. The summary
-# prints per network and set the faster method and from which n on block-Krylov is always faster.
-#
-# Two environments (as the vbPEPS compare):
-#   the runs:  the BetterPEPSKit environment (see development/fast_vbpeps/README.md), which has no Plots; at the end we print the summary:
-#                  julia -t 4 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_decompositions.jl
-#   the plot:  REPLOT_DIR = the run folder, in the ClusterExpansions environment:
-#                  julia --project=. development/checks/vbpeps/check_vbpeps_decompositions.jl
-#              or development/checks/plot_checks.jl (23 Nov; the newest run folder, the same plot plus the speed-up against n, no setting to edit)
-# The PEPO file (development/initial_pepos/ising_model_3D_CE_pepos.jl) must have BETA, the D_CE of D_CES and start states for the χpeps of CHIPEPS.
-# PROFILE (see the settings) chooses the threads: :laptop (julia -t 4, as the vbPEPS compare on the laptop) or :hpc (Hortense, julia -t 2 on 2 cores,
-# as the full vbPEPS run there; development/hpc/job_decompositions.pbs sets CE_DECOMP_PROFILE), so that the result holds for the compare run on that
-# machine. On Hortense this benchmark runs after the dimension pilot and before the timing (see the Hortense guide).
-# Compilation happens once per process, in a warm-up with the first set (not measured).
+# Dense against block-Krylov decompositions in the CTMRG of the fast vbPEPS (BetterPEPSKit) for a broad grid of (χenv, χpeps, D_CE): the answer chooses FAST_KWARGS.sparse of ising_model_3D_CE_vbPEPS_compare.jl.
+# Only the CTMRG is timed (WARM_STEPS untimed, then TIMED_STEPS steps per network and method); every set is appended to results.csv of a new run folder in data/checks/check_vbpeps_decompositions/.
 
 ENV["GKSwstype"] = "nul"     # no plot window: the plots are only saved to a file
 
@@ -46,7 +19,6 @@ else
     using Plots.PlotMeasures
 end
 
-# The helper functions of this script, in development/profiling/tools/:
 #   pepo_files.jl:  load_bpeps_tensors, unpack_tensor (the PEPO file of stage 1)
 include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 

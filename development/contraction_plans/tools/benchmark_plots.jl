@@ -1,16 +1,5 @@
-# benchmark_plots.jl -- the data side and the plots of development/contraction_plans/benchmark_contract_onesite.jl.
-#
-# Contents:
-#   Where the data goes        data/contraction_plans/<script name>/<run>/   (bench_run_dir, existing_bench_run_dir)
-#   results.csv of a run       BENCH_HEADER, append_bench_row, read_bench_results   (ONE row per timed plan, all repetitions in it)
-#   Plots                      make_times_figure (ONE figure, 2 panels, one figure per allocator),
-#                              make_allocator_figure (reuse against manual, per RAM budget), make_ram_figure (time against RAM budget, per dimension set),
-#                              make_slices_figure (time against the number of slices, the plans of one RAM budget, all dimension sets; 23 Nov),
-#                              make_env_figure (mock against real environment; only from several run folders, see plot_benchmarks.jl; 23 Nov),
-#                              and the list BENCH_PLOTS that make_all_benchmark_plots runs at the end of the benchmark
-#
-# More plots can be made/added later.
-# `rows` are the rows of results.csv (see read_bench_results): they have the fields below, so a new plot never needs the benchmark to run again.
+# The data side (run folders, results.csv) and the plots of benchmark_contract_onesite.jl.
+# `rows` are the rows of results.csv (see read_bench_results), so a new plot never needs the benchmark to run again.
 
 using Plots
 using Plots.PlotMeasures # for `mm`, used for plot margins
@@ -41,19 +30,8 @@ end
 # ======================================================================================================================
 # results.csv: one row per timed plan
 # ======================================================================================================================
-# Columns:
-#   chi_env, chi_peps, D   bond dimensions (the mock environment is random and dense with these dimensions)
-#   name, source           e.g. TREE_CURRENT#1, TREE_CURRENT: name of the plan and its contraction source
-#   ram_gib                RAM budget (GiB) that the plan was made for (column ram_gib of the plan file)
-#   cuts, slices           cut bonds (separated by a space) and number of slices
-#   flops, peak_gib        cost model: flops of the whole sliced contraction (all slices) and peak of the intermediates in GiB
-#   times_s                wall time of EVERY repetition, separated by a space (no compilation in it)
-#   tracked_gib, rss_gib, pool_gib   peak of all temporaries (TrackingAllocator), peak resident memory of the child, memory asked from the OS by the reuse allocator
-#   allocator, env, blas_threads    allocator ("reuse" / "manual"), environment ("mock seed 1" / "real"), BLAS threads
-#   env_fp                 fingerprint of the environment: sum of the norms of the 27 tensors + M (equal for all plans of the same dimensions if they saw the SAME environment)
-#   value_re, value_im     value of the contraction
-#   check                  relative deviation of the value from the first plan of the same dimensions
-#   note                   empty, or why the plan was skipped / failed (then times_s is empty)
+# The columns are the fields of BENCH_HEADER: bond dimensions, plan name/source/RAM budget/cuts/slices, cost model, the times of every repetition, memory (GiB),
+# allocator, environment, BLAS threads, fingerprint and value of the contraction, check, and note (empty, or why the plan was skipped or failed)
 const BENCH_HEADER = "chi_env,chi_peps,D,name,source,ram_gib,cuts,slices,flops,peak_gib,times_s,tracked_gib,rss_gib,pool_gib,allocator,env,blas_threads,env_fp,value_re,value_im,check,note"
 const BENCH_NCOLS = 22
 
@@ -93,8 +71,7 @@ end
 # Helpers for the plots
 # ======================================================================================================================
 # The four kinds of trees, always in this order with this colour and marker (the colour follows the tree, never its rank).
-# Colours: the first four slots of the categorical palette of the dataviz skill; markers differ too, so that the plots can also be read without colour.
-# (If a 5th kind is ever added, it needs a marker and colour here.)
+# Markers differ too, so that the plots can also be read without colour (a 5th kind needs a marker and colour here)
 const TREE_KINDS = [
     (; kind = "opt-true", color = "#eb6834", marker = :utriangle),
     (; kind = "ome-flops", color = "#1baf7a", marker = :diamond),
@@ -326,7 +303,7 @@ function make_ram_figure(rows)
 end
 
 # Time against the number of slices, for the plans made for ONE RAM budget (ram; 3 GiB is the budget of all compare runs), all dimension sets in one figure
-# (23 Nov). One colour per dimension set, one marker per tree. Left: the time itself (log-log). Right: the time divided by the time of the plan with the
+# One colour per dimension set, one marker per tree. Left: the time itself (log-log). Right: the time divided by the time of the plan with the
 # fewest slices of the same set (and, for a draw, the fastest of those), so that the sets lie on top of each other and the trend within a set is visible.
 # The numbers printed by plot_benchmarks.jl: the slope of log(time) against log(slices) per set. nothing if there is no plan of this budget.
 function make_slices_figure(rows; ram = 3)
@@ -381,7 +358,7 @@ function slices_slopes(rows; ram = 3)
     return out
 end
 
-# Mock against real environment (23 Nov): the same plan (dimensions, tree, cuts, RAM budget) and allocator timed once on the mock environment and once on
+# Mock against real environment: the same plan (dimensions, tree, cuts, RAM budget) and allocator timed once on the mock environment and once on
 # the real one (the :validate profile runs both, in two run folders: plot_benchmarks.jl pools the run folders). One row of two panels per allocator:
 #   left:  time of every plan, filled marker = mock, open marker = real (same colour and marker = same tree), a thin line joins the two of one plan
 #   right: (t_real - t_mock) / t_mock in percent (> 0: the real environment is slower)

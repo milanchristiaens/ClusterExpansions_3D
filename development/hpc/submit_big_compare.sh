@@ -1,11 +1,6 @@
 #!/bin/bash
-# submit_big_compare.sh -- the big compare run of 23 Nov 2026: four methods at nine β, one job each, all with the EXACT PEPO (bond dimension 2,
-# CE_COMPARE_PEPO=exact), cold start, in parallel. A job takes its dims, β, iteration cap and time budget from the environment variables of the compare
-# scripts (qsub -v; the β are separated by _), so no script has to change for another choice: only the settings below.
-# Run it on the login node, in the clone folder, after `git pull`, after `module swap cluster/dodrio/cpu_milan_rhel9`, when job_pepos.pbs has
-# finished (the PEPO files need the β 0.195, 0.205, 0.215 of this package) and when ClusterExpansions is precompiled (the three CTMRG3D jobs):
-#   bash development/hpc/submit_big_compare.sh
-# Results: data/profiling/comparing/ising_model_3D_CE_results.csv (rows of run = <date>_<time>_big_<name>), the plots and settings in the run folders.
+# Submits the four big compare jobs (CTMRG3D :svd, :oblique, octant and vbPEPS) at once, each with its own dimensions, on the exact PEPO with cold start.
+# A job gets its dims, β, iteration cap and time budget as environment variables of the compare scripts.
 set -euo pipefail
 
 # ---------------- settings ----------------

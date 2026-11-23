@@ -1,17 +1,5 @@
-# Test of the variational boundary PEPS (src/bpeps/bpeps_main.jl, bpeps_helpers.jl) on a small 3D Ising PEPO (cluster expansion, g = 2, β = 0.2, D = 2).
-# Small sizes only (χpeps = 3, χenv = 8); most of the time is compilation.
-# What is tested:
-#   (1) the layout of the 2D PEPO tensor,
-#   (2) the gradient of the cost function with fixed environments (differentiate_environment = false, the default) agrees with a finite difference of the cost
-#       with frozen environments: this tests the automatic differentiation of the network values. It does NOT test that this gradient is the gradient of the
-#       total cost (environments re-converged): that is only approximately true, see the comment in bpeps_helpers.jl (section 4) and
-#       development/checks/vbpeps/check_bpeps_gradient.jl, which prints the numbers,
-#   (3) bpeps_optimize runs (a few LBFGS steps, from the power-method start and warm-started), gives a finite cost, a finite observable, and the nested "bPEPS: ..." timers.
-# NOT tested here (a test that the LBFGS cost decreases would be unreliable): the 2D CTMRG of this small case converges to different fixed points for different random
-# starting environments, so the cost function is not reproducible enough for such a test.
-# Opt-in (not run by default, needs a long first Zygote compile): the gradient through the CTMRG (differentiate_environment = true),
-#   switch it on with the environment variable BPEPS_TEST_FIXEDPOINT=1, for example in PowerShell: $env:BPEPS_TEST_FIXEDPOINT = "1"
-# NOT tested here: the C4vCTMRG + RotateReflect path (needs a C4v symmetric PEPO), Z2-graded spaces.
+# Test of the variational boundary PEPS (src/bpeps/) on a small 3D Ising PEPO (g = 2, β = 0.2, D = 2, χpeps = 3, χenv = 8): the layout of the 2D PEPO tensor, the gradient with fixed environments against a finite difference, and bpeps_optimize (a few LBFGS steps, finite cost, finite observable, nested timers).
+# The gradient through the CTMRG (differentiate_environment = true) is opt-in with the environment variable BPEPS_TEST_FIXEDPOINT=1, because its first Zygote compile is long; the C4vCTMRG + RotateReflect path and Z2-graded spaces are not tested.
 using TensorKit
 using TensorKitTensors
 using MPSKit
@@ -106,8 +94,7 @@ end
     @test isfinite(m2)
 end
 
-# Opt-in: the gradient through the CTMRG (PEPSKit.hook_pullback, fixed-point gradient). The first call compiles the pullback of a CTMRG iteration with Zygote:
-# minutes on a normal machine (I could not finish it in my sandbox, so this test has never been run by me and its tolerance is a guess).
+# Opt-in: the gradient through the CTMRG (PEPSKit.hook_pullback, fixed-point gradient). The first call compiles the pullback of a CTMRG iteration with Zygote (minutes on a normal machine); its tolerance is a guess.
 if get(ENV, "BPEPS_TEST_FIXEDPOINT", "0") == "1"
     @testset "gradient through the CTMRG (differentiate_environment = true)" begin
         env2 = CE.bpeps_initial_environment(alg, InfiniteSquareNetwork(ψ1), ℂ^χenv)
@@ -118,7 +105,7 @@ if get(ENV, "BPEPS_TEST_FIXEDPOINT", "0") == "1"
         costfun_full = CE.generate_bpeps_cost_function(T; boundary_alg = alg, gradient_alg, differentiate_environment = true)
         E_full, g_full = costfun_full((ψ1, deepcopy(env2), deepcopy(env3)))
         @test E_full ≈ E atol = 1.0e-6                                    # same cost (same converged environments)
-        # the full gradient differs from the one with fixed environments by the environment term (4 % and 42 % of the directional derivative in my sandbox tests, χenv = 8)
+        # the full gradient differs from the one with fixed environments by the environment term
         @test norm(g_full - g_fixed) < 1.0 * norm(g_fixed)
     end
 end

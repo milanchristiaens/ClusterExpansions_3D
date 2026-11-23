@@ -1,11 +1,5 @@
 # Reference values for the magnetization of the classical 3D Ising model (simple cubic, J = 1, no field), to plot next to CTMRG3D / vbPEPS / BP.
-# Included by ising_3d_mc.jl and by the plot scripts (include, no package needed apart from DelimitedFiles from the standard library).
-#   talapov_blote_magnetization(β): fit of Talapov & Blöte, J. Phys. A 29, 5727 (1996), arXiv:cond-mat/9603013, to Wolff Monte Carlo data up to L = 256
-#       extrapolated to L = ∞:  m = t^0.32694109 (1.6919045 - 0.34357731 t^0.50842026 - 0.42572366 t),  t = 1 - βc/β,  βc = 0.2216544
-#       The paper states the fit for 0.0005 < t < 0.26, i.e. β < 0.2995; above that it is an extrapolation (we return it anyway, flagged by the plot scripts).
-#       m = 0 for β ≤ βc.
-#   bethe_ising_magnetization(β; z = 6) lives in src (belief_propagation3D.jl).
-#   read_mc_csv(path): the Monte Carlo results written by ising_3d_mc.jl.
+# talapov_blote_magnetization(β) is the fit of Talapov & Blöte, J. Phys. A 29, 5727 (1996), extrapolated to L = ∞ (stated for β < 0.2995, above that an extrapolation).
 using DelimitedFiles
 
 const ISING3D_BETAC = 0.2216544
@@ -27,9 +21,7 @@ end
 
 const ISING3D_MC_CSV = joinpath(@__DIR__, "..", "..", "data", "reference", "ising3d_mc.csv")
 
-# Reference lines in a plot of |m| against β (needs Plots and ClusterExpansions in the including script):
-#   Talapov-Blöte (L = ∞ MC fit; dashed beyond its fit range β < 0.2995), Bethe lattice z = 6 (= BP on the exact Ising network),
-#   and the MC points of ising_3d_mc.jl (largest L in the csv, with error bars) if that file exists.
+# Reference lines in a plot of |m| against β: Talapov-Blöte (dashed beyond its fit range), Bethe lattice z = 6 and the MC points of ising_3d_mc.jl (largest L)
 function plot_ising_references!(p, βmin, βmax; mc_csv = ISING3D_MC_CSV)
     βs = range(βmin, βmax; length = 400)
     b1 = [β for β in βs if β <= TB_RANGE_BETA_MAX]; b2 = [β for β in βs if β >= TB_RANGE_BETA_MAX]

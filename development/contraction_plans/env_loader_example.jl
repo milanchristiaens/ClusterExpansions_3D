@@ -1,11 +1,7 @@
 # This is a template that needs changing, the goal is to run the contraction benchmark on a 'real' environment and PEPO O and obs M tensor
 
-# Used by development/contraction_plans/benchmark_contract_onesite.jl: set   const ENV_LOADER = "development/contraction_plans/env_loader_example.jl"   in the SETTINGS block of that file,
-# then run   julia +1.12 -O1 -t 8 --project=. development/contraction_plans/benchmark_contract_onesite.jl
-# The benchmark then times the plans of the plan file that were made for the bond dimensions of THIS environment on the real tensors,
-# and writes the times into the column time_real_s (the plans for other dimensions are skipped).
-# It must define `onesite_load_env()` returning `(env, M)`: a converged-or-not CTMRG3D environment and the tensor M (6 legs, (0,6))
-# that `contract_onesite(env, M)` contracts it with.  
+# Used by benchmark_contract_onesite.jl (set ENV_LOADER to this file in its settings): it times the plans for the dimensions of this environment on the real tensors.
+# It must define `onesite_load_env()` returning `(env, M)`: a CTMRG3D environment and the tensor M (6 legs, (0,6)) that `contract_onesite(env, M)` contracts it with.
 
 # We have to fill in: The PEPO source O and the spaces, and the env gets build automatically
 

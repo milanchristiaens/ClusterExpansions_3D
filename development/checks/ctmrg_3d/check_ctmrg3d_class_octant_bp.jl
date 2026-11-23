@@ -1,12 +1,5 @@
-# Checks of the CTMRG3D additions of 20-21 Nov 2026 (prints numbers; every part says what it should give):
-#   :class   class_projectors = true is exact without truncation: a random PEPO (D = 2, real and complex), W, S, D updates (west_updates of rot_ud_90 /
-#            rot_ns_90), :svd P = 0 and :oblique must give the same m after every update; the original projectors (class_projectors = false) do not.
-#   :octant  CTMRG3DOctant: (1) symmetry of c, e, a and of the 27-tensor copy under rot_ud_90, rot_ns_90, rot_we_90 (≈ 1e-16), (2) exactness: from the same
-#            3×3×3 start, one octant step without truncation and one full ctmrgstep of CTMRG3D without truncation (class :svd P = 0, west_updates = 1,
-#            six exact one-sided updates) describe the same 5×5×5 cube: equal m (sandbox: 0.266665790505 both). Contractions sliced to RAM_GIB.
-#   :bp      bp_fixed_point on the exact Ising network against the analytic bethe_ising_magnetization (6 digits), and on the CE PEPO of the PEPO file.
-# Run from the clone (PowerShell): julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_class_octant_bp.jl
-# Time in the sandbox (2 cores): :class about 8 min, :octant about 7 min, :bp about 1 min (D_CE 2 and 3 PEPO files needed for :bp).
+# Checks of the CTMRG3D class projectors (:class), of CTMRG3DOctant (:octant) and of the belief propagation fixed point (:bp); prints numbers, every part says what it should give.
+# The parts that run are set by PARTS (CE_CHECK_PARTS).
 using ClusterExpansions, TensorKit, MatrixAlgebraKit, MPSKit, LinearAlgebra, Random, Printf, JLD2
 const CE = ClusterExpansions
 include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))

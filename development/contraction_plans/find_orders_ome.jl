@@ -1,22 +1,5 @@
-# Finds contraction orders + cuts ("plans") for the 27-tensor contraction contract_onesite with OMEinsumContractionOrders.jl,
-# and appends them to the plan file that contract_onesite_auto reads (default: src/utility/onesite_plans.csv).
-# Nothing here is needed while we run a simulation: it only prepares the csv.
-#
-# WHAT IT DOES
-#   For every combination (chi_env, chi_peps, D) of DEFAULT_DIMS it asks
-#   OMEinsumContractionOrders for contraction trees: the tree with the fewest flops ("ome-flops") and N_TARGETS trees that also have to keep their largest
-#   tensor small ("ome-scN"). For every RAM budget in RAM_GIBS (memory computed for elements of type ELTYPE, written into the column eltype):
-#   - OMEinsumContractionOrders slices each of these trees itself and rearranges the tree around the cut bonds (TreeSASlicer), so that it fits the budget
-#     ("ome-flops-sliced", "ome-scN-sliced"; settings SLICE_NTRIALS, SLICE_NITERS);
-#   - the two fixed trees of the code, TREE_CURRENT and OPT_TRUE, get their best cut bonds by brute force (all sets of at most KMAX bonds).
-#   A candidate that does not fit the budget is dropped, and the same plan for several budgets is kept once (for the smallest budget).
-#   Every combination is planned one after the other and its rows are appended to the plan file right away, so a long list that is interrupted keeps what was done.
-#   Rows that are already in the file are never changed (so measured times are never lost); if you change the settings, the new plans are added next to the old ones.
-#   The search is random (TreeSA): another run can give other trees.
-#
-# NEXT STEP: development/contraction_plans/benchmark_contract_onesite.jl times every plan that has no time yet and writes the times back into the plan file.
-#   The predicted flops are only a PROXY for the wall time (a tree with fewer flops can run slower, we saw ~1.4x for OPT_TRUE).
-#   contract_onesite_auto only uses a plan of the file if it has a measured time (select = :measured, the default).
+# Finds contraction orders and cuts ("plans") for the 27-tensor contraction contract_onesite with OMEinsumContractionOrders.jl and appends them to the plan file that contract_onesite_auto reads (default: src/utility/onesite_plans.csv).
+# Rows that are already in the file are never changed; benchmark_contract_onesite.jl then times every plan that has no time yet.
 
 using ClusterExpansions
 const CE = ClusterExpansions
@@ -34,7 +17,7 @@ const DEFAULT_DIMS = [
     (10, 5, 3),     # 7.9%
     (11, 5, 3),     # 13.8%   laptop (CTMRG3D compare, profile :laptop)
     (12, 5, 3),     # 23.1%
-    # Hortense: the candidates of the CTMRG3D dimension pilot (development/hpc/job_ctmrg_compare.pbs)
+    # Hortense: the candidates of the CTMRG3D dimension pilot
     (16, 5, 3),
     (16, 6, 3),
     (18, 6, 3),

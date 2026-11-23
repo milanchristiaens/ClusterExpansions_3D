@@ -1,7 +1,5 @@
-# Verbose run of the 3D Ising model (g = 0) with CE + VARIATIONAL BOUNDARY PEPS (vbPEPS): prints the cluster expansion, the truncation,
-# the LBFGS iterations, the 2D CTMRG runs of the boundary PEPS and the timer tree.
+# Verbose run of the 3D Ising model (g = 0) with CE + variational boundary PEPS (vbPEPS): prints the cluster expansion, the truncation, the LBFGS iterations, the 2D CTMRG runs and the timer tree.
 # Use this to watch how the optimization of the boundary PEPS converges.
-# The same run with CTMRG3D: ising_model_3D_CE_CTMRG_verbosity.jl (this folder).
 
 using TensorKit
 using TensorKitTensors

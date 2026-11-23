@@ -1,16 +1,6 @@
 #!/bin/bash
-# job_plans.pbs -- everything that writes the plan file on Hortense, one after the other in ONE job (the plan file must not be written by two jobs):
-# 1) find_orders_ome.jl for the sets that have no plans yet (NEW_DIMS): it appends their plans to src/utility/onesite_plans.csv;
-# 2) the benchmark (profile :hpc of benchmark_contract_onesite.jl: the 3 GiB plans of (8,4,3), (10,5,3), (12,4,3), (12,5,3), (16,4,3), (16,5,3),
-#    (16,6,3), (18,6,3), mock environment (round 1 showed mock = real to within 3-5 %), reuse allocator). Plans that already have a Hortense time are
-#    not timed again.
-# Cores: the benchmark runs TWO Julia processes at a time (the parent and the child that contracts one plan); Slurm counts both. On 4 cores the run of
-# 20 Nov was killed at 7.4 GiB, so we take 8 cores (about 14.9 GiB) for the memory, but time with THREADS Julia and BLAS threads (the number of cores
-# of the CTMRG3D jobs), so that the times hold for those jobs.
-# Estimate (not measured): 1) under 1 h, 2) 6-15 h (mostly (16,6,3) and (18,6,3); the benchmark stops starting plans after max_hours = 16).
-# Submit on the login node, in the clone folder:
-#   module swap cluster/dodrio/cpu_milan_rhel9
-#   qsub development/hpc/job_plans.pbs
+# Everything that writes the plan file on Hortense, one after the other in one job: find_orders_ome.jl for the new dimension sets, then the plan benchmark.
+# It uses 8 cores for the memory, but times the plans with THREADS Julia and BLAS threads, the cores of the CTMRG3D jobs.
 #PBS -A starting_2026_079
 #PBS -N plans
 #PBS -l nodes=1:ppn=8

@@ -1,7 +1,5 @@
-# timing_plots.jl -- all timing plots: the 5 plots of one run (make_timing_plots) and the grouped plots of the compare scripts (one bar per case).
-#
-# They work on "rows": named tuples with the fields path, name, depth, ncalls, total, self, alloc_MiB, pct_parent,
-# either straight from timer_rows(to) or read back from a CSV file with read_timer_csv (no rerun needed). timer_rows and read_timer_csv are in timing_io.jl.
+# All timing plots: the 5 plots of one run (make_timing_plots) and the grouped plots of the compare scripts (one bar per case).
+# They work on "rows" (named tuples with path, name, depth, ncalls, total, self, alloc_MiB, pct_parent), from timer_rows(to) or read back from a CSV file with read_timer_csv (both in timing_io.jl).
 
 using Plots
 using Plots.PlotMeasures # for `mm`, used for plot margins

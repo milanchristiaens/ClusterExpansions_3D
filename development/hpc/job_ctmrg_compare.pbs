@@ -1,10 +1,6 @@
 #!/bin/bash
-# job_ctmrg_compare.pbs -- ising_model_3D_CE_CTMRG_compare.jl on CORES Hortense cores (default 5, about 9.3 GiB; 4 cores were too few for (16,6,3)
-# on 21 Nov): one job of a pilot or of a full run.
-# Submitted by submit_compare.sh, which passes PROFILE (pilot or hpc), DIMS (one candidate of the pilot), CASE (one case of the full run) and RUN
-# (the run folder; the parallel jobs of one full run share it) with qsub -v, and sets the walltime. The same core budget per case as the vbPEPS
-# compare: 64 core hours (5 cores × 12.8 h, 4 × 16 h; the time limits are in the profiles of the script, from CORES). The PEPOs come from the PEPO file
-# (job_pepos.pbs first).
+# Runs ising_model_3D_CE_CTMRG_compare.jl on CORES Hortense cores: one job of a pilot or of a full run, as submitted by submit_compare.sh.
+# Needs the PEPO files (job_pepos.pbs first).
 #PBS -A starting_2026_079
 #PBS -N ctmrg_compare
 #PBS -l nodes=1:ppn=5
@@ -22,8 +18,8 @@ export CE_COMPARE_CORES=$JULIA_THREADS
 [ -n "${DIMS:-}" ] && export CE_COMPARE_DIMS=$DIMS
 [ -n "${CASE:-}" ] && export CE_COMPARE_CASES=$CASE
 [ -n "${RUN:-}" ] && export CE_COMPARE_RUN=$RUN
-# Julia's garbage collector aims at HEAP_FRACTION of the job memory (cores × 1.86 GiB) through --heap-size-hint: Julia sees the whole node (251 GiB)
-# and otherwise lets garbage grow past the job limit (22 Nov: out of memory at 11.1 GiB on 6 cores while the live data was much smaller)
+# Julia's garbage collector aims at HEAP_FRACTION of the job memory (cores × 1.86 GiB) through --heap-size-hint: Julia sees the whole node
+# and would otherwise let garbage grow past the job limit
 HEAP_FRACTION=${HEAP_FRACTION:-0.6}
 HEAP_HINT_MIB=$(awk -v c=$JULIA_THREADS -v f=$HEAP_FRACTION 'BEGIN { printf "%d", c * 1.86 * 1024 * f }')
 cd "$REPO"

@@ -1,34 +1,23 @@
 #!/bin/bash
-# submit_compare.sh -- submits the Hortense jobs of the compare scripts (job_ctmrg_compare.pbs, job_vbpeps_compare.pbs); round 2 of the Hortense guide is
-# PROFILE=hpc (round 1 has its own script, submit_round1.sh, which also submits the pilots and the timing). Run it on the login node,
-# in the clone folder, after `module swap cluster/dodrio/cpu_milan_rhel9`, and after the PEPO files exist (job_pepos.pbs):
-#   bash development/hpc/submit_compare.sh
-#   PROFILE=pilot:  dimension pilot, one job per candidate in CTMRG_DIMS / VBPEPS_DIMS (each in its own run folder <date>_<time>_pilot_<dims>);
-#                   vbPEPS with betterpepskit on VBPEPS_CORES cores
-#   PROFILE=timing: vbPEPS only, fast against slow at the dims of the full run (HPC_DIMS in the vbPEPS compare script, set them to the choice of the
-#                   pilot before): one job per implementation (pepskit, betterpepskit), both on VBPEPS_TIMING_CORES cores (pepskit needs them for its memory)
-#   PROFILE=hpc:    full run, one job per case (10 CTMRG3D, 2 vbPEPS), all in parallel and in one run folder <date>_<time> (vbPEPS: <date>_<time>_<impl>);
-#                   the dimensions are the dims of the hpc profile in the compare scripts (set them to the choice of the pilot before)
+# Submits the Hortense jobs of the compare scripts (job_ctmrg_compare.pbs, job_vbpeps_compare.pbs) for PROFILE pilot, timing or hpc.
 # All settings are below; nothing is given on the command line.
 set -euo pipefail
 
 # ---------------- settings ----------------
-PROFILE=hpc                                     # pilot, timing or hpc (round 2: hpc)
+PROFILE=hpc                                     # pilot, timing or hpc
 ALGORITHMS="ctmrg vbpeps"                       # which compare scripts get jobs: ctmrg and/or vbpeps (timing: only vbpeps)
-CTMRG_DIMS="16_6_3"                             # pilot candidates (chienv_chipeps_DCE) of CTMRG3D (16_5_3 fits on 5 cores; 18_6_3 dropped: out of memory on 5, 21 Nov)
-CTMRG_CORES=5                                   # cores of every CTMRG3D job (4 were too few for (16,6,3), 21 Nov); 64 core hours per case = 12.8 h on 5
+CTMRG_DIMS="16_6_3"                             # pilot candidates (chienv_chipeps_DCE) of CTMRG3D
+CTMRG_CORES=5                                   # cores of every CTMRG3D job
 VBPEPS_DIMS="27_3_3 32_3_3 36_3_3"              # pilot candidates of vbPEPS
 CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1 octant_cold octant_warm"
-# other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_cold_auto svdclass_warm_auto obliqueclass_cold_auto obliqueclass_warm_auto
-#   svdclass_cold_w1 svdclass_warm_w1 obliqueclass_cold_w1 obliqueclass_warm_w1 (class_projectors = true); octant_cold octant_warm (CTMRG3DOctant) are in the run
+# other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_* and obliqueclass_* (class_projectors = true)
 VBPEPS_CASES="false_cold false_warm"
 VBPEPS_IMPLS_TIMING="pepskit betterpepskit"     # timing: pepskit = PEPSKit 0.8.1 (slow reference), betterpepskit = fast
 VBPEPS_IMPL_RUN="betterpepskit"                 # implementation of vbPEPS in the pilot and the full run
-VBPEPS_CORES=3                                  # cores of the vbPEPS pilot and full run (2 cores ran out of memory in round 1); the same number as
-                                                # julia_threads in the profiles :pilot and :hpc of the vbPEPS compare script (and its budgets: 64 core h)
+VBPEPS_CORES=3                                  # cores of the vbPEPS pilot and full run (the julia_threads of the profiles :pilot and :hpc)
 VBPEPS_TIMING_CORES=4                           # cores of both implementations in the timing
 PEPO_D_CE=3                                     # the PEPO file of this D_CE must exist (data/pepos/, job_pepos.pbs)
-# walltimes: budget of the profile + compilation + plots, with some margin (only the time really used is charged)
+# walltimes: budget of the profile + compilation + plots, with some margin
 CTMRG_WALLTIME_PILOT=03:30:00                   # 2 cases × 80 min + compilation
 CTMRG_WALLTIME_HPC=14:30:00                     # 12.8 h (5 cores) + compilation; 17:30:00 for 4 cores, 12:30:00 for 6
 VBPEPS_WALLTIME_PILOT=03:00:00                  # 2 cases × 1 h + compilation (betterpepskit: no Zygote compilation of the CTMRG)

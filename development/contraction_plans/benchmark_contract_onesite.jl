@@ -1,44 +1,5 @@
-# This file times the plans of the plan file src/utility/onesite_plans.csv (written by development/contraction_plans/find_orders_ome.jl): the sliced contraction
-# `contract_onesite` with a given contraction tree and given cut bonds.
-# Each plan runs in a FRESH child julia process, so that `Sys.maxrss()` (peak resident memory) belongs to that plan only and no allocator pool survives.
-#
-# USAGE (PowerShell, nothing else running; -O1 keeps the just-in-time compilation of the 27-tensor kernels shorter than the default -O2, -t 6 = 6 threads):
-#   julia +1.12 -O1 -t 6 --project=. development/contraction_plans/benchmark_contract_onesite.jl
-#
-# WHAT IT DOES
-#   The plans of the plan file that were made for a RAM budget of at most RAM_BUDGET_GIB (column ram_gib), for the dimensions in DIMS (nothing = all dimensions of the file)
-#   and for the element type of the environment (column eltype: T_MOCK for the mock environment, the element type of the real environment otherwise) are timed, one after the other, grouped by dimensions (chi_env, chi_peps, D), the cheapest dimensions first. Every plan is timed REPS times after the warm-up.
-#   - ENV_LOADER = nothing (default): the contraction runs on a MOCK environment, random dense tensors of element type T_MOCK with the dimensions of the plan.
-#     ALL plans of the same dimensions get EXACTLY the same mock environment (every child builds it with the same MOCK_SEED; the benchmark checks this, see below).
-#     The time goes into the column time_s of the plan file.
-#   - ENV_LOADER = "development/contraction_plans/env_loader_example.jl": the contraction runs on the REAL environment that this file builds (see env_loader_example.jl). Only the plans
-#     for the dimensions of that environment are timed (the others are skipped). The time goes into the column time_real_s.
-#   - ENV_LOADER = "development/contraction_plans/env_loader_pepo.jl" (the profile :validate with CE_BENCH_ENV=real): a REAL environment for EVERY set of DIMS (a few
-#     CTMRG3D iterations of the Ising PEPO of the PEPO file, built once per set and saved; see env_loader_pepo.jl). The time goes into the column time_real_s.
-#     contract_onesite_auto uses time_real_s if it is filled, otherwise time_s.
-#   The six columns rss_gib, pool_gib, sys_s, minflt, check, note belong to the real run if there is one, otherwise to the mock run.
-#   ALLOCATORS: the allocator is part of the identity of a plan-file row (a plan can have a reuse row and a manual row, each with its own times).
-#     Before timing, every plan of the file gets a row for every allocator in ALLOCATORS that it does not have yet (same tree and cuts, no time:
-#     CE.onesite_add_allocator_copies), and the rows of all allocators in ALLOCATORS are timed, each with its own allocator. A plan is named SOURCE#N, where N
-#     counts the rows of the same dimensions AND allocator, so the reuse row and the manual row of a plan usually have the same name (results.csv has the allocator).
-#
-#   WHERE THE RESULTS GO
-#   - data/contraction_plans/benchmark_contract_onesite/<date>_<time>/   (a new run folder for every run, see tools/benchmark_plots.jl):
-#       results.csv   one row per plan with ALL repetitions (written after every plan, so nothing is lost if the run stops)
-#       settings.txt  the settings of the run
-#       the plots     made at the end of the run by tools/benchmark_plots.jl (BENCH_PLOTS); a new plot is a new function + one entry there
-#   - the plan file: after every plan the FASTEST repetition is written into the time column of its row (CE.onesite_update_plans), also if the row had a time already.
-#
-#   STOPPING AND CONTINUING (RUN_DIR)
-#   - A run that stops (Ctrl-C, switched off, ...) keeps everything that was done. Set RUN_DIR to the name of its run folder (for example "20261111_2230") and start again:
-#     the plans that are in its results.csv are skipped, the rest is timed, and the plots are made from ALL rows of the folder. If nothing is left to time, only the plots are made again.
-#   - MAX_HOURS: no group of dimensions is STARTED if the time that is still left is predicted to be too short for ALL its plans (the prediction is made from the plans that are
-#     done: the first group always runs). A group that is skipped is printed. Plans of one group are never split, so that the mean of a group (right panel of the plot) is complete.
-#   A plan that needs more memory than is free (model estimate > 85 % of the free memory) is not run (unless FORCE): it gets a `note` and stays without a time.
-#
-#   A time is only valid for the machine, the allocator, the element type and the number of (BLAS) threads that it was measured with: the column machine of the plan file
-#   says where a time was measured (see PROFILE), and contract_onesite_auto(...; machine) only uses the times of its machine and the plans of its element type. A plan that was made for a large RAM budget (column ram_gib) is only worth timing on a machine
-#   that has that much memory.
+# Times the plans of the plan file src/utility/onesite_plans.csv (written by find_orders_ome.jl): the sliced contraction `contract_onesite` with a given contraction tree and given cut bonds, each plan in a fresh child julia process.
+# The times go into the plan file and, with all repetitions, into results.csv of a new run folder in data/contraction_plans/benchmark_contract_onesite/, together with the plots.
 
 using Printf, LinearAlgebra
 using TensorKit
@@ -48,18 +9,12 @@ const CE = ClusterExpansions
 # ======================================================================================================================
 # SETTINGS:
 # ======================================================================================================================
-# PROFILE: :laptop (default), :hpc or :validate (the Hortense job scripts set CE_BENCH_PROFILE: development/hpc/job_plans.pbs runs :validate (mock, real)
-#          and then :hpc, development/hpc/job_benchmark_plans.pbs runs only :hpc).
-#   :laptop  the (11, 5, 3) plans for RAM budgets up to 3 GiB, both allocators (machine "laptop")
-#   :hpc     Hortense (4 cores, about 7.4 GiB, as the CTMRG3D compare runs there), the 3 GiB plans of the candidates of the CTMRG3D dimension pilot,
-#            reuse allocator (the one contract_onesite_auto uses by default)
-#   :validate Hortense (4 cores), the check of the benchmark method before the full :hpc benchmark: three sets (low, medium, high), only the current tree and the
-#            ome-sc tree (our fastest), both allocators; run once with the mock environment and once with the real one (CE_BENCH_ENV=real, env_loader_pepo.jl),
-#            so all four combinations (mock/real × reuse/manual) are timed (no job script of its own: set CE_BENCH_PROFILE=validate, and CE_BENCH_ENV=real for the second run). If mock and reuse give the same
-#            picture as real and manual, the full benchmark uses only reuse and mock.
-#   sources: the tree kinds that are timed (tree_kind of tools/benchmark_plots.jl: "current", "opt-true", "ome-flops", "ome-sc"); nothing = all
-# The time of a row goes into the plan file together with the machine (column machine). Both machines time 3 GiB plans, but of other dimensions
-# (dims), so the times of the two machines do not overwrite each other in the one plan file: do not time the Hortense dimensions on the laptop.
+# PROFILE: :laptop (default), :hpc or :validate (the Hortense job scripts set CE_BENCH_PROFILE)
+#   :laptop    the (11, 5, 3) plans for RAM budgets up to 3 GiB, both allocators (machine "laptop")
+#   :hpc       Hortense (4 cores), the 3 GiB plans of the candidates of the CTMRG3D dimension pilot, reuse allocator (the default of contract_onesite_auto)
+#   :validate  Hortense (4 cores), three sets (low, medium, high), only the current tree and the ome-sc tree, both allocators; run once with the mock and once with the real environment (CE_BENCH_ENV=real)
+#   sources: the tree kinds that are timed ("current", "opt-true", "ome-flops", "ome-sc"); nothing = all
+# The time of a row goes into the plan file together with the machine (column machine), so the times of the two machines do not overwrite each other
 const PROFILE = Symbol(get(ENV, "CE_BENCH_PROFILE", "laptop"))
 const PROFILES = Dict(
     :laptop   => (; machine = "laptop",   ram_min = 0, ram_max = 3, dims = [(11, 5, 3)],                         allocators = ["reuse", "manual"], max_hours = 10,
@@ -74,8 +29,7 @@ haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_BENCH_PROFILE)
 const P = PROFILES[PROFILE]
 const MACHINE    = P.machine                  # written into the column machine of every row that gets a time
 const PLAN_FILE  = CE.ONESITE_PLAN_FILE   # plan file that is read and updated (the same constant is in find_orders_ome.jl)
-# nothing = mock environment (time_s); "development/contraction_plans/env_loader_example.jl" or "development/contraction_plans/env_loader_pepo.jl" = real environment
-# (time_real_s). The job script of the validation sets CE_BENCH_ENV=real for env_loader_pepo.jl.
+# nothing = mock environment (time_s); env_loader_example.jl or env_loader_pepo.jl in development/contraction_plans = real environment (time_real_s)
 const ENV_LOADER = get(ENV, "CE_BENCH_ENV", "mock") == "real" ? "development/contraction_plans/env_loader_pepo.jl" : nothing
 const MOCK_SEED  = 1                      # seed of the random mock environment: the same seed gives the same environment for all plans of the same dimensions
 const T_MOCK     = Float64                # element type of the mock environment (the CE Ising PEPOs are Float64); only the plans made for it (column eltype) are timed
@@ -96,16 +50,12 @@ const RUN_DIR    = P.run_dir              # "" = new run folder; the NAME of an 
 any(==("--child"), ARGS) || include(joinpath(@__DIR__, "tools", "benchmark_plots.jl"))
 
 # WHAT IS MEASURED (the plan file gets: time, machine, rss_gib, pool_gib, sys_s, minflt, check, note; results.csv has all repetitions and more)
-#   time         wall time of the whole sliced contraction (fastest of REPS, GC.gc() before each); NOT including compilation
-#   model_*      cost model (dense; src/utility/contract_onesite_slicing.jl): flops relative to current unsliced, peak of the intermediates in GiB (screen only)
-#   tracked_gib  peak bytes of ALL temporaries of one slice (TrackingAllocator; includes TensorKit's permutation copies) (screen only)
-#   rss_gib      peak resident memory of the whole child process (Sys.maxrss) -- includes Julia/TensorKit (~1-2 GiB), the environment
-#                tensors, garbage not yet collected, and (reuse) the pool
-#   pool_gib     reuse only: what the ReuseAllocator asked the OS for at its high-water mark
-#   sys_s, minflt  Linux only (/proc/self/stat): system CPU seconds and minor page faults per repetition (empty on Windows)
-#   check        relative deviation of the value from the first plan of the same dimensions in this run (so 0 for that first plan; should be ~1e-10 or smaller)
-#   env_fp       fingerprint of the environment (sum of the norms of the 27 tensors + M): must be the same number for all plans of the same dimensions
-# NOTE on the repetitions: the allocator is created once per plan, so repetition 1 also pays for growing the pool of the reuse allocator, and later repetitions reuse it.
+#   time: wall time of the whole sliced contraction (fastest of REPS, GC.gc() before each), without compilation
+#   model_*, tracked_gib: cost model and peak bytes of the temporaries of one slice (screen only)
+#   rss_gib: peak resident memory of the whole child process; pool_gib: what the ReuseAllocator asked the OS for at its high-water mark
+#   sys_s, minflt: Linux only, system CPU seconds and minor page faults per repetition
+#   check: relative deviation of the value from the first plan of the same dimensions; env_fp: fingerprint of the environment (the same for all plans of the same dimensions)
+# The allocator is created once per plan, so repetition 1 also pays for growing the pool of the reuse allocator
 
 # The absolute path of the plan file (also used as the key of the plan cache, so the update and the reads agree)
 const PLAN_PATH = abspath(PLAN_FILE)
@@ -559,7 +509,7 @@ function main()
                 planfile_update(key, (note = res.msg,), envkind)
                 continue
             end
-            # a complete line without any timing (seen on Hortense, 20 Nov: it stopped the whole run at minimum(res.times)): we keep it as a failed row
+            # a complete line without any timing : we keep it as a failed row
             if isempty(res.times)
                 msg = "failed: the child returned no timings"
                 addrow(norow(msg))

@@ -1,24 +1,11 @@
-# plot_checks.jl -- figures of the checks (23 Nov), next to the data of each check:
-#   check_ctmrg3d_init          <run>_init.png             |m| per start (:ones, :random seeds, :nishino_okunishi seeds) and projector kind, one panel per (set, β)
-#                               <run>_init_iterations.png  the CTMRG3D iterations of the same runs (which start converges fastest), + a table on screen
-#   check_ctmrg3d_exponent      <run>_exponent.png         |m| against β per P (with the Talapov-Blöte and Bethe references) and the ϵ history per (β, P)
-#   check_vbpeps_diff_env       <run>_diff_env.png         f and |m| against β, with (true) and without (false) the extra AD term, per set
-#   check_ctmrg3d_west_updates  <run>_west_updates.png     per (set, projectors): |m|, CTMRG3D time and West updates against β, one line per west_updates
-#   check_vbpeps_decompositions <run folder>/decompositions_times.png   time per CTMRG step, dense against block-Krylov, per set (sorted by n), + speed-up
-#   vbPEPS implementations      data/checks/vbpeps_implementations/pepskit_vs_betterpepskit.png   PEPSKit (Sander's vbPEPS) against BetterPEPSKit
-#                               (Lander's): time per cost-function call, |m| and the differences |Δf|, |Δm| of the same observation (rows of the results file of
-#                               the vbPEPS compare, profiles :timing and :equal), + a table on screen
-# The figures of the contraction benchmark: development/contraction_plans/plot_benchmarks.jl.
-# The checks themselves run on Hortense or the laptop; copy their data to the laptop first (Hortense guide, section 21).
-# Run in the ClusterExpansions environment (Plots from the default environment):
-#   PowerShell, clone folder:  julia +1.12 --project=. development/checks/plot_checks.jl
+# The figures of the checks, written next to the data of each check: the init, exponent, west_updates, diff_env and decompositions checks, and PEPSKit against BetterPEPSKit (vbPEPS compare).
+# The checks themselves run on Hortense or the laptop; copy their data to the laptop first.
 
 using ClusterExpansions, Plots, Printf
 using Plots.PlotMeasures
 
-# Settings: the data per check, in data/checks/<check>/ (CSV files; for check_vbpeps_decompositions run folders):
-#   "all"  = every CSV file of the check together (23 Nov: a later run can add β or sets to an earlier one); a run that was repeated (the same set, β,
-#            projectors, start, ... ; see RUN_KEYS) counts once, with the row of the newest file. Only files with the header of the newest file are used.
+# Settings: the data per check, in data/checks/<check>/:
+#   "all"  = every CSV file of the check together (a run that was repeated counts once, with the row of the newest file; see RUN_KEYS)
 #   ""     = only the newest file (decompositions: the newest run folder); "<name>" = that file (without .csv) or run folder; nothing = skip this check
 # The figures are written next to the newest file that was used.
 const RUNS = Dict(
@@ -38,7 +25,7 @@ const RUN_KEYS = Dict(
 )
 const DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "data", "checks"))
 # The results file of the vbPEPS compare with the rows of PEPSKit and BetterPEPSKit (profiles :timing and :equal); nothing = skip this figure.
-# The Hortense rows: copy the Hortense results file to the laptop under another name (it must not overwrite the laptop file), see the Hortense guide.
+# The Hortense rows: copy the Hortense results file to the laptop under another name (it must not overwrite the laptop file).
 const IMPL_RESULTS = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling", "comparing", "hortense_results.csv"))
 
 include(joinpath(@__DIR__, "..", "reference", "ising_3d_reference.jl"))   # talapov_blote_magnetization, plot_ising_references!
@@ -85,10 +72,8 @@ end
 setname(r) = "($(r["chi_env"]),$(r["chi_peps"]),$(r["D_CE"]))"
 pngpath(csv, tag) = replace(csv, r"\.csv$" => "_$tag.png")
 
-# check_ctmrg3d_init: one panel per (set, β), x = the start (ones, random, Nishino-Okunishi): every seed is a point at the same x (xcross = not
-# converged within the iteration cap, or timed out), and a bar from the smallest to the largest seed; :svd left, :oblique right of each start.
-# Two figures: <run>_init.png (y = |m|, with the Bethe and Talapov-Blöte values) and <run>_init_iterations.png (y = the CTMRG3D iterations: the
-# contraction of m is the same for every start, so the iterations decide which start is fastest).
+# check_ctmrg3d_init: one panel per (set, β), x = the start (ones, random, Nishino-Okunishi): every seed is a point, a bar from the smallest to the largest seed; :svd left, :oblique right of each start.
+# Two figures: <run>_init.png (y = |m|, with the Bethe and Talapov-Blöte values) and <run>_init_iterations.png (y = the CTMRG3D iterations).
 const INIT_STARTS = [("ones", "ones"), ("random", "random"), ("nishino_okunishi", "N-O")]   # N-O = Nishino-Okunishi
 
 function init_figure(rows, yof, ylabel; references = false)
@@ -218,7 +203,7 @@ function plot_west_updates(rows, csv)
     savefig(fig, pngpath(csv, "west_updates")); @info "wrote $(pngpath(csv, "west_updates"))"
 end
 
-# The CSV of the old version of the check (before 23 Nov: column case, own PEPOs with D = 4 and 5)
+# The CSV of the old version of the check (column case, own PEPOs with D = 4 and 5)
 function plot_west_updates_old(rows, csv)
     p1 = plot(; title = "|m|", xlabel = "β", legend = :topleft); p2 = plot(; title = "CTMRG time (s)", xlabel = "β", legend = false)
     p3 = plot(; title = "partial_ctmrgstep calls", xlabel = "β", legend = false)
@@ -275,10 +260,8 @@ function plot_decompositions(rows, csv)
     savefig(fig, out); @info "wrote $out"
 end
 
-# PEPSKit (Sander's vbPEPS, slow) against BetterPEPSKit (Lander's, fast): the vbPEPS rows of the results file whose setting ends in the implementation
-# (fixed_env_pepskit, fixed_env_betterpepskit, optionally followed by _exactpepo). Two rows are the same observation if case, setting (without the
-# implementation), β and (χenv, χpeps, D_CE) agree; per implementation we take the newest run. Panels: time per cost-function call, |m| of both, and
-# |Δf|, |Δ|m|| between them (equal values within the LBFGS tolerance are expected only if both converged: an open marker = at least one timed out).
+# PEPSKit (Sander's vbPEPS, slow) against BetterPEPSKit (Lander's, fast): the vbPEPS rows of the results file whose setting ends in the implementation (fixed_env_pepskit, fixed_env_betterpepskit).
+# Two rows are the same observation if case, setting, β and (χenv, χpeps, D_CE) agree; per implementation we take the newest run. Panels: time per cost-function call, |m| of both, and |Δf|, |Δ|m|| between them.
 function plot_vbpeps_impls(path)
     isfile(path) || return @warn "vbPEPS implementations: no file $path (copy the Hortense results file first, see the Hortense guide)"
     lines = filter(!isempty, readlines(path))

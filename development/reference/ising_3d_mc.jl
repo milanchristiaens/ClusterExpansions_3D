@@ -1,11 +1,5 @@
 # Monte Carlo reference for the classical 3D Ising model (simple cubic L×L×L, periodic, J = 1, no field) with the Wolff cluster algorithm.
-# For every L and β we measure ⟨|m|⟩ (with a binning error), sqrt⟨m²⟩ and the energy per site ⟨e⟩ = -⟨Σ_bonds s_i s_j⟩ / N, and append them to OUT_CSV.
-# Finite L: above βc, ⟨|m|⟩ approaches the infinite-volume m quickly (corrections ~ exp(-L/ξ)); near and below βc it stays finite (~ L^(-β/ν) at βc,
-# ~ L^(-3/2) in the disordered phase), so compare several L, and use the Talapov-Blöte fit (ising_3d_reference.jl) as the L = ∞ curve.
-# Run from the clone (any environment, only the standard library is used):
-#   PowerShell:  julia development/reference/ising_3d_mc.jl
-#   Settings below, or environment variables (MC_LS, MC_BETAS, MC_SWEEPS, MC_THERM, MC_SEED, MC_OUT). Lists may be separated by , or _ (qsub -v splits at
-#   commas, so on Hortense: qsub -v "MC_BETAS=0.15_0.225" ...).
+# For every L and β we measure ⟨|m|⟩ (with a binning error), sqrt⟨m²⟩ and the energy per site, and append them to OUT_CSV.
 using Random, Printf, Statistics
 include(joinpath(@__DIR__, "ising_3d_reference.jl"))
 

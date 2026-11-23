@@ -1,17 +1,5 @@
-# Check of the extra term of the gradient of the vbPEPS (Lander's, BetterPEPSKit, development/fast_vbpeps/fast_bpeps.jl): differentiate_environment = false
-# (fixed environment, the gradient without d(cost)/d(env) · d(env)/d(ψ)) against true (with it, ImplicitGradient). Prints numbers, tests nothing.
-#
-#     dE/dψ = ∂E/∂ψ + (∂E/∂env)(∂env/∂ψ)
-#
-# Theoretically for C4V and Oh symmetry, both should give the same result, while differentiate_environment = false should cost way less resources, so the compare runs use false only.
-# For every set in DIMS and every β in BETAS: one cold observation for each value of differentiate_environment, from the same start state (the PEPO file)
-# and seed, with the settings of the vbPEPS compare (FAST_KWARGS there: block-Krylov decompositions (sparse = true, since 20 Nov), C4v CTMRG). Per run we store the cost f, m = <σᶻ>,
-# the number of cost-function calls, timed out or not, and the time; the summary prints |Δf| and |Δm| between false and true.
-# Error source: contraction/optimization (3) only.
-#
-# Runs in the BetterPEPSKit environment (no Plots); every run is appended to data/checks/check_vbpeps_diff_env/<date>_<time>.csv immediately.
-#   julia +1.12 -t 2 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_diff_env.jl
-# On Hortense: development/hpc/job_check_vbpeps_diff_env.pbs (2 cores, round 1 of the Hortense guide). Needs the PEPO file (stage 1).
+# Check of the extra term of the gradient of the vbPEPS (fast_bpeps.jl): differentiate_environment = false (fixed environment) against true (with d(cost)/d(env) · d(env)/d(ψ), ImplicitGradient); prints numbers, tests nothing.
+# For every set in DIMS and every β in BETAS it runs one cold observation for each value from the same start state, and stores f, m, the number of cost-function calls and the time.
 
 using TensorKit
 using TimerOutputs
@@ -30,8 +18,7 @@ include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 # Settings
 # ======================================================================================================================
 const DIMS = [(14, 2, 2), (27, 3, 3)]    # (χenv, χpeps, D_CE): the laptop set of the vbPEPS compare and the smallest Hortense candidate
-# The β (must be in the PEPO file); a job can choose others with the environment variable CE_CHECK_BETAS, separated by _ (for example 0.2_0.22;
-# 23 Nov). plot_checks.jl puts the CSV files of all runs of this check together, so a later run only needs the new β.
+# The β (must be in the PEPO file); a job can choose others with the environment variable CE_CHECK_BETAS, separated by _ (for example 0.2_0.22)
 const BETAS = haskey(ENV, "CE_CHECK_BETAS") ? parse.(Float64, split(ENV["CE_CHECK_BETAS"], "_")) : [0.19, 0.21, 0.25]   # default: below, near and above βc ≈ 0.2217
 const DIFFS = [false, true]              # differentiate_environment
 const MAX_SECONDS = 3600.0               # time limit of one observation (s)

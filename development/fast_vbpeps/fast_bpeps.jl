@@ -1,28 +1,5 @@
-# ======================================================================================================================
-# fast_bpeps.jl -- the vbPEPS of ClusterExpansions (src/bpeps/) on BetterPEPSKit (Lander Burgelman e.a., not registered): the FAST variant of the vbPEPS
-# compare (VBPEPS_IMPL = :betterpepskit in development/profiling/comparing/ising_model_3D_CE_vbPEPS_compare.jl).
-#
-# Why a separate environment: BetterPEPSKit needs MPSKit 0.14 and OptimKit 0.5 (and its own TensorKit 0.17.3 and KrylovKit 0.10.5 in its vendor/ folder),
-# ClusterExpansions needs MPSKit 0.13 and OptimKit 0.4 (and PEPSKit 0.8.1): the two cannot be loaded in one environment. So this file runs in its own
-# environment (development/fast_vbpeps/Project.toml), without ClusterExpansions: the scripts that include it (the vbPEPS compare and the dense against
-# block-Krylov benchmark, run with julia --project=development/fast_vbpeps) read the 2D tensors O and M and the start states from the PEPO file that
-# ClusterExpansions made (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl), as plain arrays (unpack_tensor below).
-# The states of the warm start stay in this module (STATES).
-#
-# The algorithm is that of bpeps_optimize / bpeps_observables of ClusterExpansions (src/bpeps/bpeps_main.jl, bpeps_helpers.jl; same names, same
-# keywords, same start state, same cost function, retraction and transport), with the improvements of Lander's example.jl / tools.jl:
-#   1. sparse = true: block-Krylov decompositions (decomposition_alg = (; alg = :BlockKrylov)) in the CTMRG instead of the dense eigh/SVD of the
-#      enlarged corners, warm-started from the previous CTMRG step; every network (<psi|psi>, <psi|O|psi>) keeps its own copy of the algorithm, because
-#      the block-Krylov decompositions keep their state between calls
-#   2. truncgap: the cut of the spectrum is moved to a gap within truncation_window of χenv: a cut through a pair of nearly degenerate values makes the
-#      CTMRG and the gradient fail (values split by up to truncation_rtol count as one)
-#   3. differentiate_environment = true: ImplicitGradient (hand-written vector-Jacobian products of the converged environment, solved with GMRES) instead of
-#      FixedPointGradient (Zygote through a CTMRG step, Arnoldi): no Zygote compilation of the CTMRG step, and GMRES instead of the Arnoldi solver that
-#      gave wrong gradients in our tests of 10 Nov
-#   4. the start environment is grown from a product state by steps of the CTMRG itself, with its cut moved to a gap (initialize_environment),
-#      instead of a random C4v environment, which can converge to a wrong fixed point
-# Timers: the same section names as bpeps_main.jl (prefix "bPEPS: "), in the timer FastBpeps.to.
-# ======================================================================================================================
+# The vbPEPS of ClusterExpansions (src/bpeps/) on BetterPEPSKit (Lander Burgelman e.a.), the fast variant of the vbPEPS compare (VBPEPS_IMPL = :betterpepskit). It runs in its own environment (development/fast_vbpeps), because BetterPEPSKit needs MPSKit 0.14 and OptimKit 0.5,
+# and reads O, M and the start states from the PEPO file as plain arrays. It is the algorithm of bpeps_optimize / bpeps_observables with the improvements of Lander's example.jl: block-Krylov decompositions, a gap cut of the spectrum (truncgap), ImplicitGradient with GMRES and a start environment grown from a product state.
 module FastBpeps
 
 using LinearAlgebra
@@ -156,13 +133,9 @@ function generate_bpeps_cost_function(T::InfinitePEPO; symmetrization = nothing,
 end
 
 # ----------------------------------------------------------------------------------------------------------------------
-# bpeps_optimize / bpeps_observables: as in bpeps_main.jl, with O the 2D PEPO tensor O[(DOWN, UP); (N, E, S, W)] (bpeps_pepo_tensor of ClusterExpansions,
-# from the PEPO file of stage 1) and the start state psi0 (an InfinitePEPS) given, because the power method of the start state is a function of
-# ClusterExpansions (bpeps_initial_state). Keywords as bpeps_optimize, and:
-#   boundary_c4v:      true = C4vCTMRG (needs a C4v symmetric PEPO), false = SimultaneousCTMRG; symmetric: RotateReflect() symmetrization or none
-#   sparse:            block-Krylov decompositions (true) or dense eigh/SVD (false)
-#   truncation_window, truncation_rtol: the gap cut of truncgap (see the top of this file)
-#   gradient_tol, gradient_maxiter, gradient_krylovdim: of the GMRES solver of ImplicitGradient
+# bpeps_optimize / bpeps_observables: as in bpeps_main.jl, with O the 2D PEPO tensor (bpeps_pepo_tensor of ClusterExpansions) and the start state psi0 (an InfinitePEPS) given, because its power method is a function of ClusterExpansions.
+# Keywords as bpeps_optimize, and: boundary_c4v (C4vCTMRG, or SimultaneousCTMRG), symmetric (RotateReflect() or none), sparse (block-Krylov or dense decompositions),
+# truncation_window and truncation_rtol (the gap cut of truncgap), gradient_tol, gradient_maxiter and gradient_krylovdim (the GMRES solver of ImplicitGradient)
 # ----------------------------------------------------------------------------------------------------------------------
 struct BpepsTimeLimit <: Exception end
 

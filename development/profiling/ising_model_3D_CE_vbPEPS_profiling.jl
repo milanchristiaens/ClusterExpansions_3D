@@ -1,22 +1,5 @@
-# Profiling of the 3D Ising simulation with CE + VARIATIONAL BOUNDARY PEPS (vbPEPS) (g = 0), the counterpart of ising_model_3D_CE_CTMRG_profiling.jl (CE + CTMRG3D).
-# Comparing several settings or algorithms: comparing/.
-#
-# Same physics, same β grid, same cluster-expansion (CE) time evolution and the same timers/plots as ising_model_3D_CE_CTMRG_profiling.jl;
-# the only difference is the observable: instead of MPSKit.expectation_value (CTMRG3D, 27 tensors) every observation is
-# bpeps_expectation_value (src/bpeps/bpeps_main.jl): LBFGS optimization of a boundary PEPS with a 2D CTMRG of PEPSKit, then the observable.
-# The nested timers of the vbPEPS part are called "bPEPS: ..." (initial state, LBFGS > cost function > n2 / n3 leading_boundary (the two 2D CTMRG contractions), forward pass, backward pass, ...).
-#
-# Where the data goes: a new run folder data/profiling/ising_model_3D_CE_vbPEPS_profiling/<date>_<time>/ (see tools/timing_io.jl).
-# With REPLOT_DIR (see the settings) the plots of an earlier run are made again from its CSV file, without running anything.
-#
-# Settings to decide:
-#   * warm_start: false = every observation starts from the power-method PEPS (like the run script of Sander); true = it starts from the optimized
-#     PEPS and environments of the previous β (faster, but the timing is then not the cost of one independent observation).
-#   * boundary_alg_type / symmetrization: SimultaneousCTMRG + nothing (works for any PEPO) or C4vCTMRG + RotateReflect() (needs a C4v symmetric PEPO,
-#     for example from the CE with symmetry = "Oh"; the CE here uses symmetry = nothing, as in ising_model_3D_CE_CTMRG_profiling.jl).
-#   * the LBFGS settings (bpeps_kwargs):
-#   * differentiate_environment: false (default) = gradient with fixed environments (cheap,);
-#     true = gradient through the CTMRG with hook_pullback (more expensive).
+# Profiling of the 3D Ising simulation with CE + variational boundary PEPS (vbPEPS) (g = 0), the counterpart of ising_model_3D_CE_CTMRG_profiling.jl: same physics, same β grid and the same timers/plots, but every observation is bpeps_expectation_value (LBFGS optimization of a boundary PEPS with a 2D CTMRG of PEPSKit, then the observable).
+# Settings to decide: warm_start (false = every observation starts from the power-method PEPS; true = from the optimized PEPS of the previous β), boundary_alg_type / symmetrization (SimultaneousCTMRG + nothing, or C4vCTMRG + RotateReflect() for a C4v symmetric PEPO) and differentiate_environment (false = gradient with fixed environments, true = through the CTMRG).
 
 using TensorKit
 using TensorKitTensors

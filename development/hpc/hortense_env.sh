@@ -1,5 +1,5 @@
-# hortense_env.sh -- the environment of all our Hortense jobs (VSC Tier-1, partition cpu_milan_rhel9). Sourced by setup_hortense.sh and the job scripts.
-# Everything lives in the project scratch (2 TB): Julia, the package depot and the clone. $HOME on Hortense is only 3 GB.
+# Environment of all Hortense jobs: Julia, the package depot and the clone live in the project scratch, because $HOME is only 3 GB.
+# Sourced by setup_hortense.sh and the job scripts.
 
 export PROJECT=starting_2026_079
 export PROJECT_DIR="$VSC_SCRATCH_PROJECTS_BASE/$PROJECT"
@@ -11,5 +11,5 @@ export PATH="$JULIA_DIR/bin:$PATH"
 
 # Plots without a display
 export GKSwstype=nul
-# BLAS threads before Julia sets them itself (OpenBLAS would otherwise start one thread per core of the WHOLE node, 128); the scripts set their own number
+# BLAS threads, set before Julia sets its own (OpenBLAS would otherwise start one per core of the whole node)
 export OPENBLAS_NUM_THREADS=4

@@ -1,15 +1,5 @@
-# Profiling of the 3D Ising simulation with CE + CTMRG3D (g = 0): where does the time and the memory go?
-# The counterpart with a variational boundary PEPS is ising_model_3D_CE_vbPEPS_profiling.jl (this folder).
-# Comparing several settings or algorithms: comparing/.
-#
-# Same physics and settings as ../../examples/3D/ising_model_3D_CE_vs_SU.jl (CE + CTMRG3D part; the SU part is not profiled here);
-# the differences are: (1) `ClusterExpansions.@timeit to "name" expr` timers from TimerOutputs.jl (the timer `to` lives
-# in the ClusterExpansions module; more timers are placed inside the package code), (2) a small
-# warm-up run so that compilation time is not measured, (3) a timing report, a CSV file and five
-# plots at the end.
-#
-# Where the data goes: a new run folder data/profiling/ising_model_3D_CE_CTMRG_profiling/<date>_<time>/ (see tools/timing_io.jl).
-# With REPLOT_DIR (see the settings) the plots of an earlier run are made again from its CSV file, without running anything.
+# Profiling of the 3D Ising simulation with CE + CTMRG3D (g = 0): where does the time and the memory go? The counterpart with a variational boundary PEPS is ising_model_3D_CE_vbPEPS_profiling.jl.
+# Same physics and settings as ../../examples/3D/ising_model_3D_CE_vs_SU.jl, with timers from TimerOutputs.jl, a warm-up run so that compilation is not measured, a timing report, a CSV file and five plots in a new run folder (with REPLOT_DIR the plots of an earlier run are made again).
 
 using TensorKit
 using TensorKitTensors

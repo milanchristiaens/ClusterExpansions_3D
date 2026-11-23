@@ -1,23 +1,5 @@
-# ======================================================================================================================
-# bpeps_main.jl -- MAIN file of the 3D observables with a VARIATIONAL BOUNDARY PEPS ("bPEPS", "vbpeps")
-#
-# Idea: the 3D PEPO (from the cluster expansion) is a transfer operator in the z-direction. Its dominant "eigenvector" is a 2D PEPS (the boundary PEPS
-# psi, bond dimension χpeps) living on a plane. We do not find it with a power method but VARIATIONALLY: psi maximises the overlap per site
-#       λ3 / λ2 = <psi| O |psi> / <psi|psi>          (cost function  -log|λ3/λ2|, minimised with LBFGS)
-# where both 2D networks (λ2: PEPS-PEPS, λ3: PEPS-PEPO-PEPS) are contracted with a 2D CTMRG of PEPSKit (bond dimension χenv) and the gradient is
-# found with a fixed-point (Arnoldi) gradient through the CTMRG. Afterwards the observables are 2D CTMRG contractions with one PEPO tensor replaced.
-#
-# MAIN ENTRY:  bpeps_expectation_value(PEPO, obss, bpepsspace, envspace; ...)   -- the analogue of MPSKit.expectation_value (CTMRG3D) in ctmrg3D/ctmrg3D_main.jl
-#              (it calls bpeps_optimize and then bpeps_observables, you can also call these two yourself, e.g. to keep the state for a next beta)
-# This file: bpeps_optimize, bpeps_observables, bpeps_expectation_value. They call the functions of the helper file bpeps_helpers.jl (sections 1-6:
-# optimization state, initial environment, timers, cost function, initial state, PEPO tensor), which is included right after this file.
-#
-# Names: the functions have the prefix bpeps_ so that they do not clash with the retract/transport functions of PEPSKit (peps_retract, peps_transport!)
-#
-# Leg convention of the 2D PEPO O (PEPSKit): O[(DOWN, UP); (N, E, S, W)] = the 3D PEPO with its two physical legs traced (twist(PEPO, 2) for fermions);
-# DOWN and UP of the 3D PEPO are the "physical" legs of the 2D problem.
-# Timers: nested timers "bPEPS: ..." write to the timer `to` of ClusterExpansions (see development/profiling/ising_model_3D_CE_vbPEPS_profiling.jl).
-# ======================================================================================================================
+# The 3D observables with a variational boundary PEPS (bPEPS): the 3D PEPO is a transfer operator in the z-direction, whose dominant eigenvector is a 2D PEPS psi (bond dimension χpeps) that we find variationally, by minimising -log|<psi|O|psi> / <psi|psi>| with LBFGS (both 2D networks are contracted with a 2D CTMRG of PEPSKit, the gradient is a fixed-point gradient through the CTMRG).
+# Entry point: bpeps_expectation_value(PEPO, obss, bpepsspace, envspace; ...), the analogue of MPSKit.expectation_value of CTMRG3D (it calls bpeps_optimize and bpeps_observables); the helper functions are in bpeps_helpers.jl. The 2D PEPO is O[(DOWN, UP); (N, E, S, W)], the 3D PEPO with its two physical legs traced.
 
 
 # Thrown by the finalize! callback of bpeps_optimize when max_seconds is exceeded; bpeps_optimize catches it and returns the last LBFGS iterate

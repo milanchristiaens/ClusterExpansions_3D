@@ -1,7 +1,6 @@
 #!/bin/bash
-# job_check_vbpeps_diff_env.pbs -- the check of the extra AD term of the vbPEPS (development/checks/vbpeps/check_vbpeps_diff_env.jl): differentiate_environment
-# false against true, Lander's vbPEPS (BetterPEPSKit environment), (14,2,2) and (27,3,3), β = 0.19, 0.21, 0.25, cold; on 4 Hortense cores (2 cores ran
-# out of memory on 20 Nov; the extra AD term needs more than the compare). Needs the PEPO file (job_pepos.pbs first). Submitted by submit_round1.sh.
+# Check of the extra AD term of the vbPEPS (differentiate_environment false against true) on 4 Hortense cores.
+# Needs the PEPO files (job_pepos.pbs first).
 #PBS -A starting_2026_079
 #PBS -N check_ad
 #PBS -l nodes=1:ppn=4

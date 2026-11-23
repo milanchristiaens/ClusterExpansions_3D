@@ -1,57 +1,6 @@
-# ======================================================================================================================
-# contract_onesite_slicing.jl -- ONE file for everything around the 27-tensor contraction `contract_onesite` of CTMRG3D.
-#
-# MAIN ENTRY:   contract_onesite_auto(env, M; ram_gib, ...)
-#   computes the same number as contract_onesite(env, M), but it picks (a) a contraction order (tree) and (b) a few bonds to "cut"
-#   (= slice) such that the predicted memory fits in `ram_gib`, then runs the slices one after the other.
-#   `contract_onesite_dispatch(env, M, ram_gib)` is what `expectation_value` (ctmrg3D_main.jl) calls: ram_gib = nothing -> plain contract_onesite.
-#
-# IDEA OF SLICING (Gray & Kourtis, Quantum 5, 410 (2021), Sec. 4.7.1): the closed 27-tensor network is a sum over every bond.
-#   Pick a few bonds, split each bond space into n pieces, contract the network once per combination of pieces (each contraction
-#   sees the cut bonds with the small piece space) and add the scalars.  The peak memory of the big intermediates drops by about the
-#   product of the n's; the flops stay close to the original.  The slices run one after the other (serial, single process).
-#
-# WHAT HAPPENS INSIDE contract_onesite_auto
-#   1. d = the 54 bond dimensions of the real tensors                                         (onesite_dims)
-#   2. default: the fixed tree TREE_CURRENT + BRUTE FORCE search of the best cuts (fewest flops among the cut sets predicted to fit in the RAM)
-#                                                                                          (onesite_choose_cuts, onesite_best_cuts)
-#      or a ready-made plan (tree + cuts) from the plan file `onesite_plans.csv`: only plans for exactly these bond dimensions and this element type
-#      (Float64 or ComplexF64, onesite_eltype), that are predicted to fit, and that we MEASURED (column time_real_s, or time_s if there is no real time),
-#      the fastest one is used                                                                                             (onesite_choose_plan)
-#   3. the tree is turned into a Julia function with the same @tensor syntax as contract_onesite (cached)               (onesite_make_kernel)
-#   4. the slices are contracted with an allocator that re-uses its temporaries                                         (contract_onesite_sliced, ReuseAllocator)
-#
-# WHERE THE PLAN FILE COMES FROM (OMEinsumContractionOrders.jl)
-#   development/contraction_plans/find_orders_ome.jl (settings at the top of that file: dimensions, RAM budgets, kmax, ...) calls onesite_find_plans, which asks
-#   OMEinsumContractionOrders.jl (TreeSA) for several contraction trees and lets it slice them itself (TreeSASlicer; the two fixed trees get brute-force cuts), and appends the winners
-#   per RAM budget to onesite_plans.csv (or to another file: PLAN_FILE in that file).
-#   Predicted flops are only a proxy for the run time (a tree with fewer flops can run slower), so the rows are timed by running
-#   development/contraction_plans/benchmark_contract_onesite.jl: it times every row that has no time yet and writes the measured seconds back into the same csv
-#   (onesite_update_plans): into time_s when it runs on the dense MOCK environment, into time_real_s when it runs on a REAL environment (ENV_LOADER in
-#   that file). The other measurements (allocator, rss_gib, pool_gib, sys_s, minflt, check, note) belong to the real run if there is one, otherwise to the mock run.
-#   By default (select = :measured) contract_onesite_auto only uses rows that have a time (time_real_s if filled, otherwise time_s, see onesite_plan_time).
-#   A time is only valid for the machine, the allocator, the element type and the number of threads it was measured with (columns machine, allocator, eltype).
-#   contract_onesite_auto never needs to wait for OMEinsumContractionOrders: it only READS the csv.
-#
-# Slicing and the contraction order only change speed and memory, not the value of the contraction (up to floating point rounding).
-#
-# FILE MAP
-#    1. MAIN ENTRY            ONESITE_RAM_RULES, onesite_plan_of, onesite_choose_cuts, onesite_choose_plan, contract_onesite_auto, contract_onesite_dispatch
-#    2. PLAN FILE + OMEco     onesite_read_plans / onesite_write_plans / onesite_update_plans / onesite_add_allocator_copies, onesite_find_trees, onesite_find_plans
-#                             (the element type of a contraction: onesite_eltype)
-#    3. THE NETWORK           table of the 27 tensors, 54 bonds, dimensions, TREE_CURRENT, OPT_TRUE
-#    4. COST MODEL            onesite_cost (flops, peak memory, slices), onesite_reorder
-#    5. TREES AS TEXT         onesite_parse_tree
-#    6. BRUTE-FORCE CUTS      onesite_best_cuts
-#    7. CODE GENERATION       onesite_kernel_source, contract_onesite_kernel(_fast), onesite_make_kernel
-#    8. SLICING MACHINERY     BondCut, _os_slice_leg
-#    9. ALLOCATORS            ReuseAllocator, TrackingAllocator
-#   10. SLICED CONTRACTION    contract_onesite_sliced, check_slicing
-#   11. MOCK ENVIRONMENT      onesite_mock_env (random tensors with the right leg structure, for tests and benchmarks)
-#   12. TWO-SITE OBSERVABLES  (only a description, nothing is implemented)
-#
+# Everything around the 27-tensor contraction `contract_onesite` of CTMRG3D: contract_onesite_auto(env, M; ram_gib, ...) computes the same number, but picks a contraction order (tree) and a few bonds to cut (slice) such that the predicted memory fits in ram_gib, then runs the slices one after the other (Gray & Kourtis, Quantum 5, 410 (2021), Sec. 4.7.1).
+# The tree and cuts are either the fixed tree TREE_CURRENT with brute-force cuts, or a ready-made plan from the plan file onesite_plans.csv (made by find_orders_ome.jl with OMEinsumContractionOrders.jl, timed by benchmark_contract_onesite.jl); contract_onesite_dispatch(env, M, ram_gib) is what expectation_value calls (ram_gib = nothing: plain contract_onesite).
 # Names of the bonds are the index names of the @tensor expression, e.g. :L5 is `env.C[6][B3 L5 L2]`-`env.E[10][L5 B6; L10 L7]`.
-# ======================================================================================================================
 
 # inside the ClusterExpansions module these are already loaded, they are repeated here so that the file can also be tested standalone
 using TensorKit, TensorOperations, Random
@@ -284,26 +233,12 @@ contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_a
 
 # The plan file has one ready-made plan per row, 22 columns separated by ';' (can be opened in Excel):
 #    chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;eltype;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note;machine
-# Written by onesite_find_plans / onesite_write_plans (development/contraction_plans/find_orders_ome.jl):
-#   chi_env, chi_peps, D   bond dimensions the plan was made for
-#   tree                   contraction tree (nested pairs of leaf numbers, see TREE_CURRENT)
-#   cuts                   cut bonds (labels separated by a space, empty = no cuts)
-#   source                 where the plan comes from (TREE_CURRENT, OPT_TRUE, ome-flops-sliced, ome-scN-sliced)
-#   k ... ram_gib          for the human reader: number of cuts, number of slices, predicted flops, predicted peak of the intermediates (GiB), RAM budget (GiB)
-#   eltype                 element type the plan was made and timed for ("Float64" or "ComplexF64"); it sets the memory of an element
-#   allocator              "reuse" or "manual": the allocator the plan is timed with
-# Written by development/contraction_plans/benchmark_contract_onesite.jl (onesite_update_plans), empty until the row is measured:
-#   time_s                 measured time (s) of one full contraction on the dense MOCK environment (onesite_mock_env)
-#   time_real_s            the same on a REAL environment; the time that counts for contract_onesite_auto is time_real_s if it is filled, otherwise time_s (onesite_plan_time)
-#   rss_gib, pool_gib      peak resident memory of the process, what the ReuseAllocator asked the OS for
-#   sys_s, minflt          system CPU seconds and minor page faults per repetition (Linux only)
-#   check                  relative deviation of the value from the first row measured for the same dimensions in that benchmark run (should be ~1e-10 or smaller)
-#   note                   free text (e.g. "skipped: ...")
-#   machine                the machine on which the time was measured ("laptop", "hortense"), written together with every time
-# rss_gib ... note belong to the real run if time_real_s is filled, otherwise to the mock run.
-# The identity (key) of a row is (chi_env, chi_peps, D, eltype, tree, cuts, allocator): a time is only valid for the element type and the allocator it was
-# measured with. machine is not part of the key: a row has the time of the last machine that timed it (we time the plans for RAM budgets <= 4 GiB on the
-# laptop and those for 29 and 59 GiB on Hortense, so the two do not overwrite each other). Lines starting with # are comments.
+# Written by onesite_find_plans / onesite_write_plans: the bond dimensions, tree (nested pairs of leaf numbers, see TREE_CURRENT), cuts (labels separated by a space), source (TREE_CURRENT, OPT_TRUE, ome-flops-sliced, ome-scN-sliced),
+# k ... ram_gib (for the human reader: number of cuts, slices, predicted flops, predicted peak of the intermediates in GiB, RAM budget in GiB), eltype ("Float64" or "ComplexF64") and allocator ("reuse" or "manual").
+# Written by benchmark_contract_onesite.jl (onesite_update_plans), empty until the row is measured: time_s (dense MOCK environment), time_real_s (REAL environment; it is the time that counts for contract_onesite_auto if it is filled, see onesite_plan_time),
+# rss_gib, pool_gib, sys_s, minflt, check, note (these belong to the real run if there is one, otherwise to the mock run) and machine ("laptop", "hortense": where the time was measured).
+# The identity (key) of a row is (chi_env, chi_peps, D, eltype, tree, cuts, allocator): a time is only valid for the element type and the allocator it was measured with.
+# machine is not part of the key: a row has the time of the last machine that timed it. Lines starting with # are comments.
 const ONESITE_PLAN_FILE = joinpath(@__DIR__, "onesite_plans.csv")
 const _os_PLAN_HEADER = "chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;eltype;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note;machine"
 const _os_PLAN_NCOLS = 22
@@ -411,15 +346,11 @@ function onesite_write_plans(path::AbstractString, rows)
     return length(newlines)
 end
 
-# Fill in the measurements of development/contraction_plans/benchmark_contract_onesite.jl in the plan file.
-# `updates` = named tuples with the key of a row (chi_env, chi_peps, D, eltype, tree, cuts, allocator) and the columns to set: time_s, rss_gib, pool_gib, sys_s, minflt,
-# check, note, machine.
-# `env = :mock`: `time_s` of the update is written into column time_s (dense mock environment); `env = :real`: it is written into column time_real_s (real environment).
-# The six columns rss_gib ... note belong to the real run if there is one: an `env = :real` update always writes them, a :mock update only if time_real_s of that row is still empty.
-# A property that is missing, or a number that is NaN, gives an empty column.
-# An update WITHOUT a finite time_s (a run that was skipped or failed) only writes `note` (on the same condition) and keeps everything else of the row.
-# All other lines are kept as they are, and the file is replaced in one step (temporary file + move).
-# Returns the number of rows that were updated; an update whose row is not in the file is an error.
+# Fill in the measurements of benchmark_contract_onesite.jl in the plan file.
+# `updates` = named tuples with the key of a row (chi_env, chi_peps, D, eltype, tree, cuts, allocator) and the columns to set (time_s, rss_gib, pool_gib, sys_s, minflt, check, note, machine); a missing property or a NaN gives an empty column.
+# `env = :mock`: time_s is written into column time_s (dense mock environment); `env = :real`: into column time_real_s (real environment). The columns rss_gib ... note belong to the real run if there is one:
+# an `env = :real` update always writes them, a :mock update only if time_real_s of that row is still empty. An update WITHOUT a finite time_s (a run that was skipped or failed) only writes `note`.
+# All other lines are kept as they are, and the file is replaced in one step (temporary file + move). Returns the number of rows that were updated; an update whose row is not in the file is an error.
 function onesite_update_plans(path::AbstractString, updates; env::Symbol = :mock)
     # Some prior checks
     env === :mock || env === :real || error("onesite_update_plans: env must be :mock or :real, got :$env")
@@ -588,16 +519,11 @@ function onesite_slice_tree(ne, d::Vector{Float64}, sc_target::Real; ntrials::In
 end
 
 # Make plans (tree + cuts) for bond dimensions (χenv, χpeps, D) and a list of RAM budgets, and return them as rows for onesite_write_plans.
-# Candidates:
-#   TREE_CURRENT and OPT_TRUE (the two fixed trees): for each budget their best cuts by brute force (at most kmax cuts, onesite_choose_cuts).
-#   The trees of onesite_find_trees (flops only, and n_targets trees with a memory penalty): for each budget OMEinsumContractionOrders slices the tree
-#   itself and rearranges it around the cuts (onesite_slice_tree), source "<tree>-sliced". Its target for the largest tensor is the number of
-#   elements that our memory model allows for this budget; if the result does not fit our model (which counts all tensors alive at the same time,
-#   not only the largest one), the target is lowered by 1 (at most 6 times).
-# Candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
-# Parameters of the cost model that we can vary: T (element type: Float64 or ComplexF64, written into the column eltype), allocator, margin, rules
-# (all of them are used again by contract_onesite_auto when it checks a plan, so use the same values there; T is the element type of the tensors there).
-# The rows have no measured time yet (time_s = NaN): development/contraction_plans/benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
+# Candidates: TREE_CURRENT and OPT_TRUE (the two fixed trees) with their best cuts by brute force (at most kmax cuts, onesite_choose_cuts), and the trees of onesite_find_trees, which OMEinsumContractionOrders slices itself for each budget
+# (onesite_slice_tree, source "<tree>-sliced"). Its target for the largest tensor is the number of elements that our memory model allows for this budget; if the result does not fit our model (which counts all tensors alive at the same time),
+# the target is lowered by 1 (at most 6 times). Candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
+# T (element type, written into the column eltype), allocator, margin and rules are used again by contract_onesite_auto when it checks a plan, so use the same values there.
+# The rows have no measured time yet (time_s = NaN): benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
 function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32, 64, 128, 256, 512), T::Type{<:Number} = ComplexF64, allocator::Symbol = :reuse,
                             kmax::Int = 5, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
                             niters::Int = 40, slice_ntrials::Int = 10, slice_niters::Int = 10, verbosity::Int = 1)
@@ -1425,12 +1351,9 @@ function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}
     # allocator = chosen allocator
     # max_slices = makes result a partial sum
     # verbosity = if > 2: logs the value of every slice and the accumulated sum
-    # gc_every = run the garbage collector after every gc_every slices (0 = never). Every slice makes sliced copies of the tensors and temporary
-    #            arrays that are garbage afterwards. When Julia believes it has a lot of memory (on Hortense it sees the whole node, 251 GiB, not
-    #            the memory of the job), it collects that garbage too late: the measured peak memory grew with the number of slices (plan benchmark
-    #            of 21 Nov on Hortense: 3.0 GiB for 144 slices, 11.2 GiB for 720, 14.0 GiB for 10800 slices of (12,5,3), all plans of about 0.1-0.3 GiB)
-    #            and the jobs of 21-22 Nov were killed at 9-11 GiB. We collect the young objects after every gc_every slices (cheap) and do a full
-#            collection after every 10 gc_every slices.
+    # gc_every = run the garbage collector after every gc_every slices (0 = never). Every slice makes sliced copies of the tensors and temporary arrays that are garbage afterwards.
+    #            When Julia believes it has a lot of memory (on Hortense it sees the whole node, not the memory of the job), it collects that garbage too late: the peak memory grew with the number of slices.
+    #            We collect the young objects after every gc_every slices (cheap) and do a full collection after every 10 gc_every slices.
     
     # Create the kernel once, for the whole call
     kern = _os_resolve_kernel(kernel)
@@ -1486,8 +1409,7 @@ function contract_onesite_sliced(env, M, cuts::AbstractVector{<:Pair{Symbol,Int}
 
         # Free the garbage of this slice now (see gc_every above); C, E, A, Mj of this slice are no longer needed
         C = E = A = Mj = nothing
-        # (a quick collection of the young objects every gc_every slices, a full one every 10 gc_every slices: a full collection after every slice
-        #  cost 0.7 s per slice in the sandbox, 18 % of the contraction at (12,5,2))
+        # (a quick collection of the young objects every gc_every slices, a full one every 10 gc_every slices)
         gc_every > 0 && n % gc_every == 0 && GC.gc(n % (10 * gc_every) == 0)
 
         # Per-slice progress: value of this slice and the accumulated sum so far
@@ -1569,24 +1491,5 @@ end
 # ======================================================================================================================
 # 12. TWO-SITE OBSERVABLES: only described here, NOT implemented
 # ======================================================================================================================
-# A two-site observable <O_1 O_2> of two neighbouring sites (say along x) needs a bigger closed network than the 3x3x3 one above: a 4x3x3 grid.
-# Positions along x are 1..4, the two M tensors (observable sites) sit at x = 2, 3 and y = z = 2:
-#      2 M
-#     10 faces A  (2 at the x ends, 8 next to the two M in the +-y and +-z directions)
-#     16 edges E  (8 at the x ends, 8 along the long axis)
-#      8 corners C
-#   = 36 tensors and 75 bonds  (3x3x3: 27 tensors and 54 bonds).
-#   OPEN QUESTION (CTMRG side): the environment stores the C, E, A tensors for ONE site. The ones at the two middle positions (x = 2, 3) have to be
-#   built from it; this is the part that needs a change in ctmrg3D_helpers.jl/ctmrg3D_main.jl, and it is not done.
-# What has to be done on the contraction side (all with the tools of this file):
-#   1. A table ONESITE2_TENSORS with the 36 rows (kind, index, leg labels), built like ONESITE_TENSORS; the bond classes env / peps / D stay the same.
-#   2. The cost model uses bit masks with one bit per bond: 75 bonds do not fit in a UInt64, use UInt128. _os_ev, _os_best_order, _os_each_combo,
-#      onesite_dims and onesite_bond_class must then take the table / label list / masks as arguments instead of the global constants.
-#   3. A contraction tree of the 36 tensors: onesite_find_trees(d) works unchanged once `code` is built from ONESITE2_TENSORS (OMEinsumContractionOrders
-#      does not care what network it gets). Do this ONCE per (chi_env, chi_peps, D) and keep the best tree as TREE2_CURRENT (like TREE_CURRENT above).
-#   4. onesite_kernel_source / _os_leaf_text generate the @tensor code of the new tree from the table.
-#   5. contract_onesite_sliced needs only the table of bond ends (ONESITE_BONDS) of the new network.
-#   6. onesite_best_cuts on the fixed tree: C(75,k) = 75, 2775, 67525, 1.2e6, 1.7e7 candidate cut sets for k = 1..5. Each candidate costs one evaluation of
-#      the cost model, which is tiny compared to the contraction itself. Measured for the 54 bonds here: 14 microseconds per candidate
-#      (k = 3: 0.35 s, k = 4 (316251 sets): 4 s); for 75 bonds expect about 1.5x more per candidate, so k = 4 in the order of 30 s and k = 5 minutes.
-#   7. Plan file: add a column "network" (3x3x3 or 4x3x3) so that both live in one csv.
+# A two-site observable <O_1 O_2> of two neighbouring sites needs a bigger closed network (4x3x3: 36 tensors and 75 bonds). The environment only stores the C, E, A of ONE site, so those of the two middle positions
+# would have to be built from it (a change in ctmrg3D_helpers.jl/ctmrg3D_main.jl). On the contraction side it needs a table of the 36 tensors, bit masks for 75 bonds (UInt128), a tree from onesite_find_trees, and a column "network" in the plan file.

@@ -1,21 +1,5 @@
-# Comparison of selected cases of the two Ising compare scripts of this folder, 3D Ising model, g = 0:
-#
-#     ising_model_3D_CE_CTMRG_compare.jl  (CE + CTMRG3D)   and   ising_model_3D_CE_vbPEPS_compare.jl  (CE + variational boundary PEPS)
-#
-# Nothing is run: we only read the results file of all Ising compare runs, data/profiling/comparing/ising_model_3D_CE_results.csv
-# (see ISING_CSV_HEADER in ../tools/compare_tools.jl), take the cases of SELECTION (see the settings) and make one figure:
-#     compare_algorithms_magnetization.png (left: |m| against β; right: |m| of every selected case minus the mean of the selected cases)
-# It goes to a new run folder  data/profiling/comparing/ising_model_3D_CE_CTMRG_vs_vbPEPS/<date>_<time>/  together with selection.txt
-# (the selection, with the run that "" stood for).
-#
-# What the comparison means:
-#   - Only cases with the same PEPO (the same D_CE and Δβ) differ only in the contraction (χpeps, χenv, algorithm): warning if they differ.
-#   - The time budget of a case (budget_s) and the number of BLAS threads are printed per selected case. On Hortense the two algorithms have the same CORE budget
-#     (cores × budget_s: CTMRG3D 4 cores × 16 h, vbPEPS 2 cores × 32 h), so budget_s differs between them on purpose; the cores are in the job scripts.
-#   - The left panel also shows the references of ../../reference/ising_3d_reference.jl (Talapov-Blöte L = ∞ fit, Bethe/BP, the MC points if
-#     data/reference/ising3d_mc.csv exists); the right panel compares the cases with each other (the mean of the selected cases).
-# A cross marks an observation that was stopped by its time limit (both algorithms) or that did not converge (CTMRG3D).
-#
+# Comparison of selected cases of the two Ising compare scripts (CE + CTMRG3D and CE + vbPEPS), g = 0: nothing is run, we only read data/profiling/comparing/ising_model_3D_CE_results.csv, take the cases of SELECTION and make one figure (compare_algorithms_magnetization.png) in a new run folder.
+# Cases with the same PEPO differ only in the contraction (warning otherwise); the time budget and BLAS threads are printed per case, and the left panel also shows the references of ../../reference/ising_3d_reference.jl.
 # Note on m: at g = 0 the exact <σᶻ> is 0 below βc (Z2 symmetry) and has an arbitrary sign above βc, so we plot |m|.
 
 ENV["GKSwstype"] = "nul"     # no plot window: the plots are only saved to a file

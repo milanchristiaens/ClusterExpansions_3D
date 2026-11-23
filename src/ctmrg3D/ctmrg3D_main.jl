@@ -20,8 +20,7 @@ tot = 27
 # This function runs CTMRG sweeps on env, untill the corner spectrum stops changing, or untill maxiter is reached,
 # or untill env.max_seconds is used up (checked after every full iteration, so the limit can be overshot by at most one iteration).
 # Returns (env, ϵs, timed_out); timed_out = true only if the time limit stopped it (env is then the environment of the last iteration, not converged).
-# Stagnation stop (stagnation_window > 0, CTMRG3D only; 23 Nov): we stop when the smallest ϵ of the last stagnation_window iterations is not below
-# stagnation_factor × the smallest ϵ before them, i.e. the iteration no longer makes progress (:oblique: m fixed to ±1e-4 while ϵ stays at ~5e-3).
+# Stagnation stop (stagnation_window > 0, CTMRG3D only): we stop when the smallest ϵ of the last stagnation_window iterations is not below stagnation_factor × the smallest ϵ before them, i.e. the iteration makes no progress.
 # It returns as "not converged" (timed_out = false) with fewer than maxiter iterations.
 function MPSKit.leading_boundary(env::CTMRG3D_alg)
     t_start = time()

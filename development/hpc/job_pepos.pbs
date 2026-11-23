@@ -1,11 +1,6 @@
 #!/bin/bash
-# job_pepos.pbs -- stage 1: development/initial_pepos/ising_model_3D_CE_pepos.jl, the CE PEPOs of all β (and the start states of the vbPEPS) into the PEPO files
-# data/pepos/*.jld2, which all compare jobs read. Run it once before the pilots, and again after a change of the settings of ising_model_3D_CE_pepos.jl.
-# Since 21 Nov it also writes the file of the exact PEPOs (ising_3D_exact_J1.0_g0.0_D2.jld2) and the β 0.15, 0.22, 0.225.
-# 4 cores for the memory (about 7.4 GiB; ClusterExpansions and its compilation need more than the 3.7 GiB of 2 cores); it takes minutes.
-# Submit on the login node, in the clone folder:
-#   module swap cluster/dodrio/cpu_milan_rhel9
-#   qsub development/hpc/job_pepos.pbs
+# Stage 1: runs ising_model_3D_CE_pepos.jl, which writes the CE PEPOs of all β (and the start states of the vbPEPS) into data/pepos/*.jld2 for all compare jobs.
+# It uses 4 cores for the memory.
 #PBS -A starting_2026_079
 #PBS -N pepos
 #PBS -l nodes=1:ppn=4

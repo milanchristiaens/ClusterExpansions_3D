@@ -1,21 +1,5 @@
-# Check of the CTMRG3D option `west_updates` (src/ctmrg3D/ctmrg3D_helpers.jl, ctmrg_4steps): how many West updates (partial_ctmrgstep) per side and
-# per CTMRG3D iteration. :auto = repeat the West update of a side until the corner spectrum changes by less than west_tol, at most 4; an integer k =
-# always k West updates per side. The compare runs use :auto and 1 (the cases *_auto and *_w1); this check adds 2 and 4.
-# (Rewritten on 23 Nov: it now reads the PEPOs of the PEPO file of stage 1 and uses the settings of the CTMRG3D compare, as check_ctmrg3d_init.jl;
-# before, it evolved its own PEPOs with D = 4 and 5 and had no :oblique.)
-#
-# For every set in DIMS, every β in BETAS, every projector kind in PROJECTORS and every value in WEST_UPDATES we run MPSKit.expectation_value from the
-# same cold start (INIT, INIT_SEED; the start of the compare) and store per run:
-#   m = <σᶻ>, the number of CTMRG3D iterations, the number of partial_ctmrgstep calls (the West updates: the real amount of work), the last ϵ,
-#   converged / not converged / stopped (no progress) / timed out, the time of the CTMRG3D iterations and the time of the two contractions of m.
-# Question it answers: which west_updates reaches the same m in the least time? (Error source: contraction/environment (3) only; the PEPO is fixed.)
-# :oblique uses the stagnation stop of the compare (STAGNATION_WINDOW), because it does not converge (see the results report of 23 Nov).
-#
-# Every run is appended to data/checks/check_ctmrg3d_west_updates/<date>_<time>.csv immediately (a crash keeps the earlier runs).
-# The figure: development/checks/plot_checks.jl.
-# Run in the ClusterExpansions environment, with the threads of the CTMRG3D compare (PowerShell, in the clone folder):
-#   julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_west_updates.jl
-# On Hortense: development/hpc/job_check_ctmrg3d.pbs with CHECK=west_updates (see the Hortense guide, section 21).
+# Check of the CTMRG3D option `west_updates` (how many West updates, partial_ctmrgstep, per side and per CTMRG3D iteration): :auto, 1, 2 and 4, on the 3D Ising PEPOs of the PEPO file; prints numbers, tests nothing.
+# For every set in DIMS, every β, every projector kind and every west_updates it runs MPSKit.expectation_value from the same cold start and stores m, the iterations, the West updates, the last ϵ and the times in data/checks/check_ctmrg3d_west_updates/<date>_<time>.csv.
 
 using TensorKit
 using TensorKitTensors

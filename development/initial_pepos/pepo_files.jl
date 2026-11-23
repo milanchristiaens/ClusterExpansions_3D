@@ -1,21 +1,5 @@
-# pepo_files.jl -- the PEPOs of the Ising compare runs and their files: the CE PEPOs are evolved ONCE to all β (build_pepos below, called by
-# ising_model_3D_CE_pepos.jl in this folder, stage 1) and saved,
-# and every measurement (CTMRG3D compare, vbPEPS compare, dense against block-Krylov) reads them (stage 2). So all algorithms use exactly the same
-# PEPOs, and the vbPEPS of BetterPEPSKit can run in its own environment without ClusterExpansions.
-#
-# One JLD2 file per (D_CE, Δβ, J, g): data/pepos/ising_3D_J<J>_g<g>_D<D_CE>_dbeta<Δβ>.jld2 (see pepo_file), and one file of the EXACT PEPOs
-# (exact_ising_pepo below, bond dimension 2): data/pepos/ising_3D_exact_J<J>_g<g>_D2.jld2 (kind = :exact; same content, D_CE = 2, and dbeta only sets
-# the seeds of the start states, the same seeds as the CE file). Both with
-#   beta            the β values (increasing, multiples of dbeta)
-#   D_CE, dbeta, J, g, maxiter_init, psi0_seed_base, chipeps
-#   pepo3d[i]       the 3D PEPO at beta[i] (legs (P ⊗ P') ← (U, N, E, D, S, W)), for CTMRG3D and the vbPEPS of ClusterExpansions
-#   O[i], M[i]      the 2D tensors of the vbPEPS at beta[i]: bpeps_pepo_tensor(PEPO) and bpeps_pepo_tensor(PEPO, σᶻ)
-#   psi0[k][i]      the start state of the vbPEPS for chipeps[k] at beta[i]: bpeps_initial_state(O, ...) after Random.seed!(psi0_seed(beta[i], dbeta))
-# Every tensor is stored as plain data (pack_tensor): [(dimension, isdual)] of the codomain and domain legs and the dense array, not as a TensorMap,
-# because the BetterPEPSKit environment has another TensorKit version than ClusterExpansions. Only for spaces without symmetry (ComplexSpace).
-#
-# Used in both environments (ClusterExpansions and development/fast_vbpeps); the script that includes this file needs `using TensorKit` and `using JLD2`
-# (build_pepos also needs `using ClusterExpansions`: only stage 1 calls it).
+# The PEPOs of the Ising compare runs and their files: the CE PEPOs are evolved once to all β (build_pepos, called by ising_model_3D_CE_pepos.jl) and saved, and every measurement reads them.
+# Every tensor is stored as plain data (pack_tensor), because the BetterPEPSKit environment has another TensorKit version than ClusterExpansions.
 
 const PEPO_DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "data", "pepos"))     # <repo>/data/pepos
 const PSI0_SEED_BASE = 2000
@@ -58,12 +42,10 @@ function load_pepos(β_obs, Δβ, D_CE, J, g; kind = :ce)
     return [unpack_tensor(f["pepo3d"][pepo_index(f, β)]) for β in β_obs]
 end
 
-# The EXACT 3D PEPO of the classical Ising model at g = 0 (added 21 Nov, to separate the CE error from the contraction error): all terms commute, so
-# e^{-βH} = Π_bonds e^{βJ sᵢsⱼ} exactly. We split every bond weight W[s, t] = e^{βJ s t} as W = Q·Qᵀ with Q = [√cosh(βJ) √sinh(βJ); √cosh(βJ) −√sinh(βJ)]
-# (rows s = +1, −1) and put one Q on each of the six legs of a site:
+# The exact 3D PEPO of the classical Ising model at g = 0 (bond dimension 2): all terms commute, so e^{-βH} = Π_bonds e^{βJ sᵢsⱼ} exactly.
+# We split every bond weight W[s, t] = e^{βJ s t} as W = Q·Qᵀ with Q = [√cosh(βJ) √sinh(βJ); √cosh(βJ) −√sinh(βJ)] (rows s = +1, −1) and put one Q on each of the six legs of a site:
 #     O[p, p'; U, N, E, D, S, W] = δ_{p p'} Q[p, U] Q[p, N] Q[p, E] Q[p, D] Q[p, S] Q[p, W].
-# Bond dimension 2, real, cube-symmetric; no Δβ, no CE order, no truncation. The leg spaces are those of the CE PEPOs ((P ⊗ P') ← (U, N, E, D, S, W),
-# U/N/E non-dual, D/S/W dual, P non-dual, P' dual; checked against the D_CE = 2 file), so it replaces a CE PEPO of D_CE = 2 everywhere.
+# The leg spaces are those of the CE PEPOs, so it replaces a CE PEPO of D_CE = 2 everywhere.
 function exact_ising_pepo(β; J = 1.0)
     β * J >= 0 || error("exact_ising_pepo: only βJ ≥ 0 (ferromagnet; for βJ < 0, √sinh(βJ) is not real)")
     c, s = sqrt(cosh(β * J)), sqrt(sinh(β * J))
@@ -77,9 +59,9 @@ function exact_ising_pepo(β; J = 1.0)
 end
 
 # ======================================================================================================================
-# CE: the PEPOs for all β, built once (stage 1; moved here from development/profiling/tools/compare_tools.jl on 22 Nov)
+# CE: the PEPOs for all β, built once
 # ======================================================================================================================
-# CE: the PEPOs at all β of the list β_obs (increasing, multiples of Δβ_iter), built once; stage 1 saves them, so every compare script uses exactly these.
+# The PEPOs at all β of the list β_obs (increasing, multiples of Δβ_iter)
 function build_pepos(β_obs, Δβ_iter, D, J, g)
     @assert issorted(β_obs) "β_obs must be increasing"
     trunc_alg = NoEnvTruncation(truncrank(D))
@@ -93,8 +75,7 @@ function build_pepos(β_obs, Δβ_iter, D, J, g)
         nsteps = round(Int, (β - β_now) / Δβ_iter)
         @assert abs(nsteps - (β - β_now) / Δβ_iter) < 1.0e-8 "β = $β is not a multiple of Δβ_iter = $Δβ_iter"
         for _ in 1:nsteps
-            # rot_invariance = true: one Takagi projector pair for all six legs, so every O is exactly symmetric under the cube rotations and
-            # reflections (needed by the C4v CTMRG of vbPEPS); it stays Float64 (see takagi_trunc)
+            # rot_invariance = true: one Takagi projector pair for all six legs, so every O is exactly symmetric under the cube rotations and reflections (needed by the C4v CTMRG of vbPEPS)
             O, = approximate_state((O, ΔO), trunc_alg; rot_invariance = true)
         end
         β_now = β

@@ -1,50 +1,7 @@
-# Comparison of the vbPEPS cases for the 3D Ising model (CE + variational boundary PEPS), g = 0:
-#
-#     start (cold / warm), with the fixed environment (differentiate_environment = false)
-#
-# The extra term of the gradient (differentiate_environment = true) is not part of the compare any more: development/checks/vbpeps/check_vbpeps_diff_env.jl
-# checks that it gives the same result. (The table CASES below can still hold true cases for a test.)
-# warm = every β starts from the optimized state of the previous β, the first β is always cold, and a β closer than WARM_WINDOW to BETA_C also starts cold
-#        (warm_start_at in ../tools/compare_tools.jl); the check column of the results file says "cold start near βc" there.
-#
-# Everything uses the same CE PEPOs (read from the PEPO file of ising_model_3D_CE_pepos.jl, which must be run first; the CTMRG3D compare reads the same
-# file) and the same random seed per observation (Random.seed!(SEED_BASE + i) before observation i),
-# so the cases differ only in the two settings above. For every case and every β we store: final cost f, number of cost-function calls, time, magnetization m.
-# Each observation is appended (and the file closed) immediately to the results file of all Ising compare runs,
-# data/profiling/comparing/ising_model_3D_CE_results.csv (algorithm = "vbPEPS", run = name of the run folder; see ISING_CSV_HEADER in ../tools/compare_tools.jl),
-# so a crash halfway keeps all earlier data.
-# The other files go to a new run folder data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/<date>_<time>/ (or <CE_COMPARE_RUN>/; see tools/timing_io.jl) :
-#     settings.txt, timing_<case>.csv (TimerOutputs rows of each case),
-#     compare_vbpeps_magnetization.png (left: |m| against β; right: |m| of every case minus the mean of the cases),
-#     compare_vbpeps_cost_time.png (left: time per observation against β; right: cost f against β),
-#     compare_vbpeps_timing_phases.png and compare_vbpeps_timing_self.png (timings per section, 4 bars per section)
-#
-# With REPLOT_DIR (see the settings) we only redo all plots from the results of an earlier run, without running anything.
-# The helper functions (check_cost, results file, time limit, spread plot, timing plots, PEPO file) are in ../tools/ (compare_tools.jl, timing_io.jl,
-# timing_plots.jl) and development/initial_pepos/ (pepo_files.jl).
-#
-# Order: the order of CASES (a true case would need the compilation of its pullback first, ~1h40 with :pepskit in an earlier run).
-# Compilation happens once per process (warm-up with tiny settings, not measured).
-#
-# Time limit: every case gets RUN_BUDGET_S seconds in total and every observation at most MAX_SECONDS_OBS seconds (see the settings, and obs_seconds_allowed
-# in ../tools/compare_tools.jl; the CTMRG3D compare script uses the same rule).
-# An observation that runs out of time stops after its current LBFGS iteration and is marked timed_out = true (a cross in the plot):
-# its f and m are then the values of the last iterate, not of a converged optimization.
-#
-# Note on m: at g = 0 the exact <σᶻ> is 0 below βc (Z2 symmetry) and has an arbitrary sign above βc, so we plot |m|. A nonzero m below βc is a contraction/optimization artefact.
-#
-# Two implementations of vbPEPS (VBPEPS_IMPL in the settings; the column setting of the results file ends with it, for example "fixed_env_betterpepskit"),
-# each in its own environment (BetterPEPSKit cannot be loaded together with ClusterExpansions: it needs MPSKit 0.14 and OptimKit 0.5):
-#   :pepskit        ClusterExpansions.bpeps_optimize / bpeps_observables (PEPSKit 0.8.1): dense eigh/SVD in the CTMRG, FixedPointGradient with Arnoldi.
-#                   Run in the ClusterExpansions environment:          julia -t 4 --project=. <this file>
-#   :betterpepskit  the same algorithm on BetterPEPSKit (Lander Burgelman e.a.): block-Krylov decompositions, gap cut of the spectrum, ImplicitGradient
-#                   with GMRES, a start environment grown from a product state (see the top of development/fast_vbpeps/fast_bpeps.jl).
-#                   Run in the BetterPEPSKit environment:              julia -t 4 --project=development/fast_vbpeps <this file>
-#                   (needs the BetterPEPSKit clone next to this clone, see development/fast_vbpeps/README.md). This environment has no Plots: at the end
-#                   we print the summary, and the plots are made afterwards with REPLOT_DIR in the ClusterExpansions environment.
-# Both start from the same state: the start states in the PEPO file are made exactly as bpeps_optimize makes its own (same seed psi0_seed(β, Δβ)).
-# The environment decides which packages are loaded (IN_FAST_ENV below); VBPEPS_IMPL must fit it (otherwise an error at the start). REPLOT_DIR needs the
-# ClusterExpansions environment (Plots).
+# Comparison of the vbPEPS cases for the 3D Ising model (CE + variational boundary PEPS), g = 0: start (cold / warm) with the fixed environment (differentiate_environment = false), on the same CE PEPOs read from the PEPO file.
+# Every observation is appended to data/profiling/comparing/ising_model_3D_CE_results.csv; the plots and settings go to a new run folder in data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/, and with REPLOT_DIR we only redo the plots of an earlier run.
+# Two implementations (VBPEPS_IMPL): :pepskit (ClusterExpansions.bpeps_optimize on PEPSKit 0.8.1, environment of the clone) and :betterpepskit (Lander's BetterPEPSKit, environment development/fast_vbpeps, which has no Plots).
+# Note on m: at g = 0 the exact <σᶻ> is 0 below βc (Z2 symmetry) and has an arbitrary sign above βc, so we plot |m|.
 
 ENV["GKSwstype"] = "nul"     # no plot window: the plots are only saved to a file
 
@@ -86,27 +43,17 @@ IN_FAST_ENV || include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_ref
 # ======================================================================================================================
 # Settings
 # ======================================================================================================================
-# Profile: which machine and which run (the Hortense job scripts in development/hpc/ set CE_COMPARE_PROFILE; without it we use :laptop)
+# Profile: which machine and which run (the Hortense job scripts set CE_COMPARE_PROFILE; without it we use :laptop)
 #   :laptop  Milan's laptop, julia -t 4: 1 h per case (4 core hours)
 #   :pilot   Hortense, dimension pilot (:betterpepskit): 1 β near βc, the two cold cases, 1 h each on 3 cores; one job per candidate (CE_COMPARE_DIMS)
-#   :timing  Hortense, fast against slow (round 1, next to the pilots): (27, 3, 3), the smallest candidate, 1 β near βc, the cold case, 30 min on 4 cores,
-#            one job per implementation (:pepskit needs the 4 cores for its memory; both get them, so the times can be compared)
-#   :hpc     Hortense, the full run: all β, 21.3 h per case on 3 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 2 jobs in parallel
-#   :equal   Hortense, fast against slow with converged results (23 Nov): (14, 2, 2), where both implementations converge, all β, the cold case, at most
-#            720 s per β, 4 cores; one job per implementation, as :timing. Both start from the same state (PEPO file), so f and m should agree
-#            (development/checks/plot_checks.jl compares them, and the time per call, with the rows of :timing)
-# The Hortense job scripts can also choose the dimensions (CE_COMPARE_DIMS), the cases (CE_COMPARE_CASES) and the run (CE_COMPARE_RUN) of one job
-# (see compare_dims in ../tools/compare_tools.jl).
-# The same CORE budget per case as the CTMRG3D compare (cores × time): on Hortense vbPEPS runs on 3 cores and CTMRG3D on 4, so vbPEPS gets 4/3 of
-# the time (21.3 h against 16 h per case = 64 core hours each). On the laptop both have 4 cores and 1 h.
-# Memory: 2 cores (about 3.7 GiB) ran out of memory in the pilots of round 1 (20 Nov); on 3 cores (about 5.6 GiB) the pilots peaked at 5.3-5.6 GiB
-# (Slurm; 4.6 GiB by the script). The cores are also in development/hpc/submit_compare.sh, submit_round1.sh and job_vbpeps_compare.pbs.
-# dims = (chienv, chipeps, D_CE). HPC_DIMS (the dims of :timing and :hpc) is the choice of the dimension pilot (the candidates are in
-# development/hpc/submit_compare.sh).
-# Threads: vbPEPS works with small tensors, so every core is one Julia thread with 1 BLAS thread.
+#   :timing  Hortense, fast against slow: (27, 3, 3), 1 β near βc, the cold case, 30 min on 4 cores, one job per implementation
+#   :hpc     Hortense, the full run: all β, 21.3 h per case on 3 cores (64 core hours); one job per case (CE_COMPARE_CASES)
+#   :equal   Hortense, fast against slow with converged results: (14, 2, 2), all β, the cold case, at most 720 s per β, 4 cores; one job per implementation
+# The same core budget per case as the CTMRG3D compare (cores × time): 64 core hours each on Hortense, 4 cores and 1 h on the laptop
+# dims = (chienv, chipeps, D_CE). HPC_DIMS (the dims of :timing and :hpc) is the choice of the dimension pilot
+# Threads: vbPEPS works with small tensors, so every core is one Julia thread with 1 BLAS thread
 const PROFILE = Symbol(get(ENV, "CE_COMPARE_PROFILE", "laptop"))
-const β_ALL = [0.15, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # one point deep in each phase and five around βc ≈ 0.2217 (21 Nov: also 0.22 and 0.225;
-                                                      # the finite-χ transition is shifted and smeared)
+const β_ALL = [0.15, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # one point deep in each phase and five around βc ≈ 0.2217 (the finite-χ transition is shifted and smeared)
 const β_PILOT = [0.19, 0.22, 0.25]                    # the β of the pilots: paramagnet, just below βc (the slowest point), ordered
 const CASES_ALL = ["false_cold", "false_warm"]
 const HPC_DIMS = (32, 3, 3)                          # dims of :hpc: set to the choice of the pilot
@@ -128,7 +75,7 @@ const P = PROFILES[PROFILE]
 # bond dimension 2, so D_CE of the dims must be 2; the setting column of the results file then ends in _exactpepo)
 const PEPO_KIND = Symbol(lowercase(get(ENV, "CE_COMPARE_PEPO", "ce")))
 PEPO_KIND in (:ce, :exact) || error("CE_COMPARE_PEPO = $PEPO_KIND: use ce or exact")
-# Optional changes of the profile for one job, as in the CTMRG3D compare (Hortense: qsub -v CE_COMPARE_...=...; added 21 Nov for the pilot at (16,5,3)):
+# Optional changes of the profile for one job, as in the CTMRG3D compare (Hortense: qsub -v CE_COMPARE_...=...):
 #   CE_COMPARE_BETAS      the β of the observations, separated by _ (for example 0.21_0.225)
 #   CE_COMPARE_BUDGET_S   seconds for the case, and also the most one observation may use
 #   CE_COMPARE_MAXITER    the most LBFGS iterations per observation (optimizer_maxiter of base_kwargs; default 100)
@@ -140,8 +87,7 @@ const T = Float64
 const spin_symmetry = Trivial
 const J = 1.0
 const g = 0.0
-# chienv above the bond of the three-layer network (chipeps * D_CE * chipeps); the laptop keeps D_CE = 2 (with D_CE = 3 vbPEPS needs chipeps >= 3 and then
-# chienv is unaffordable on the laptop, tests of 16-17 Nov); on Hortense D_CE = 3, the same as CTMRG3D
+# chienv above the bond of the three-layer network (chipeps * D_CE * chipeps); the laptop keeps D_CE = 2; on Hortense D_CE = 3, the same as CTMRG3D
 const chienv, chipeps, D_CE = compare_dims(P.dims)
 PEPO_KIND === :exact && D_CE != 2 && error("CE_COMPARE_PEPO = exact has bond dimension 2: choose dims with D_CE = 2 (for example CE_COMPARE_DIMS = 27_3_2), not $D_CE")
 const Δβ_iter = 0.005
@@ -155,8 +101,7 @@ const WARM_WINDOW = 0.02
 # Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one LBFGS iteration overshoot per observation).
 # For a comparison with CTMRG3D at the same core budget, (cores × RUN_BUDGET_S) must be the same in both compare scripts (see the profiles).
 const RUN_BUDGET_S = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.run_budget_s)           # per case (laptop 1 h on 4 cores; Hortense 21.3 h on 3 cores = the core budget of CTMRG3D)
-# The most one observation may use, also: MAX_OBS_FACTOR × the fair share RUN_BUDGET_S / length(β_obs) (21 Nov: β near βc that do not converge would
-# otherwise take twice the fair share each and leave the last β, which converge fast, almost nothing)
+# The most one observation may use, also: MAX_OBS_FACTOR × the fair share RUN_BUDGET_S / length(β_obs), so that β near βc that do not converge do not leave the last β almost nothing
 const MAX_OBS_FACTOR = 1.2
 const MAX_SECONDS_OBS = min(env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.max_seconds_obs), MAX_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))   # per observation (lowered further when the case budget is running out)
 const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
@@ -166,12 +111,10 @@ const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at le
 #   :pepskit (the reference, PEPSKit 0.8.1, environment of the clone) or :betterpepskit (fast, BetterPEPSKit, environment development/fast_vbpeps/)
 const VBPEPS_IMPL = Symbol(get(ENV, "CE_COMPARE_IMPL", "betterpepskit"))
 VBPEPS_IMPL in (:pepskit, :betterpepskit) || error("VBPEPS_IMPL (CE_COMPARE_IMPL) must be pepskit or betterpepskit, got $VBPEPS_IMPL")
-# Settings that only :betterpepskit uses (the values of Lander's example.jl):
+# Settings that only :betterpepskit uses:
 #   sparse: block-Krylov decompositions (true) or dense eigh/SVD (false); truncation_window, truncation_rtol: the gap cut (truncgap);
 #   gradient_maxiter, gradient_krylovdim: GMRES of ImplicitGradient (these two replace those of base_kwargs, which are for Arnoldi)
-#   (development/checks/vbpeps/check_vbpeps_decompositions.jl times sparse = true against sparse = false for several bond dimensions)
-# sparse = true (block-Krylov): the decompositions benchmark of round 1 (20 Nov) was faster with block-Krylov at every size of <psi|O|psi> (×1.1-4.5)
-# (needs the one-line fix in BetterPEPSKit's projector_contraction_metrics, see the guide of 21 Nov)
+# sparse = true (block-Krylov) was faster at every size of <psi|O|psi> in check_vbpeps_decompositions.jl
 const FAST_KWARGS = (; sparse = true, truncation_window = 4, truncation_rtol = 1.0e-3, gradient_maxiter = 20, gradient_krylovdim = 30)
 
 # Settings of the vbPEPS (the same for all cases, except warm_start and differentiate_environment which are the 4 cases)

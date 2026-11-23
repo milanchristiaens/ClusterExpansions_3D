@@ -1,18 +1,5 @@
-# Belief propagation (BP) for the 3D one-site network O of a PEPO, and the analytic Bethe-lattice solution of the classical Ising model.
-#
-# Network: every site carries the same O (0,6) with legs [UP NORTH EAST DOWN SOUTH WEST] (the O of expectation_value / CTMRG3D).
-# The UP leg of a site is contracted with the DOWN leg of the site above it, NORTH with SOUTH, EAST with WEST.
-# BP replaces the environment of a site by six vectors (messages) μ[k], one on every leg k: μ[k] is the message that arrives on leg k.
-# By translation invariance the message on our UP leg is computed on the site above us: we contract its O with the messages on all its legs
-# except its DOWN leg, so
-#     μ[k] ∝ Σ O[... leg opp(k) free ...] Π_{j ≠ opp(k)} μ[j],      opp = (DOWN, SOUTH, WEST, UP, NORTH, EAST)
-# A fixed point of this map is the Bethe approximation of the network (exact on a tree with coordination z = 6); expectation values are
-#     ⟨obs⟩ = Σ M Π_k μ[k] / Σ O Π_k μ[k]
-# For the classical Ising model with O = the exact Boltzmann network this gives the Bethe-lattice result bethe_ising_magnetization(β; z = 6).
-#
-# Restriction: we work with plain arrays (convert(Array, O)), so O must have no symmetry sectors (ComplexSpace/CartesianSpace) and be bosonic.
-# The messages are not positive in general (the virtual basis of a CE PEPO is not the spin basis), so we fix the sign of every message by its overlap
-# with the previous one.
+# Belief propagation (BP) for the 3D one-site network O of a PEPO (a fixed point of the six messages μ[k] on the legs of a site is the Bethe approximation), and the analytic Bethe-lattice solution of the classical Ising model.
+# We work with plain arrays, so O must have no symmetry sectors and be bosonic; the messages are not positive in general, so we fix the sign of every message by its overlap with the previous one.
 
 const BP_OPP = (4, 5, 6, 1, 2, 3)
 

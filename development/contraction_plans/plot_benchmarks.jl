@@ -1,16 +1,5 @@
-# plot_benchmarks.jl -- the figures of the contraction benchmark (benchmark_contract_onesite.jl) again, from the data only (23 Nov):
-#   1. per run folder data/contraction_plans/benchmark_contract_onesite/<run>/: every plot of BENCH_PLOTS (tools/benchmark_plots.jl), in that folder
-#      (benchmark_times_reuse.png, benchmark_times_manual.png, benchmark_allocators.png, benchmark_ram.png and the new benchmark_slices.png);
-#   2. ONE figure of the time against the number of slices with the plans of ALL selected run folders together (all dimension sets, plans for RAM_GIB),
-#      data/contraction_plans/benchmark_contract_onesite/all_runs_slices_<MACHINE>.png, and on screen per set the slope of log(time) against log(slices).
-#      A plan that was timed in several runs (same dimensions, tree, cuts and budget) counts once, with its fastest time.
-#   3. (23 Nov) with the plans of all selected run folders together: all_runs_allocators_<MACHINE>.png, reuse against manual (the same plan on the
-#      ENVIRONMENT environment, both allocators; make_allocator_figure), and all_runs_mock_vs_real_<MACHINE>.png, the mock against the real environment (the
-#      same plan and allocator; make_env_figure). The :validate profile timed both (two run folders: mock, real). Plans of every RAM budget.
-# Nothing is timed (unlike RUN_DIR in benchmark_contract_onesite.jl, which also times the plans that a run did not finish).
-# Times of different machines must not be mixed: we only take the run folders whose settings.txt has MACHINE = MACHINE below.
-# Run in the ClusterExpansions environment (Plots from the default environment), after copying the run folders from Hortense (Hortense guide, section 21):
-#   PowerShell, clone folder:  julia +1.12 --project=. development/contraction_plans/plot_benchmarks.jl
+# The figures of the contraction benchmark (benchmark_contract_onesite.jl) made again from the data only: every plot of BENCH_PLOTS per run folder, and figures with the plans of all selected run folders together.
+# Nothing is timed, and times of different machines are not mixed (only run folders whose settings.txt has MACHINE = MACHINE below).
 
 ENV["GKSwstype"] = "nul"     # no plot window: the plots are only saved to a file
 using Printf

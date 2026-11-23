@@ -1,17 +1,5 @@
-# Check of the projector exponent P of CTMRG3D (src/ctmrg3D/): the :svd projectors U * S^P (projector_exponent; original P = 1/2, P = 0 = isometries),
-# for P in EXPONENTS,
-# on the 3D Ising PEPOs of the PEPO file (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl). Prints numbers, tests nothing.
-#
-# For every set in DIMS, every β in BETAS and every P we run MPSKit.expectation_value (the settings of the CTMRG3D compare, except maxiter = CTM_MAXITER,
-# because P = 0 converges slowly or not at all) from the cold start INIT (seed INIT_SEED), and store per run:
-#   m = <σᶻ>, the number of iterations, the last ϵ, converged or not (or timed out), the time, the corner spectrum of the converged environment
-#   (rank = values above RANK_TOL) and the ϵ of every iteration (column eps_all, separated by ";": the convergence curve).
-# Error source: contraction/environment (3) only; the PEPO (D_CE, Δβ, β) is the same for all starts.
-#
-# Every run is appended to data/checks/check_ctmrg3d_exponent/<date>_<time>.csv immediately (a crash keeps the earlier runs).
-# Run in the ClusterExpansions environment, with the threads of the CTMRG3D compare (PowerShell, in the clone folder):
-#   julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_exponent.jl
-# On Hortense: development/hpc/job_check_ctmrg3d.pbs (round 1 of the Hortense guide; MACHINE is then "hortense" via CE_CHECK_MACHINE).
+# Check of the projector exponent P of CTMRG3D (the :svd projectors U * S^P; original P = 1/2, P = 0 = isometries) on the 3D Ising PEPOs of the PEPO file; prints numbers, tests nothing.
+# For every set in DIMS, every β in BETAS and every P in EXPONENTS it stores m, the iterations, the last ϵ, the corner spectrum and the ϵ of every iteration in data/checks/check_ctmrg3d_exponent/<date>_<time>.csv.
 
 using TensorKit
 using TensorKitTensors
@@ -30,8 +18,7 @@ include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 # Settings
 # ======================================================================================================================
 const DIMS = [(8, 4, 3), (11, 5, 3)]     # (χenv, χpeps, D_CE)
-# The β (must be in the PEPO file); a job can choose others with the environment variable CE_CHECK_BETAS, separated by _ (for example 0.2_0.22;
-# 23 Nov). plot_checks.jl puts the CSV files of all runs of this check together, so a later run only needs the new β.
+# The β (must be in the PEPO file); a job can choose others with the environment variable CE_CHECK_BETAS, separated by _ (for example 0.2_0.22)
 const BETAS = haskey(ENV, "CE_CHECK_BETAS") ? parse.(Float64, split(ENV["CE_CHECK_BETAS"], "_")) : [0.19, 0.21, 0.25]   # default: below, near and above βc ≈ 0.2217
 const EXPONENTS = [0.0, 0.5, 1.0]        # P of the :svd projectors U * S^P
 const INIT = :random                     # cold start of every run (the start of the CTMRG3D compare)
@@ -50,7 +37,7 @@ const RAM_GIB = 3                        # RAM budget of the sliced contraction 
 const MACHINE = get(ENV, "CE_CHECK_MACHINE", "laptop")   
 # contract_onesite_auto uses the plan times of this machine
 
-# false: contract_onesite_auto slices the current tree itself (plans = nothing), as the pilots on Hortense in round 1 (the plans are timed in the same round)
+# false: contract_onesite_auto slices the current tree itself (plans = nothing)
 const USE_PLANS = get(ENV, "CE_CHECK_PLANS", "true") == "true"
 const ONESITE_KWARGS = USE_PLANS ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing)
 

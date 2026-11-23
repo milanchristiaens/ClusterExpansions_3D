@@ -1,14 +1,5 @@
-# env_loader_pepo.jl -- the REAL environment of the contraction benchmark (benchmark_contract_onesite.jl, ENV_LOADER), for ANY bond dimensions
-# (chi_env, chi_peps, D): a CTMRG3D environment of the Ising PEPO of the PEPO file (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl)
-# at β = BETA with D_CE = D, after ENV_ITERS CTMRG3D iterations from a random start (init = :random, so that every bond has its full dimension).
-# It is not converged on purpose: the time of the contraction depends on the shapes and the memory layout of the tensors, not on their values, and a
-# converged environment would cost an hour or more per set. M = O (the "norm" tensor; an observable-dressed M has the same cost).
-#
-# The benchmark starts a fresh process for every plan, so the environment is built ONCE per set and saved (JLD2, plain arrays as in the PEPO files)
-# in data/contraction_plans/envs/; every later call reads it. The parent process of the benchmark builds the environments of all its sets before
-# timing anything. Delete a file in data/contraction_plans/envs/ to build that environment again (for example after a change of the settings below).
-#
-# It defines onesite_load_env(dims) -> (env, M), env = (; C, E, A) with typed vectors (as in a real CTMRG3D environment); the benchmark calls it.
+# The real environment of the contraction benchmark (benchmark_contract_onesite.jl, ENV_LOADER) for any bond dimensions (chi_env, chi_peps, D): a CTMRG3D environment of the Ising PEPO of the PEPO file at β = BETA, after ENV_ITERS iterations from a random start.
+# It is not converged on purpose, because the time of the contraction depends on the shapes of the tensors and not on their values; it is built once per set and saved in data/contraction_plans/envs/.
 
 using TensorKit, TensorOperations, MPSKit, JLD2
 using MatrixAlgebraKit: truncrank

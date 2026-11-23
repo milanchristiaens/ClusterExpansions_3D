@@ -1,9 +1,4 @@
-# ======================================================================================================================
-# bpeps_helpers.jl -- HELPER file of bpeps_main.jl (the entry point: bpeps_expectation_value, bpeps_optimize, bpeps_observables).
-# Sections: 1. optimization state (retract, transport)   2. initial CTMRG environment   3. timers inside Zygote   4. cost function
-#           5. initial state (power method)   6. the 2D PEPO tensor (bpeps_pepo_tensor)
-# The idea of the method and the leg convention are at the top of bpeps_main.jl.
-# ======================================================================================================================
+# Helper file of bpeps_main.jl: the optimization state (retract, transport), the initial CTMRG environment, timers inside Zygote, the cost function, the initial state (power method) and the 2D PEPO tensor (bpeps_pepo_tensor).
 
 
 # ----------------------------------------------------------------------------------------------------------------------
@@ -124,18 +119,12 @@ end
 
 
 # ----------------------------------------------------------------------------------------------------------------------
-# 4. The cost function for OptimKit.optimize: x = (peps, env2, env3)  ->  (cost, gradient w.r.t. peps)
-#    cost = -log|λ3/λ2| with λ = network_value(network, env) (the Baxter/CTM formula "site x corners / edges", per unit cell).
-#
-#    Two ways to take the gradient (keyword differentiate_environment):
-#     Math: dE/dψ = ∂E/∂ψ + (∂E/∂env)·(∂env/∂ψ)
-#    * false (default): the two environments are converged with leading_boundary OUTSIDE of the automatic differentiation, and only the explicit
-#      dependence of the two network values on psi is differentiated (environments fixed). The omitted term is dE/denv * denv/dpsi. It is NOT
-#      negligible: this is an approximate gradient; cheap, and the automatic differentiation of it is correct
-#      (test/bpeps.jl), but LBFGS minimises a cost whose exact gradient it does not get. development/checks/vbpeps/check_bpeps_gradient.jl prints these numbers.
-#    * true: the network values are evaluated with the output of hook_pullback, so that the
-#      gradient also contains the fixed-point (geometric sum / Arnoldi) term through the CTMRG. Much more expensive, and the first call compiles
-#      the pullback of a CTMRG iteration (Zygote: minutes on a normal machine). Not tested yet!
+# 4. The cost function for OptimKit.optimize: x = (peps, env2, env3)  ->  (cost, gradient w.r.t. peps); cost = -log|λ3/λ2| with λ = network_value(network, env).
+#    Two ways to take the gradient (keyword differentiate_environment), with dE/dψ = ∂E/∂ψ + (∂E/∂env)·(∂env/∂ψ):
+#    * false (default): the environments are converged outside of the automatic differentiation and kept fixed, so the term (∂E/∂env)·(∂env/∂ψ) is omitted: an approximate gradient
+#      (development/checks/vbpeps/check_bpeps_gradient.jl prints these numbers).
+#    * true: the network values are evaluated with the output of hook_pullback, so the gradient also contains the fixed-point term through the CTMRG. Much more expensive, and the first call
+#      compiles the pullback of a CTMRG iteration (Zygote: minutes). Not tested yet!
 # ----------------------------------------------------------------------------------------------------------------------
 
 # Builds and returns the cost function E for a fixed PEPO T

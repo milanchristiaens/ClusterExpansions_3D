@@ -1,6 +1,5 @@
 # Verbose run of the 3D Ising model (g = 0) with CE + CTMRG3D: prints the cluster expansion, the truncation, every CTMRG step and the timer tree.
 # Use this to watch how the CTMRG converges, for example around the critical point.
-# The same run with a variational boundary PEPS: ising_model_3D_CE_vbPEPS_verbosity.jl (this folder).
 
 using TensorKit
 using TensorKitTensors

@@ -1,56 +1,6 @@
-# ctmrg3D_octant.jl -- Proposal 2: cube-symmetric CTMRG3D with octant projectors (CTMRG3DOctant).
-#
-# Use: expectation_value(PEPO, obss, bpepsspace, envspace; ctm_alg = CTMRG3DOctant, ...) (same entry point as CTMRG3D), or
-#      CTMRG3DOctant(O; Vv, Vbp, ...) followed by leading_boundary(env) (the leading_boundary of ctmrg3D_main.jl).
-# Needs an O that is symmetric under the cube rotations and reflections (CE PEPOs with rot_invariance = true; checked), real (Float64),
-# without symmetry sectors (we work with plain arrays). Not for fermions.
-#
-# ============================================================================================
-#  Idea
-# ============================================================================================
-# The environment of the central site after n steps is a (2n+1)³ cube cut into 8 corner blocks (n³ sites), 12 edge blocks (n² sites)
-# and 6 face blocks (n sites). With cube symmetry all corners are the same tensor C, all edges E and all faces A, so we store only one of each.
-# One step grows ALL six sides at once (as the C4v CTMRG in 2D), because a one-sided (West) update leaves a corner with legs in two different
-# bases, which a single symmetric C cannot have. Counting sites, (n+1)³ = n³ + 3n² + 3n + 1, so
-#     C' = C·E³·A³·O,     E' = E·A²·O,     A' = A·O
-# and the new legs are compressed with two projectors:
-#     P_c: F = χenv·χpeps²·D  -> χenv   on every corner-edge bond (and on both long legs of every edge)
-#     P_f: χpeps·D           -> χpeps  on every edge-face bond (and on the four legs of every face)
-# The same orthogonal P on both sides of a bond inserts P·Pᵀ, a projector: without truncation a step is exact.
-#
-# P_c: the top χenv eigenvectors of ρ_F = Q·Qᵀ, with Q the octant C·E³·A³·O as a matrix (one leg F) × (two other legs F²).
-#      Q (F³ numbers) is never stored: we only apply ρ_F to a block of vectors in a block subspace iteration with Rayleigh-Ritz, started from the
-#      P_c of the previous step. The part B = C·E_y·E_z·A_E of Q does not touch the vectors: we contract it once per step and form M = B·Bᵀ over its
-#      open legs, so that ρ_F·V = X·M·Xᵀ·V with X = E_x·A_U·A_N·O (about 10× fewer flops than Q·(Qᵀ·V) at (16,5,3)).
-# P_f: the top χpeps eigenvectors of the reduced matrix of the (face, O) part of a leg F, taken from the truncated ρ_F ≈ U·Λ·Uᵀ
-#      (an approximation: the discarded weight of ρ_F is ignored), averaged over the two faces in F.
-# C': from Qᵀ·P_c (one product with the χenv columns of P_c per step), then P_c on the two other legs.
-#
-# ============================================================================================
-#  Conventions (plain arrays; directions as in ctmrg3D_helpers.jl: EAST = +x, NORTH = +y, UP = +z)
-# ============================================================================================
-#   O[u, n, e, d, s, w]       the O of expectation_value (legs UP NORTH EAST DOWN SOUTH WEST)
-#   c[x, y, z]                the corner at (+,+,+); leg x points to -x (to the x-edge at (0,+,+)), y to -y, z to -z
-#   e[c-, c+, fU, fN]         the x-edge at (0,+,+): c- to the corner at -x, c+ to the corner at +x, fU to the up face (0,0,+) (direction -y),
-#                             fN to the north face (0,+,0) (direction -z)
-#   a[o, +x, +y, -x, -y]      the up face at (0,0,+): o to the centre (direction -z), then the legs to +x, +y, -x, -y (counterclockwise from above)
-# All other corners, edges and faces are proper rotations of these; we use the rotation R: x -> y -> z -> x to place them. In the octant of
-# a site s (the new corner = the old blocks in the (+,+,+) directions of s, plus s itself):
-#   E_x = e[ox, cx, ux, nx], E_y = e[oy, cy, ey, uy], E_z = e[oz, cz, nz, ez]          (the edges at (0,+,+), (+,0,+), (+,+,0) of s)
-#   A_U = a[oU, uy, ux, FxU, FyU], A_N = a[oN, nx, nz, FzN, FxN], A_E = a[oE, ez, ey, FyE, FzE]
-#   O[oU, oN, oE, FzO, FyO, FxO]
-# and the three legs of the octant are the composites
-#   F_x = (ox, FxU, FxN, FxO),  F_y = (oy, FyE, FyU, FyO),  F_z = (oz, FzN, FzE, FzO)      (first index fastest in the reshape)
-# The new edge at (0,+,+) of a site t uses the old E = e[o-, o+, u, n], A_U = a[oU, xp, u, xm, ym], A_N = a[oN, n, xp2, zm, xm2] and O of t:
-#   c-' = (o-, xm2, xm, Ow),  c+' = (o+, xp, xp2, Oe),  fU' = (ym, Os),  fN' = (zm, Od)
-# (c-' lists the north face before the up face: that is the order of the +x leg of the corner at (-,+,+), the rotation of the corner at
-# (+,+,+) about the z axis; c+' has the order of F_x. The 2-fold rotation of the edge maps c+' onto c-' with this order.)
-# The new face: a' = (a·O)[d; (+x, e), (+y, n), (-x, w), (-y, s)], each pair (face leg, O leg) compressed with P_f.
-#
-# For the observables we copy c, e, a into the 27 tensors of a CTMRG3D in Sander's conventions (expand_to_ctmrg3d) and use contract_onesite
-# (or the sliced version through contract_onesite_dispatch), so the plans of onesite_plans.csv apply unchanged:
-#   C1 = [E5 E4 E1] -> permutedims(c, (2,3,1)) (corner (+,+,+) is C2 = [E2 E6 E1] = c[y z x]),  E1 = [C1 A1; C2 A2] -> permutedims(e, (1,3,2,4)),
-#   A1 = [O; E1 E4 E3 E2] -> permutedims(a, (1,3,4,5,2)),  the same tensor at every position (each is invariant under its own rotations).
+# ctmrg3D_octant.jl -- cube-symmetric CTMRG3D with octant projectors (CTMRG3DOctant): one step grows all six sides at once, so we store one corner c, one edge e and one face a, compressed with two projectors P_c and P_f (a step is exact without truncation).
+# Use: expectation_value(PEPO, obss, bpepsspace, envspace; ctm_alg = CTMRG3DOctant, ...); it needs a real O with the cube symmetry (rot_invariance = true) and no symmetry sectors.
+# Plain arrays: O[u, n, e, d, s, w], c[x, y, z] (the corner at (+,+,+), legs to -x, -y, -z), e[c-, c+, fU, fN] (the x-edge at (0,+,+)), a[o, +x, +y, -x, -y] (the up face at (0,0,+)).
 
 using LinearAlgebra: I, Diagonal, Symmetric, diagm, eigen, qr, svdvals
 
@@ -69,8 +19,7 @@ mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
     verbosity::Int
     max_seconds::Float64
     subspace_tol::Float64              # stop the subspace iteration when the residuals of the kept Ritz vectors are below subspace_tol · λ_max
-                                       # (default min(1e-6, 10·tol): the CTMRG3D change ϵ then still reaches tol; at 1e-6 the floor of ϵ was ≈ 4e-8,
-                                       # and m changed by at most 5e-6 against 1e-10 (sandbox, (8,3,3), 21 Nov), with 2-3× fewer products ρ_F·V)
+                                       # (default min(1e-6, 10·tol): the CTMRG3D change ϵ then still reaches tol)
     subspace_maxiter::Int              # at most this many products ρ_F·V per step
     oversample::Int                    # block size = χenv + oversample
     trunc_window::Int                  # gap cut (see _gap_cut): the cuts of P_c (χenv) and P_f (χpeps) may move by at most trunc_window
@@ -199,7 +148,7 @@ function _octant_QW(W, B, e, a, o)
     return _octant_xbwd(Y1, e, a, o)
 end
 
-# The gap cut (22 Nov), the rule of truncgap in BetterPEPSKit (the truncation of the vbPEPS compare), for values without symmetry sectors:
+# The gap cut, the rule of truncgap in BetterPEPSKit (the truncation of the vbPEPS compare), for values without symmetry sectors:
 #   vals: the values, descending (≥ 0: eigenvalues of ρ_F or of the face matrix); target: the number we want to keep (χenv or χpeps).
 #   Two neighbours v ≥ v′ form one group if v - v′ <= rtol·v. If the cut at target splits a group, we look for the cut within target ± window
 #   that splits none, nearest to target (on a tie: the larger gap, i.e. the smaller ratio v′/v). The last `margin` values are not trusted (the

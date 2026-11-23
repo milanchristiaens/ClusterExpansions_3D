@@ -1,12 +1,5 @@
-# Tests of the 3D CTMRG (src/ctmrg3D/ctmrg3D_helpers.jl, ctmrg3D_main.jl) that need no cluster expansion: rotations of the 27 tensors and exactly solvable PEPOs.
-# Offered as an ADDITION (not in runtests.jl): add it with
-#     @time @safetestset "CTMRG3D" begin include("ctmrg3d.jl") end
-# Everything here is small (chi_env <= 4), most of the time is compilation of contract_onesite.
-#   (1) the rotations rot_ud_90, rot_ns_90, rot_we_90 (random tensors of the right spaces): fourth power = identity, and the closed 27-tensor network is invariant under a rotation
-#       of the environment together with the same permutation of the legs of M;
-#   (2) a product state (bond dimension 1): <sigma^x> = tanh(beta h);
-#   (3) a classical Ising chain along z (bond dimension 2): <sigma^z> = sinh(h) / sqrt(sinh(h)^2 + exp(-4K)), after a FIXED number of iterations;
-#   (4) the classical 2D Ising model in the three planes (Onsager), a measurement of the error of the U*sqrt(S) projectors, see the comments there.
+# Tests of the 3D CTMRG (ctmrg3D_helpers.jl, ctmrg3D_main.jl) that need no cluster expansion: the rotations of the 27 tensors (fourth power = identity, invariance of the closed network) and exactly solvable PEPOs (a product state, a classical Ising chain, the classical 2D Ising model in the three planes).
+# Offered as an addition: it is not in runtests.jl; everything is small, most of the time is compilation.
 using TensorKit
 using TensorKitTensors
 using MPSKit
@@ -19,7 +12,7 @@ const CE = ClusterExpansions
 Random.seed!(20261105)
 
 # Expectation value of a one-site operator after a FIXED number of CTMRG iterations. The stopping rule of MPSKit.leading_boundary(::CTMRG3D) looks only at the corner spectrum of C[1];
-# for rank-one corners (decoupled directions) it stops after miniter + 1 iterations while the faces A are still far from converged (see development notes), so the number of iterations is fixed here.
+# for rank-one corners (decoupled directions) it stops after miniter + 1 iterations while the faces A are still far from converged, so the number of iterations is fixed here.
 function ctmrg3d_value(PEPO, obs, χp, χe; iterations, west_updates = :auto)
     O = (@tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]; flip(permute(O, ((), (1, 2, 3, 4, 5, 6))), [4 5 6]))
     M = (@tensor M[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 2; -1 -2 -3 -4 -5 -6] * obs[2; 1]; flip(permute(M, ((), (1, 2, 3, 4, 5, 6))), [4 5 6]))
@@ -106,11 +99,9 @@ end
     end
     # the three orientations are the same physical problem
     @test maximum(ms) - minimum(ms) < 1.0e-8
-    # Error of the environment with the U*sqrt(S) projectors (src/ctmrg3D/ctmrg3D_helpers.jl, get_projectors_corner/_edge): 1.5e-3 at chi = 3, 4, 5, independent of chi, while a plain
-    # isometry corner transfer matrix reaches 1e-9 at chi = 3 (numpy check). This is a measurement of the present state, NOT a statement that this is the right value.
-    # In a night test with U*S^p instead of U*sqrt(S) (monkey patch, development/night/e16-e18): this plane test is exact (8e-10) only for p = 0 (plain isometry), while for the genuine
-    # 3D PEPO of test/bpeps.jl p = 0 does not converge and p >= 0.85 agrees with the bPEPS value to 1e-16 (p = 0.5: -3.7e-5). So no single exponent is right in both; if you change the
-    # projectors, the @test_broken below will report 'unexpectedly passed' and should be turned into a @test.
+    # Error of the environment with the U*sqrt(S) projectors (get_projectors_corner/_edge): 1.5e-3 at chi = 3, 4, 5, independent of chi, while a plain isometry corner transfer matrix reaches 1e-9 at chi = 3.
+    # This is a measurement of the present state, NOT a statement that this is the right value: with U*S^p this plane test is exact only for p = 0, while the genuine 3D PEPO of test/bpeps.jl needs p >= 0.85.
+    # If you change the projectors, the @test_broken below will report 'unexpectedly passed' and should be turned into a @test.
     @test abs(ms[1] - onsager) < 3.0e-3
     @test_broken abs(ms[1] - onsager) < 1.0e-6
 end

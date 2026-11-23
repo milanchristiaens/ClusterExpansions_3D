@@ -106,17 +106,12 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
                                        # (gauge fix, see get_projectors_svd_class / get_projectors_oblique_class), for :svd and :oblique
     max_seconds::Float64               # time limit of leading_boundary in seconds (Inf = none)
     stagnation_window::Int             # 0 = off; > 0: leading_boundary stops when ϵ did not improve by stagnation_factor over this many iterations
-    stagnation_factor::Float64         #   (23 Nov: :oblique reaches m to ±1e-4 in ~20 iterations, while its corner spectrum keeps changing by ~5e-3)
+    stagnation_factor::Float64
 
     # env0 = nothing: cold start, the 26 environment tensors depend on init:
-    #        init = :random (default) every tensor random (randn), for both projector kinds.    
-    #        The random numbers come from a local generator with seed init_seed, so a run is reproducible and the global seed is not touched.
-    #        init = :ones   all ones, for both projector kinds. Note: this start is rank one, and :oblique keeps a rank-one
-    #                       environment rank one (its projectors are exact on the support of R1 * R2, and the pseudo-inverse drops the rest.
-    #        init = :nishino_okunishi   the 3×3×3 cube of O tensors: every corner, edge and face is O itself, with its outward legs closed by one random
-    #                       Gaussian vector (seed init_seed, the same vector on every outer leg), see nishino_okunishi_init. All bonds then start at the
-    #                       bond dimension D of O and grow to Vv / Vbp (trunc_env / trunc_bpeps) in the first iterations. Needs a cube-symmetric O
-    #                       (checked), because every corner, edge and face gets the same tensor.
+    #   init = :random (default)  every tensor random (randn), from a local generator with seed init_seed (reproducible, the global seed is not touched)
+    #   init = :ones              all ones (rank one, and :oblique keeps a rank-one environment rank one)
+    #   init = :nishino_okunishi  the 3×3×3 cube of O tensors with the outward legs closed by one random vector (see nishino_okunishi_init); needs a cube-symmetric O
     # env0 = an earlier CTMRG3D: warm start, we copy its C, E, A and only take the new O
 function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, 
                 maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol, 
@@ -162,15 +157,9 @@ function random_init(A, E, C; seed = 1)
     return make.(A), make.(E), make.(C)
 end
 
-# The Nishino-Okunishi start: the 26 environment tensors are O itself, with the legs that point out of the 3×3×3 cube closed by the random Gaussian
-# vector v (seed; the same v on every outer leg). O[UP, NORTH, EAST, DOWN, SOUTH, WEST] (all legs of dimension D):
-#   corner C[UP, NORTH, EAST]          = O with DOWN, SOUTH, WEST closed (the three kept legs point to the three neighbouring edges)
-#   edge   E[UP, NORTH; DOWN, EAST]    = O with SOUTH, WEST closed (UP, DOWN along the edge = Vv legs; NORTH, EAST to the two faces = Vbp legs)
-#   face   A[centre; UP, NORTH, DOWN, SOUTH] = O with WEST closed and EAST (towards the centre O) as centre leg (the WEST face, as A[5])
-# The spaces are those of CTMRG3D_init with Vv = Vbp = the space of the legs of O, and the numbers are copied in as arrays (no symmetry sectors).
-# This uses the same tensor for all 8 corners, all 12 edges and all 6 faces, so it is only right for an O that is symmetric under the cube rotations and
-# reflections (the CE PEPOs with rot_invariance = true); we check that O is invariant under the permutations of the three axes, and that the legs of
-# O have the same dimension, and give an error otherwise.
+# The Nishino-Okunishi start: the 26 environment tensors are O itself, with the legs that point out of the 3×3×3 cube closed by one random Gaussian vector v (seed). O[UP, NORTH, EAST, DOWN, SOUTH, WEST]:
+#   corner C[UP, NORTH, EAST] = O with DOWN, SOUTH, WEST closed;  edge E[UP, NORTH; DOWN, EAST] = O with SOUTH, WEST closed;  face A[centre; UP, NORTH, DOWN, SOUTH] = O with WEST closed and EAST as centre leg
+# The spaces are those of CTMRG3D_init with Vv = Vbp = the space of the legs of O. It uses the same tensor for all corners, edges and faces, so O must be symmetric under the cube rotations and reflections (we check this and give an error otherwise).
 function nishino_okunishi_init(O::TensorMap{T,S,0,6}; Vp = space(O)[1]', seed = 1) where {T,S}
     # Turn O into array, D is bond dimension of O
     a = convert(Array, O)
@@ -342,16 +331,10 @@ end
 # ============================================================================================
 # projectors = :oblique: one projector pair per bond of the new West plane
 # ============================================================================================
-# The projectors above only look at ONE side of a bond (the SVD of ec or ee alone). Here every bond gets a pair (P1, P2) built from
-# the two enlarged tensors on both sides of it, as in Verraes eqs. 3.48-3.51 (and oblique_projector in local_truncation.jl):
-#   X (left) = Q1 * R1,  Y (right) = R2 * Q2   (QR / RQ, so that the big X and Y are never multiplied; X * Y is the doubled bond)
-#   R1 * R2 ≈ U * S * V'   (truncated SVD),   P1 = R2 * V * S^(-1/2),   P2 = S^(-1/2) * U' * R1
-# so that X * P1 * P2 * Y = Q1 * (U S V')_truncated * Q2 ≈ X * Y. Without truncation P1 * P2 is the identity on the bond.
-# S^(-1/2) is a pseudo-inverse
-# The 12 bonds (i = 1..4, in the order of enlarged_corners / enlarged_edges):
-#   y_i:  UP pair of corner i     <->  DOWN pair of edge i        (truncated to χenv)
-#   z_i:  NORTH pair of corner i  <->  UP pair of edge i-1        (truncated to χenv; renormalize_edges uses Uzs[i+1] on edge i)
-#   f_i:  NORTH pair of edge i    <->  pair i of the face (UP, NORTH, DOWN, SOUTH), only this pair sees O   (truncated to χpeps)
+# The projectors above only look at ONE side of a bond. Here every bond gets a pair (P1, P2) built from the two enlarged tensors on both sides of it, as in Verraes eqs. 3.48-3.51 (and oblique_projector in local_truncation.jl):
+#   X (left) = Q1 * R1,  Y (right) = R2 * Q2 (QR / RQ),   R1 * R2 ≈ U * S * V' (truncated SVD),   P1 = R2 * V * S^(-1/2),   P2 = S^(-1/2) * U' * R1
+# so that X * P1 * P2 * Y ≈ X * Y; S^(-1/2) is a pseudo-inverse. The 12 bonds (i = 1..4, in the order of enlarged_corners / enlarged_edges):
+#   y_i: UP pair of corner i <-> DOWN pair of edge i (χenv);  z_i: NORTH pair of corner i <-> UP pair of edge i-1 (χenv; renormalize_edges uses Uzs[i+1] on edge i);  f_i: NORTH pair of edge i <-> pair i of the face (χpeps)
 # See Typst file for clearer convention explanation, also NORTH and UP refer to leg names, not to the locations of these enlarged (= pair) tensors
 # X is always the edge (bonds y, z) or the face (bonds f), Y the corner (y, z) or the edge (f).
 function oblique_pair(R1, R2, trunc)
@@ -409,17 +392,9 @@ end
 # ============================================================================================
 # class_projectors = true: one projector per class of translation-equivalent bonds (gauge fix)
 # ============================================================================================
-# Why: after a West update, the next update on an ADJACENT side (e.g. South, after rot_ud_90) glues the north leg of one copy of E4, A5, E12 to
-# the south leg of the next copy. With one projector per bond these two legs live in different bases (bond y_1 and bond z_2 got different
-# projectors), so the glued bond carries an arbitrary gauge matrix and the update is not exact even without truncation
-# (checked 20 Nov: m changes under a random orthogonal gauge on the new bonds).
-# Fix: the 12 new bonds of a West update form 6 classes of bonds that are related by a translation of the infinite network:
-#   for every West edge e (f = e+1): bond y_e (corner e <-> edge e) and bond z_f (edge e <-> corner f)
-#   for the West face: bonds f_1, f_3 (UP and DOWN pair) and bonds f_2, f_4 (NORTH and SOUTH pair)
-# Every class gets ONE projector (svd) or ONE pair (oblique), computed from all enlarged tensors of the class together, so the north and south
-# leg of a tensor end up in the same basis. Without truncation both versions are exact for any order of updates (checked 20 Nov: W, S, D updates).
-# The legs of the bonds of one class have the same dimensions but can differ in arrow direction: we flip legs to one common space for the
-# decomposition and flip every projector back to the space its renormalize_* call expects (flip does not change the numbers for ComplexSpace).
+# Why: after a West update, the next update on an ADJACENT side glues the north leg of one copy of E4, A5, E12 to the south leg of the next copy. With one projector per bond these two legs live in different bases, so the glued bond carries an arbitrary gauge matrix and the update is not exact even without truncation.
+# Fix: the 12 new bonds of a West update form 6 classes of bonds that are related by a translation of the infinite network (for every West edge e (f = e+1): bond y_e and bond z_f; for the West face: bonds f_1, f_3 and bonds f_2, f_4).
+# Every class gets ONE projector (svd) or ONE pair (oblique), computed from all enlarged tensors of the class together. The legs of one class can differ in arrow direction: we flip them to one common space for the decomposition and flip every projector back (flip does not change the numbers for ComplexSpace).
 
 # we flip the legs of the domain (codomain) of X whose arrow differs from the target space
 function _domain_to(X, target)
@@ -454,16 +429,10 @@ function _R_right_joint(Ys)
     return length(Rs) == 1 ? Rs[1] : _R_right(reduce(catdomain, Rs))
 end
 
-# U * S^P of the joint SVD of [Y1 conj(Y2)] (bond = the codomain of every Y, flipped to the codomain of Y1); returned flipped back:
-# (U for Y1, conj(U) for Y2). Why the conj: the two legs that a later update glues together (e.g. the UP and DOWN pair of edge e, which both
-# get a plain U in renormalize_edges) must carry U and conj(U), so that the glued bond is U * U' = 1 on the support; for real tensors
-# conj does nothing. The tensor that is applied with conj(U) in renormalize_* then sees conj(Y2) * conj(conj(U)) = conj(Y2 * conj(U)),
-# so we decompose [Y1 conj(Y2)].
-# Lean version (22 Nov): the stacked matrix [Y1 conj(Y2)] is never built. Its left singular vectors and singular values are those of
-# the small Gram matrix G = Y1 Y1' + conj(Y2) conj(Y2)' (Π ← Π): G = U S² U'. We take U, S² from an SVD of G (G is positive semidefinite,
-# so its SVD is its eigendecomposition), then an SVD of the square R = U·S (singular values S, left vectors U) applies trunc to S itself.
-# Memory: the two Gram products instead of two fused copies, their concatenation and the SVD of a matrix twice as wide (the old version ran
-# out of memory on 4 Hortense cores at (16,6,2)). Price: S comes from S², so singular values below about 1e-8·S_max lose relative precision.
+# U * S^P of the joint SVD of [Y1 conj(Y2)] (bond = the codomain of every Y, flipped to the codomain of Y1); returned flipped back: (U for Y1, conj(U) for Y2).
+# The conj makes the bond that a later update glues together U * U' = 1 on the support (for real tensors conj does nothing).
+# Lean version: the stacked matrix is never built. Its left singular vectors and singular values are those of the small Gram matrix G = Y1 Y1' + conj(Y2) conj(Y2)' = U S², then an SVD of the square R = U·S applies trunc to S itself.
+# This needs much less memory than the stacked matrix; the price is that S comes from S², so singular values below about 1e-8·S_max lose relative precision.
 function _svd_joint(Y1, Y2, trunc, P)
     Π = codomain(Y1)
     Y2c = _codomain_to(_conj_entries(Y2), Π)
@@ -491,14 +460,11 @@ function get_projectors_svd_class(ecs, ees, trunc_env, trunc_bpeps; P = 0.5)
     return Uys, Uzs, Ws
 end
 
-# oblique version (original get_projectors_oblique, but one pair per class):
-# along the line  corner e -- edge e -- corner e+1  (a translation direction) the first tensor of every bond gets the X member P1 and the second
-# the Y member P2, so the two legs of edge e get the two DIFFERENT members of the same pair, as an edge in a 2D CTMRG with a 1x1 unit cell;
-# gluing the north leg of one copy to the south leg of the next then carries P1 * P2 (the identity on the support, exact without truncation).
+# oblique version (original get_projectors_oblique, but one pair per class): along the line corner e -- edge e -- corner e+1 the first tensor of every bond gets the X member P1 and the second the Y member P2,
+# so the two legs of edge e get the two different members of the same pair, and gluing the north leg of one copy to the south leg of the next carries P1 * P2 (the identity on the support).
 #   bond y_e: corner e (X, P1) -- edge e (Y, P2);   bond z_{e+1}: edge e (X, P1) -- corner e+1 (Y, P2)
 #   face: bond f_k1: edge k1 (X, P1) -- face (Y, P2);   bond f_k2: face (X, P1) -- edge k2 (Y, P2),   (k1, k2) = (1, 3), (2, 4)
-# The R's of all X (Y) of a class are stacked: R1 of [X1; X2], R2 of [Y1 Y2], then oblique_pair as in the original.
-# Returned in the form renormalize_* expects (P[pair; new]); the members that renormalize_* applies with conj are passed through _conj_entries.
+# The R's of all X (Y) of a class are stacked, then oblique_pair as in the original; returned in the form renormalize_* expects, the members that it applies with conj are passed through _conj_entries.
 function get_projectors_oblique_class(ecs, ees, es, trunc_env, trunc_bpeps)
     Uys_c = Vector{Any}(undef, 4); Uzs_c = Vector{Any}(undef, 4); Uys_e = Vector{Any}(undef, 4); Uzs_e = Vector{Any}(undef, 4)
     for e in 1:4

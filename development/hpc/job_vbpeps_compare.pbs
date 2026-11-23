@@ -1,12 +1,6 @@
 #!/bin/bash
-# job_vbpeps_compare.pbs -- ising_model_3D_CE_vbPEPS_compare.jl on CORES Hortense cores (default 3, about 5.6 GiB): one job of a pilot, of the timing
-# (fast against slow) or of a full run.
-# Submitted by submit_compare.sh (or by hand, see the Hortense guide), which passes PROFILE (pilot, timing, equal or hpc), IMPL (pepskit or betterpepskit), CORES, DIMS (one candidate of the pilot),
-# CASE (one case of the full run) and RUN (the run folder; the parallel jobs of one full run share it) with qsub -v, and sets the cores and the walltime.
-# The same core budget per case as the CTMRG3D compare: 3 cores × 21.3 h = 4 cores × 16 h = 64 core hours (the time limits are in the profiles of the
-# script). The PEPOs and start states come from the PEPO file (job_pepos.pbs first).
-# The environment follows the implementation: betterpepskit runs in development/fast_vbpeps (BetterPEPSKit, without ClusterExpansions), pepskit in the
-# environment of the clone (its compilation of the `true` cases, about 2 h, comes on top of the budget).
+# Runs ising_model_3D_CE_vbPEPS_compare.jl on CORES Hortense cores: one job of a pilot, of the timing or of a full run, as submitted by submit_compare.sh.
+# The environment follows the implementation: betterpepskit runs in development/fast_vbpeps, pepskit in the environment of the clone.
 #PBS -A starting_2026_079
 #PBS -N vbpeps_compare
 #PBS -l nodes=1:ppn=3
@@ -22,8 +16,8 @@ export CE_COMPARE_IMPL=${IMPL:-betterpepskit}
 [ -n "${CASE:-}" ] && export CE_COMPARE_CASES=$CASE
 [ -n "${RUN:-}" ] && export CE_COMPARE_RUN=$RUN
 if [ "$CE_COMPARE_IMPL" = betterpepskit ]; then ENVDIR=development/fast_vbpeps; else ENVDIR=.; fi
-# Julia's garbage collector aims at HEAP_FRACTION of the job memory (cores × 1.86 GiB) through --heap-size-hint: Julia sees the whole node (251 GiB)
-# and otherwise lets garbage grow past the job limit (22 Nov: out of memory at 11.1 GiB on 6 cores while the live data was much smaller)
+# Julia's garbage collector aims at HEAP_FRACTION of the job memory (cores × 1.86 GiB) through --heap-size-hint: Julia sees the whole node
+# and would otherwise let garbage grow past the job limit
 HEAP_FRACTION=${HEAP_FRACTION:-0.6}
 HEAP_HINT_MIB=$(awk -v c=$JULIA_THREADS -v f=$HEAP_FRACTION 'BEGIN { printf "%d", c * 1.86 * 1024 * f }')
 cd "$REPO"

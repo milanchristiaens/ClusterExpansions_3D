@@ -1,24 +1,8 @@
-# compare_tools.jl -- helpers for the compare scripts (comparing/) and for the vbPEPS profiling script.
-# Used by: comparing/ising_model_3D_CE_vbPEPS_compare.jl, comparing/ising_model_3D_CE_CTMRG_compare.jl, comparing/ising_model_3D_CE_CTMRG_vs_vbPEPS.jl
-# and ising_model_3D_CE_vbPEPS_profiling.jl (check_cost).
-# Contents:
-#   βc_ising, check_cost            sanity check of the cost f of a vbPEPS optimization
-#   check_m                         sanity check of m below βc (both compare scripts)
-#   compare_dims, compare_cases, compare_run_dir
-#                                   the parts of a profile that the Hortense job scripts choose with environment variables (CE_COMPARE_DIMS, _CASES, _RUN)
-#   FlushingLogger                  log messages flushed at once (installed on include; the Hortense job log of a killed job stays complete)
-#   warm_start_at                   the warm-start rule of the :warm cases (cold near βc)
-#   obs_seconds_allowed             the time limit of one observation, from the time budget of a case (the same rule for vbPEPS and CTMRG3D)
-#   ISING_RESULTS_PATH, ISING_CSV_HEADER, ising_results_file, append_ising_row, read_ising_results
-#                                   one results file for all Ising compare runs of both algorithms (column algorithm = "vbPEPS" or "CTMRG3D")
-#   median_of, spread_points, plot_spread   difference of |m| of every case to the mean |m| of the cases
-# The functions get their settings as arguments; they do not read the settings of the script that includes this file (only compare_* read the environment variables).
-# Needs (the including script has them): using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots, LinearAlgebra
-# The timing plots of the compare scripts are in timing_plots.jl; the PEPOs (build_pepos, the PEPO files) in development/initial_pepos/pepo_files.jl.
+# Helpers for the compare scripts (comparing/) and for the vbPEPS profiling script: sanity checks of f and m, the parts of a profile that the job scripts choose, the warm-start rule, the time limit of an observation, the results file of all Ising compare runs and the spread plot.
+# The functions get their settings as arguments; the including script needs using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, Plots, LinearAlgebra.
 
-# Log lines that reach the job log at once. Julia buffers stderr and stdout when they are a file (the Hortense job log): a job that is killed
-# (time limit, out of memory) lost its whole log (ctmrg_pilot5_16_6_3, 21 Nov). This logger passes every message on to the logger we had and
-# then flushes both streams; we install it when this file is included. Lines of println are flushed by the next log message (or by flush(stdout)).
+# Log lines that reach the job log at once: Julia buffers stderr and stdout when they are a file, so the log of a job that is killed would be lost.
+# This logger passes every message on to the logger we had and then flushes both streams (installed when this file is included).
 import Logging
 struct FlushingLogger <: Logging.AbstractLogger
     inner::Logging.AbstractLogger
@@ -34,18 +18,16 @@ function Logging.handle_message(l::FlushingLogger, args...; kwargs...)
 end
 Logging.global_logger() isa FlushingLogger || Logging.global_logger(FlushingLogger(Logging.global_logger()))
 
-# A figure of the compare scripts: the panels next to each other (a panel that is nothing is left out, e.g. the spread panel of a run with one case),
-# 800 px wide per panel (at least 1100 px, so that a title line of about 120 characters fits), with the title above it. The title may have two lines ("\n"); plot_titlevspan gives them room, so that they do not run into the
-# titles of the panels (they did in the plots of 21 Nov).
+# A figure of the compare scripts: the panels next to each other (a panel that is nothing is left out), 800 px wide per panel (at least 1100 px), with the title above it.
+# The title may have two lines ("\n"); plot_titlevspan gives them room, so that they do not run into the titles of the panels.
 function compare_figure(panels, title; height = 560, titlefontsize = 11)
     ps = filter(!isnothing, panels)
     return plot(ps...; layout = (1, length(ps)), size = (max(800 * length(ps), 1100), height), margin = 6Plots.mm, bottom_margin = 8Plots.mm, left_margin = 8Plots.mm,
                 plot_title = title, plot_titlefontsize = titlefontsize, plot_titlevspan = (count(==('\n'), title) + 1) * 2.2 * titlefontsize / height)
 end
 
-# Memory of this Julia process. On 21–22 Nov jobs died of out-of-memory (9.3–11.1 GiB) while the live data was much smaller: on Hortense Julia
-# sees the whole node (Sys.total_memory ≈ 251 GiB), so its garbage collector lets garbage grow far past the job limit. The job scripts therefore pass
-# --heap-size-hint, the compare scripts call GC.gc() after every observation, and we log the memory (memory_info once, memory_note per observation).
+# Memory of this Julia process: on Hortense Julia sees the whole node, so its garbage collector lets garbage grow far past the job limit.
+# The job scripts therefore pass --heap-size-hint, the compare scripts call GC.gc() after every observation, and we log the memory (memory_info once, memory_note per observation).
 gib_str(x) = string(round(x / 2^30; digits = 2))
 memory_note() = "peak RSS $(gib_str(Sys.maxrss())) GiB, live $(gib_str(Base.gc_live_bytes())) GiB"
 function memory_info()
@@ -105,9 +87,8 @@ function check_cost(β, f; reference = false)
     return (isempty(msgs) ? "ok" : "CHECK: " * join(msgs, " / ")) * ref
 end
 
-# Check of m (22 Nov): below βc the exact m is 0, so a clearly nonzero m there means that the symmetry was broken by the finite bond dimensions
-# (as the Bethe approximation, which orders from β ≈ 0.203) or by a failed optimization ((24,8,2) of the vbPEPS gave m = −0.25 at β = 0.21
-# with an f that passed check_cost). Returns "" or "; CHECK: ..." (appended to the check text). window and tol are our choice.
+# Check of m: below βc the exact m is 0, so a clearly nonzero m there means that the symmetry was broken by the finite bond dimensions or by a failed optimization.
+# Returns "" or "; CHECK: ..." (appended to the check text). window and tol are our choice.
 const M_CHECK_WINDOW = 0.01      # only β ≤ βc − M_CHECK_WINDOW (near βc a small m of a finite system is expected)
 const M_CHECK_TOL = 0.05         # |m| above this counts as clearly nonzero
 function check_m(β, m; βc = βc_ising, window = M_CHECK_WINDOW, tol = M_CHECK_TOL)
@@ -150,24 +131,10 @@ obs_seconds_allowed(budget_s, t_case, n_left; min_s, max_s) = clamp(2 * (budget_
 # The results file of all Ising compare runs (vbPEPS and CTMRG3D)
 # ======================================================================================================================
 # One file for all runs of both compare scripts: data/profiling/comparing/ising_model_3D_CE_results.csv. One row per (algorithm, run, case, β).
-# algorithm         "vbPEPS" or "CTMRG3D"
-# run               name of the run folder of the script (for example 20261116_1500): together with algorithm and case it identifies a row
-# case, setting     name of the case in its script; setting = "fixed_env" / "diff_env" (vbPEPS) or "svd" / "oblique" (CTMRG3D)
-# warm_start, beta, D_CE, chi_peps, chi_env, dbeta
-#                   the settings of the observation
-# m_re, m_im        ⟨σᶻ⟩
-# f                 vbPEPS: final cost (CTMRG3D: empty)
-# iterations        vbPEPS: cost-function calls, CTMRG3D: full CTMRG3D iterations
-# converged         CTMRG3D: last ϵ < tol (vbPEPS: empty)
-# eps_last          CTMRG3D: last ϵ (vbPEPS: empty)
-# timed_out         the time limit (allowed_s) stopped the optimization / the CTMRG3D iterations
-# allowed_s         the time limit given to this observation (obs_seconds_allowed)
-# budget_s          the time budget of the case
-# time_s            time of the whole observation (optimization or CTMRG3D iterations + contraction of the observable)
-# time_ctmrg_s, time_contract_s 
-#                   CTMRG3D: time of leading_boundary / of the two contract_onesite calls (vbPEPS: empty)
-# blas_threads      BLAS.get_num_threads() during the run
-# check             "ok", or what is wrong ("CHECK: ...", "not converged", "timed out", "ERROR: ...")
+# algorithm ("vbPEPS" or "CTMRG3D"), run (name of the run folder) and case identify a row; setting = "fixed_env" / "diff_env" (vbPEPS) or "svd" / "oblique" (CTMRG3D)
+# warm_start, beta, D_CE, chi_peps, chi_env, dbeta: the settings of the observation; m_re, m_im: ⟨σᶻ⟩; f: final cost (vbPEPS)
+# iterations: cost-function calls (vbPEPS) or CTMRG3D iterations; converged, eps_last: last ϵ < tol and last ϵ (CTMRG3D); timed_out, allowed_s, budget_s: the time limit of the observation and the budget of the case
+# time_s: whole observation; time_ctmrg_s, time_contract_s: leading_boundary and the two contract_onesite calls (CTMRG3D); blas_threads; check: "ok", or what is wrong
 # Empty fields are read as NaN (numbers) or missing (converged).
 const ISING_RESULTS_PATH = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "ising_model_3D_CE_results.csv"))
 const ISING_CSV_HEADER = "algorithm,run,case,setting,warm_start,beta,D_CE,chi_peps,chi_env,dbeta,m_re,m_im,f,iterations,converged,eps_last,timed_out," *
@@ -176,8 +143,7 @@ const ISING_CSV_HEADER = "algorithm,run,case,setting,warm_start,beta,D_CE,chi_pe
 
 
 # The results file: created with the header if it is not there (or empty); an error if it has another header.
-# Several jobs can append to it at the same time (the parallel Hortense jobs): we never overwrite it, and a second header line that two jobs
-# starting together might write is skipped by read_ising_results.
+# Several jobs can append to it at the same time: we never overwrite it, and a second header line that two jobs starting together might write is skipped by read_ising_results.
 function ising_results_file(path = ISING_RESULTS_PATH)
     mkpath(dirname(path))
     (isfile(path) && filesize(path) > 0) || open(io -> println(io, ISING_CSV_HEADER), path, "a")

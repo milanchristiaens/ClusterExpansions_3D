@@ -1,23 +1,5 @@
-# Check of the cold start of CTMRG3D (src/ctmrg3D/): init = :ones against init = :random and init = :nishino_okunishi (several seeds each), for both
-# projector kinds (:svd and :oblique),
-# on the 3D Ising PEPOs of the PEPO file (stage 1, development/initial_pepos/ising_model_3D_CE_pepos.jl). Prints numbers, tests nothing.
-#
-# For every set in DIMS, every β in BETAS and every projector kind in PROJECTORS we run MPSKit.expectation_value (the same call and CTMRG3D settings as
-# the CTMRG3D compare) from the all-ones start, and from a random start and a Nishino-Okunishi start (the 3×3×3 cube of O, outer legs closed by one
-# random vector; all bonds start at D_CE and grow) for every seed in SEEDS, and store per run:
-#   m = <σᶻ>, the number of iterations, the last ϵ, converged or not (or timed out), the time, and the corner spectrum of the converged environment
-#   (singular values of C[1], divided by the largest; rank = the number of values above RANK_TOL).
-# The summary prints per (set, β, projectors): |m| of the all-ones start, the mean and the spread of |m| over the seeds of the random and of the
-# Nishino-Okunishi start, and their differences to the random mean. Questions it answers:
-#   - does :ones reach the same fixed point as :random? (12-15 Nov, sandbox: :oblique from :ones stays exactly rank one and stops early, with another m)
-#   - do different random seeds reach the same fixed point? (near βc two fixed points can coexist at finite χ)
-#   - does the Nishino-Okunishi start reach the same fixed point, in fewer iterations?
-# Error source: contraction/environment (3) only; the PEPO (D_CE, Δβ, β) is the same for all starts.
-#
-# Every run is appended to data/checks/check_ctmrg3d_init/<date>_<time>.csv immediately (a crash keeps the earlier runs).
-# Run in the ClusterExpansions environment, with the threads of the CTMRG3D compare (PowerShell, in the clone folder):
-#   julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_init.jl
-# On Hortense: development/hpc/job_check_ctmrg3d.pbs (round 1 of the Hortense guide; MACHINE is then "hortense" via CE_CHECK_MACHINE).
+# Check of the cold start of CTMRG3D: init = :ones against :random and :nishino_okunishi (several seeds each), for both projector kinds (:svd and :oblique), on the 3D Ising PEPOs of the PEPO file; prints numbers, tests nothing.
+# For every set in DIMS, every β in BETAS and every projector kind it stores m, the iterations, the last ϵ and the corner spectrum per start in data/checks/check_ctmrg3d_init/<date>_<time>.csv.
 
 using TensorKit
 using TensorKitTensors
@@ -49,7 +31,7 @@ const WEST_UPDATES = :auto
 const MAX_SECONDS = 600.0                # time limit of the CTMRG3D iterations of one run (s)
 const RAM_GIB = 3                        # RAM budget of the sliced contraction (contract_onesite_auto); nothing = unsliced contract_onesite
 const MACHINE = get(ENV, "CE_CHECK_MACHINE", "laptop")   # contract_onesite_auto uses the plan times of this machine
-# false: contract_onesite_auto slices the current tree itself (plans = nothing), as the pilots on Hortense in round 1 (the plans are timed in the same round)
+# false: contract_onesite_auto slices the current tree itself (plans = nothing)
 const USE_PLANS = get(ENV, "CE_CHECK_PLANS", "true") == "true"
 const ONESITE_KWARGS = USE_PLANS ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing)
 

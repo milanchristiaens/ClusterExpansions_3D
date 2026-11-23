@@ -1,14 +1,9 @@
-# timing_io.jl -- the data side of the timing scripts: TimerOutput -> rows -> CSV file -> rows, and where the data of a script goes.
-# Used by the profiling scripts (ising_model_3D_CE_CTMRG_profiling.jl, ising_model_3D_CE_vbPEPS_profiling.jl) and by the scripts in comparing/.
-# Needs: using TimerOutputs, ClusterExpansions (and the three folder functions below need nothing else)
-# The plots are in timing_plots.jl, the helpers of the compare scripts in compare_tools.jl.
+# The data side of the timing scripts: TimerOutput -> rows -> CSV file -> rows, and where the data of a script goes.
+# Used by the profiling scripts and the scripts in comparing/; the plots are in timing_plots.jl and the helpers of the compare scripts in compare_tools.jl.
 
 ## Where the data of a script goes: data/profiling/<same subfolders as development/profiling>/<script name>/<run>/
-# Every profiling script has ONE folder in data/profiling, at the same place as the script has in development/profiling:
-#   development/profiling/ising_model_3D_CE_CTMRG_profiling.jl          ->  data/profiling/ising_model_3D_CE_CTMRG_profiling/
-#   development/profiling/comparing/ising_model_3D_CE_vbPEPS_compare.jl ->  data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/
-# Every run of the script is a subfolder of that folder, named by the date and time of the run (for example 20261111_1248), with all files of that run in it
-# (CSV files, the 5 plots, ...). REPLOT_DIR in a script is the name of such a run folder.
+# Every profiling script has ONE folder in data/profiling, at the same place as the script has in development/profiling; every run of the script is a subfolder
+# named by the date and time of the run (for example 20261111_1248), with all files of that run in it. REPLOT_DIR in a script is the name of such a run folder.
 const PROFILING_SCRIPTS_DIR = normpath(joinpath(@__DIR__, ".."))                                  # <repo>/development/profiling
 const PROFILING_DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling"))    # <repo>/data/profiling
 
