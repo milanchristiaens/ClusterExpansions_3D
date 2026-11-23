@@ -4,6 +4,9 @@
 #   2. ONE figure of the time against the number of slices with the plans of ALL selected run folders together (all dimension sets, plans for RAM_GIB),
 #      data/contraction_plans/benchmark_contract_onesite/all_runs_slices_<MACHINE>.png, and on screen per set the slope of log(time) against log(slices).
 #      A plan that was timed in several runs (same dimensions, tree, cuts and budget) counts once, with its fastest time.
+#   3. (23 Nov) with the plans of all selected run folders together: all_runs_allocators_<MACHINE>.png, reuse against manual (the same plan on the
+#      ENVIRONMENT environment, both allocators; make_allocator_figure), and all_runs_mock_vs_real_<MACHINE>.png, the mock against the real environment (the
+#      same plan and allocator; make_env_figure). The :validate profile timed both (two run folders: mock, real). Plans of every RAM budget.
 # Nothing is timed (unlike RUN_DIR in benchmark_contract_onesite.jl, which also times the plans that a run did not finish).
 # Times of different machines must not be mixed: we only take the run folders whose settings.txt has MACHINE = MACHINE below.
 # Run in the ClusterExpansions environment (Plots from the default environment), after copying the run folders from Hortense (Hortense guide, section 21):
@@ -38,6 +41,7 @@ function main()
     isdir(BASE) || error("no folder $BASE: copy the run folders of the benchmark first")
     names = RUNS === nothing ? sort(filter(d -> isfile(joinpath(BASE, d, "results.csv")), readdir(BASE))) : RUNS
     pooled = NamedTuple[]
+    everything = NamedTuple[]     # all timed rows of the selected run folders (every allocator, environment and budget), for part 3
     for name in names
         dir = joinpath(BASE, name)
         mach = run_machine(dir)
@@ -49,6 +53,24 @@ function main()
         @info "run $name: $(count(r -> isfinite(r.tmin), rows)) timed plans"
         PER_RUN && make_all_benchmark_plots(rows, dir)
         append!(pooled, [r for r in rows if isfinite(r.tmin) && r.alloc == ALLOCATOR && startswith(r.env, ENVIRONMENT) && r.ram_gib == RAM_GIB])
+        append!(everything, [r for r in rows if isfinite(r.tmin)])
+    end
+    # part 3: one row per (plan, allocator, environment kind), the fastest of the runs that timed it
+    envkind(r) = startswith(r.env, "mock") ? "mock" : "real"
+    best3 = Dict{Any, NamedTuple}()
+    for r in everything
+        k = (plan_id(r), r.alloc, envkind(r))
+        (!haskey(best3, k) || r.tmin < best3[k].tmin) && (best3[k] = r)
+    end
+    rows3 = collect(values(best3))
+    for (file, fig) in (("all_runs_allocators_$(MACHINE).png", () -> make_allocator_figure([r for r in rows3 if envkind(r) == ENVIRONMENT])),
+                        ("all_runs_mock_vs_real_$(MACHINE).png", () -> make_env_figure(rows3)))
+        try
+            plt = fig()
+            plt === nothing ? @info("$file not made: no plan was timed both ways") : (savefig(plt, joinpath(BASE, file)); @info "Plot saved: $(joinpath(BASE, file))")
+        catch err
+            @error "$file failed" exception = (err, catch_backtrace())
+        end
     end
     isempty(pooled) && return @warn "no timed plan for the combined figure (MACHINE = $MACHINE, RAM_GIB = $RAM_GIB, ALLOCATOR = $ALLOCATOR, ENVIRONMENT = $ENVIRONMENT)"
 

@@ -16,14 +16,25 @@
 using ClusterExpansions, Plots, Printf
 using Plots.PlotMeasures
 
-# Settings: the data per check, by its name in data/checks/<check>/ (a CSV file; for check_vbpeps_decompositions a run folder); "" = the newest one there;
-# nothing = skip this check
+# Settings: the data per check, in data/checks/<check>/ (CSV files; for check_vbpeps_decompositions run folders):
+#   "all"  = every CSV file of the check together (23 Nov: a later run can add β or sets to an earlier one); a run that was repeated (the same set, β,
+#            projectors, start, ... ; see RUN_KEYS) counts once, with the row of the newest file. Only files with the header of the newest file are used.
+#   ""     = only the newest file (decompositions: the newest run folder); "<name>" = that file (without .csv) or run folder; nothing = skip this check
+# The figures are written next to the newest file that was used.
 const RUNS = Dict(
-    "check_ctmrg3d_init"          => "",
-    "check_ctmrg3d_exponent"      => "",
-    "check_vbpeps_diff_env"       => "",
-    "check_ctmrg3d_west_updates"  => "",
+    "check_ctmrg3d_init"          => "all",
+    "check_ctmrg3d_exponent"      => "all",
+    "check_vbpeps_diff_env"       => "all",
+    "check_ctmrg3d_west_updates"  => "all",
     "check_vbpeps_decompositions" => "",
+)
+# The columns that identify one run of a check (for "all": the same values = the same run, the newest file wins)
+const RUN_KEYS = Dict(
+    "check_ctmrg3d_init"          => ["chi_env", "chi_peps", "D_CE", "beta", "projectors", "init", "seed"],
+    "check_ctmrg3d_exponent"      => ["chi_env", "chi_peps", "D_CE", "beta", "P"],
+    "check_vbpeps_diff_env"       => ["chi_env", "chi_peps", "D_CE", "beta", "diff_env"],
+    "check_ctmrg3d_west_updates"  => ["chi_env", "chi_peps", "D_CE", "beta", "projectors", "west_updates", "case"],
+    "check_vbpeps_decompositions" => ["chi_env", "chi_peps", "D_CE", "network", "method"],
 )
 const DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "data", "checks"))
 # The results file of the vbPEPS compare with the rows of PEPSKit and BetterPEPSKit (profiles :timing and :equal); nothing = skip this figure.
@@ -40,75 +51,86 @@ function read_rows(path)
 end
 num(r, k) = parse(Float64, r[k])
 
-function csv_of(check)
+# The rows of a check (see RUNS) and the newest file used (its name gives the names of the figures); nothing if there is no data
+function data_of(check)
     run = RUNS[check]
     run === nothing && return nothing
     dir = joinpath(DATA_DIR, check)
     isdir(dir) || (@warn "$check: no folder $dir (copy it from Hortense first)"; return nothing)
     folders = check == "check_vbpeps_decompositions"     # this check has one run folder per run, with results.csv in it
-    if isempty(run)
-        files = folders ? [joinpath(d, "results.csv") for d in readdir(dir; join = true) if isfile(joinpath(d, "results.csv"))] :
-                          filter(f -> endswith(f, ".csv"), readdir(dir; join = true))
+    files = folders ? [joinpath(d, "results.csv") for d in readdir(dir; join = true) if isfile(joinpath(d, "results.csv"))] :
+                      filter(f -> endswith(f, ".csv"), readdir(dir; join = true))
+    if run == "" || run == "all"
         isempty(files) && (@warn "$check: no data in $dir"; return nothing)
-        return files[argmax(mtime.(files))]
+        files = sort(files; by = mtime)
+        run == "" && (files = files[end:end])
+    else
+        path = folders ? joinpath(dir, run, "results.csv") : joinpath(dir, endswith(run, ".csv") ? run : run * ".csv")
+        isfile(path) || (@warn "$check: no file $path"; return nothing)
+        files = [path]
     end
-    path = folders ? joinpath(dir, run, "results.csv") : joinpath(dir, endswith(run, ".csv") ? run : run * ".csv")
-    isfile(path) || (@warn "$check: no file $path"; return nothing)
-    return path
+    header = readline(files[end])
+    files = filter(f -> readline(f) == header, files)
+    keycols = RUN_KEYS[check]
+    byrun = Dict{Any, Dict}()          # the same run in a later file replaces the earlier row
+    order = []
+    for f in files, r in read_rows(f)
+        k = Tuple(get(r, c, "") for c in keycols)
+        haskey(byrun, k) || push!(order, k)
+        byrun[k] = r
+    end
+    length(files) > 1 && @info "$check: $(length(order)) runs from $(length(files)) files ($(join(basename.(files), ", ")))"
+    return [byrun[k] for k in order], files[end]
 end
 setname(r) = "($(r["chi_env"]),$(r["chi_peps"]),$(r["D_CE"]))"
 pngpath(csv, tag) = replace(csv, r"\.csv$" => "_$tag.png")
 
-# check_ctmrg3d_init: one panel per (set, β); x = the start, y = |m|; :svd and :oblique side by side; open marker = not converged
-function plot_init(csv)
-    rows = read_rows(csv)
-    startlabel(r) = r["init"] == "ones" ? "ones" : (r["init"] == "random" ? "rand $(r["seed"])" : "NO $(r["seed"])")
-    starts = unique(startlabel.(rows))
+# check_ctmrg3d_init: one panel per (set, β), x = the start (ones, random, Nishino-Okunishi): every seed is a point at the same x (xcross = not
+# converged within the iteration cap, or timed out), and a bar from the smallest to the largest seed; :svd left, :oblique right of each start.
+# Two figures: <run>_init.png (y = |m|, with the Bethe and Talapov-Blöte values) and <run>_init_iterations.png (y = the CTMRG3D iterations: the
+# contraction of m is the same for every start, so the iterations decide which start is fastest).
+const INIT_STARTS = [("ones", "ones"), ("random", "random"), ("nishino_okunishi", "N-O")]   # N-O = Nishino-Okunishi
+
+function init_figure(rows, yof, ylabel; references = false)
     panels = []
     for s in unique(setname.(rows)), β in sort(unique(num.(rows, "beta")))
         sel = [r for r in rows if setname(r) == s && num(r, "beta") == β]
-        p = plot(; title = "$s, β = $β", xticks = (1:length(starts), starts), xrotation = 45, ylabel = "|m|", legend = :outerright, titlefontsize = 9)
+        ys = [yof(r) for r in sel]
+        p = plot(; title = "$s, β = $β", xticks = (1:3, last.(INIT_STARTS)), xlims = (0.5, 3.5), ylabel, legend = :outerright, titlefontsize = 9,
+                 ylims = references ? :auto : (0, 1.1 * maximum(ys)))
         for (proj, col, dx) in (("svd", :blue, -0.12), ("oblique", :red, 0.12))
+            for (k, (init, _)) in enumerate(INIT_STARTS)
+                rr = [r for r in sel if r["projectors"] == proj && r["init"] == init]
+                length(rr) >= 2 && plot!(p, [k + dx, k + dx], collect(extrema(yof.(rr))); color = col, linewidth = 2, alpha = 0.5, label = "")
+            end
             for conv in (true, false)
                 rr = [r for r in sel if r["projectors"] == proj && (r["status"] == "converged") == conv]
                 isempty(rr) && continue
-                scatter!(p, [findfirst(==(startlabel(r)), starts) + dx for r in rr], [abs(num(r, "m")) for r in rr]; color = col,
-                         markershape = conv ? :circle : :xcross, markersize = 5, label = ":$proj" * (conv ? "" : " (not converged)"))
+                x = [findfirst(st -> st[1] == r["init"], INIT_STARTS) + dx for r in rr]
+                scatter!(p, x, yof.(rr); color = col, markershape = conv ? :circle : :xcross, markersize = 5, markeralpha = 0.7,
+                         label = ":$proj" * (conv ? "" : " (not converged)"))
             end
         end
-        hline!(p, [ClusterExpansions.bethe_ising_magnetization(β)]; color = :gray, linestyle = :dash, label = "Bethe")
-        hline!(p, [talapov_blote_magnetization(β)]; color = :black, label = "MC fit (TB)")
+        if references
+            hline!(p, [ClusterExpansions.bethe_ising_magnetization(β)]; color = :gray, linestyle = :dash, label = "Bethe")
+            hline!(p, [talapov_blote_magnetization(β)]; color = :black, label = "MC fit (TB)")
+        end
         push!(panels, p)
     end
-    fig = plot(panels...; layout = (cld(length(panels), 3), min(3, length(panels))), size = (1500, 380 * cld(length(panels), 3)),
-               left_margin = 6mm, bottom_margin = 10mm)
-    savefig(fig, pngpath(csv, "init")); @info "wrote $(pngpath(csv, "init"))"
-    plot_init_iterations(rows, csv, starts, startlabel)
+    return plot(panels...; layout = (cld(length(panels), 3), min(3, length(panels))), size = (1500, 380 * cld(length(panels), 3)),
+                left_margin = 6mm, bottom_margin = 8mm, plot_title = "bar = smallest to largest seed (random, Nishino-Okunishi: seeds $(join(unique(r["seed"] for r in rows if r["init"] == "random"), ", ")))",
+                plot_titlefontsize = 10)
 end
 
-# check_ctmrg3d_init, the iterations: the same panels with y = the CTMRG3D iterations (the contraction of m is the same for every start, so the
-# iterations decide which start is fastest); xcross = not converged within the iteration cap (or timed out). Then a table: per (set, β, projectors)
-# the iterations and the time of :ones, and the mean (min-max) of the :random and :nishino_okunishi seeds.
-function plot_init_iterations(rows, csv, starts, startlabel)
-    panels = []
-    for s in unique(setname.(rows)), β in sort(unique(num.(rows, "beta")))
-        sel = [r for r in rows if setname(r) == s && num(r, "beta") == β]
-        p = plot(; title = "$s, β = $β", xticks = (1:length(starts), starts), xrotation = 45, ylabel = "CTMRG3D iterations", legend = :outerright,
-                 titlefontsize = 9, ylims = (0, 1.1 * maximum(num.(sel, "iterations"))))
-        for (proj, col, dx) in (("svd", :blue, -0.12), ("oblique", :red, 0.12))
-            for conv in (true, false)
-                rr = [r for r in sel if r["projectors"] == proj && (r["status"] == "converged") == conv]
-                isempty(rr) && continue
-                scatter!(p, [findfirst(==(startlabel(r)), starts) + dx for r in rr], [num(r, "iterations") for r in rr]; color = col,
-                         markershape = conv ? :circle : :xcross, markersize = 5, label = ":$proj" * (conv ? "" : " (not converged)"))
-            end
-        end
-        push!(panels, p)
-    end
-    fig = plot(panels...; layout = (cld(length(panels), 3), min(3, length(panels))), size = (1500, 380 * cld(length(panels), 3)),
-               left_margin = 6mm, bottom_margin = 10mm)
-    savefig(fig, pngpath(csv, "init_iterations")); @info "wrote $(pngpath(csv, "init_iterations"))"
+function plot_init(rows, csv)
+    savefig(init_figure(rows, r -> abs(num(r, "m")), "|m|"; references = true), pngpath(csv, "init")); @info "wrote $(pngpath(csv, "init"))"
+    savefig(init_figure(rows, r -> num(r, "iterations"), "CTMRG3D iterations"), pngpath(csv, "init_iterations"))
+    @info "wrote $(pngpath(csv, "init_iterations"))"
+    init_table(rows)
+end
 
+# The table of check_ctmrg3d_init: per (set, β, projectors) the iterations and the time of :ones, and the mean (min-max) of the seeds of the other starts
+function init_table(rows)
     stat(v) = isempty(v) ? "-" : length(v) == 1 ? @sprintf("%.0f", v[1]) : @sprintf("%.1f (%.0f-%.0f)", sum(v) / length(v), minimum(v), maximum(v))
     println("\n===== check_ctmrg3d_init: CTMRG3D iterations [time of the run in s, including the contraction of m] per start; * = not all converged =====")
     println(rpad("set", 12), rpad("β", 7), rpad("projectors", 11), rpad("ones", 18), rpad("random: mean (min-max)", 34), "Nishino-Okunishi: mean (min-max)")
@@ -122,8 +144,7 @@ function plot_init_iterations(rows, csv, starts, startlabel)
 end
 
 # check_ctmrg3d_exponent: per set |m| against β per P (+ references) and the ϵ history per (β, P)
-function plot_exponent(csv)
-    rows = read_rows(csv)
+function plot_exponent(rows, csv)
     panels = []
     for s in unique(setname.(rows))
         sel = [r for r in rows if setname(r) == s]
@@ -148,8 +169,7 @@ function plot_exponent(csv)
 end
 
 # check_vbpeps_diff_env: per set f and |m| against β, without (false) and with (true) the extra AD term
-function plot_diff_env(csv)
-    rows = read_rows(csv)
+function plot_diff_env(rows, csv)
     panels = []
     for s in unique(setname.(rows))
         sel = [r for r in rows if setname(r) == s]
@@ -172,8 +192,7 @@ end
 
 # check_ctmrg3d_west_updates: one row of three panels per (set, projectors): |m|, the CTMRG3D time and the number of West updates (partial_ctmrgstep calls)
 # against β, one line per west_updates (xcross = not converged: stopped by the iteration cap, the stagnation stop or the time limit)
-function plot_west_updates(csv)
-    rows = read_rows(csv)
+function plot_west_updates(rows, csv)
     haskey(rows[1], "case") && return plot_west_updates_old(rows, csv)
     panels = []
     for s in unique(setname.(rows)), proj in unique(getindex.(rows, "projectors"))
@@ -215,13 +234,11 @@ end
 
 # check_vbpeps_decompositions (results.csv of a run folder): per network the time per CTMRG step of both methods against the sets (χenv, χpeps, D_CE),
 # sorted by n = χenv · bond (the size of the decomposed matrix), and the speed-up t_dense / t_block-Krylov against n (> 1: block-Krylov is faster)
-function plot_decompositions(csv)
-    rows = [r for r in read_rows(csv) if isfinite(num(r, "t_step_s")) && num(r, "t_step_s") > 0]
+function plot_decompositions(rows, csv)
+    rows = [r for r in rows if isfinite(num(r, "t_step_s")) && num(r, "t_step_s") > 0]
     dset(r) = "($(r["chi_env"]),$(r["chi_peps"]),$(r["D_CE"]))"
     panels = []
-    pr = plot(; title = "speed-up of block-Krylov: t_dense / t_block-Krylov", xlabel = "n = χenv · bond", ylabel = "t_dense / t_block-Krylov",
-              xscale = :log10, yscale = :log10, legend = :topleft, titlefontsize = 10)
-    hline!(pr, [1.0]; color = :black, label = "")
+    speedups = []                       # (network, marker, [(n, t_dense / t_block-Krylov)])
     for (k, (network, marker)) in enumerate((("<psi|psi>", :circle), ("<psi|O|psi>", :square)))
         sub = [r for r in rows if r["network"] == network]
         isempty(sub) && continue
@@ -236,10 +253,22 @@ function plot_decompositions(csv)
         end
         pairs = [(num(a, "n"), num(a, "t_step_s") / num(b, "t_step_s")) for a in sub for b in sub
                  if a["method"] == "dense" && b["method"] == "block-Krylov" && dset(a) == dset(b)]
-        scatter!(pr, first.(pairs), last.(pairs); color = k, marker, label = network)
+        push!(speedups, (network, marker, pairs))
         push!(panels, p)
     end
     isempty(panels) && return @warn "check_vbpeps_decompositions: no finished set in $csv"
+    # the speed-up against n: log axes with ticks at 1, 2, 5 × 10^k written as plain numbers, limits just around the data
+    ns = [x for (_, _, ps) in speedups for (x, _) in ps]; rs = [y for (_, _, ps) in speedups for (_, y) in ps]
+    ticks(lo, hi) = (t = [m * 10.0^e for e in floor(Int, log10(lo)):ceil(Int, log10(hi)) for m in (1, 2, 5) if lo <= m * 10.0^e <= hi];
+                     (t, [x >= 1 ? string(round(Int, x)) : string(x) for x in t]))
+    xl = (minimum(ns) / 1.25, maximum(ns) * 1.25); yl = (min(minimum(rs), 1.0) / 1.25, max(maximum(rs), 1.0) * 1.25)
+    pr = plot(; title = "speed-up of block-Krylov: t_dense / t_block-Krylov (> 1: block-Krylov faster)", xlabel = "n = χenv · bond",
+              ylabel = "t_dense / t_block-Krylov", xscale = :log10, yscale = :log10, legend = :topleft, titlefontsize = 10,
+              xlims = xl, ylims = yl, xticks = ticks(xl...), yticks = ticks(yl...), minorgrid = true, minorgridalpha = 0.1)
+    hline!(pr, [1.0]; color = :black, label = "")
+    for (k, (network, marker, ps)) in enumerate(speedups)
+        scatter!(pr, first.(ps), last.(ps); color = k, marker, label = network)
+    end
     out = joinpath(dirname(csv), "decompositions_times.png")
     fig = plot(panels..., pr; layout = (1, length(panels) + 1), size = (2200, 700), left_margin = 8mm, bottom_margin = 24mm,
                plot_title = "fast vbPEPS (BetterPEPSKit): dense against block-Krylov, β = $(rows[1]["beta"]), $(rows[1]["steps"]) timed C4v CTMRG steps per set")
@@ -304,10 +333,10 @@ end
 
 for (check, f) in (("check_ctmrg3d_init", plot_init), ("check_ctmrg3d_exponent", plot_exponent), ("check_vbpeps_diff_env", plot_diff_env),
                    ("check_ctmrg3d_west_updates", plot_west_updates), ("check_vbpeps_decompositions", plot_decompositions))
-    csv = csv_of(check)
-    csv === nothing && continue
+    d = data_of(check)
+    d === nothing && continue
     try
-        f(csv)
+        f(d...)
     catch err
         @error "$check: the plot failed (we continue with the next check)" exception = (err, catch_backtrace())
     end

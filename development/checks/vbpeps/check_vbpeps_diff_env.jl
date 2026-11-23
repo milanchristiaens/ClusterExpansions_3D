@@ -30,7 +30,9 @@ include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 # Settings
 # ======================================================================================================================
 const DIMS = [(14, 2, 2), (27, 3, 3)]    # (χenv, χpeps, D_CE): the laptop set of the vbPEPS compare and the smallest Hortense candidate
-const BETAS = [0.19, 0.21, 0.25]
+# The β (must be in the PEPO file); a job can choose others with the environment variable CE_CHECK_BETAS, separated by _ (for example 0.2_0.22;
+# 23 Nov). plot_checks.jl puts the CSV files of all runs of this check together, so a later run only needs the new β.
+const BETAS = haskey(ENV, "CE_CHECK_BETAS") ? parse.(Float64, split(ENV["CE_CHECK_BETAS"], "_")) : [0.19, 0.21, 0.25]   # default: below, near and above βc ≈ 0.2217
 const DIFFS = [false, true]              # differentiate_environment
 const MAX_SECONDS = 3600.0               # time limit of one observation (s)
 const SEED = 1000

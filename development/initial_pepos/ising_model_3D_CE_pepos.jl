@@ -33,7 +33,8 @@ include(joinpath(@__DIR__, "..", "profiling", "tools", "compare_tools.jl"))
 # Settings
 # ======================================================================================================================
 const D_CES = [2, 3]                                    # one file per D_CE (laptop D_CE = 2 for vbPEPS, D_CE = 3 for CTMRG3D and on Hortense)
-const BETAS = [0.15, 0.19, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # β_ALL of the compare scripts and the β of their pilots (increasing, multiples of Δβ_iter)
+const BETAS = [0.15, 0.19, 0.20, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # β_ALL of the compare scripts and the β of their pilots (increasing, multiples of Δβ_iter;
+                                                                         # 0.20 since 23 Nov, for check_ctmrg3d_exponent)
 const EXACT_FILE = true                                 # also the file of the exact PEPOs (bond dimension 2; only g = 0)
 const CHIPEPS = [2, 3, 4, 5, 6, 7, 8]                   # χpeps of the start states of the vbPEPS (4: the decompositions benchmark; 5, 6: since 21 Nov,
                                                         # χpeps = 5 as in Sander's CE + vbPEPS figure; 7, 8: since 22 Nov, the vbPEPS pilots (·,7,2), (·,8,2))
@@ -91,8 +92,11 @@ function save_pepo_file(path, Os, D_CE, obs)
 
     # Saving:
     # e.g. data/pepos/ising_3D_J1.0_g0.0_D3_dbeta0.005.jld2
-    jldsave(path; beta = collect(Float64, BETAS), D_CE, dbeta = Δβ_iter, J, g, maxiter_init = MAXITER_INIT, psi0_seed_base = PSI0_SEED_BASE,
+    # We first write a temporary file and then rename it (23 Nov): a job that reads the file while we rebuild it sees the old or the new file, never half of one
+    tmp = replace(path, r"\.jld2$" => "_tmp.jld2")
+    jldsave(tmp; beta = collect(Float64, BETAS), D_CE, dbeta = Δβ_iter, J, g, maxiter_init = MAXITER_INIT, psi0_seed_base = PSI0_SEED_BASE,
             chipeps = collect(Int, CHIPEPS), pepo3d, O = O2, M = M2, psi0)
+    mv(tmp, path; force = true)
     return nothing
 end
 

@@ -30,7 +30,9 @@ include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 # Settings
 # ======================================================================================================================
 const DIMS = [(8, 4, 3), (11, 5, 3)]     # (χenv, χpeps, D_CE)
-const BETAS = [0.19, 0.21, 0.25]         # below, near and above βc ≈ 0.2217 (must be in the PEPO file)
+# The β (must be in the PEPO file); a job can choose others with the environment variable CE_CHECK_BETAS, separated by _ (for example 0.2_0.22;
+# 23 Nov). plot_checks.jl puts the CSV files of all runs of this check together, so a later run only needs the new β.
+const BETAS = haskey(ENV, "CE_CHECK_BETAS") ? parse.(Float64, split(ENV["CE_CHECK_BETAS"], "_")) : [0.19, 0.21, 0.25]   # default: below, near and above βc ≈ 0.2217
 const EXPONENTS = [0.0, 0.5, 1.0]        # P of the :svd projectors U * S^P
 const INIT = :random                     # cold start of every run (the start of the CTMRG3D compare)
 const INIT_SEED = 1

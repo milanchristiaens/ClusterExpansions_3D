@@ -6,6 +6,7 @@
 #   Plots                      make_times_figure (ONE figure, 2 panels, one figure per allocator),
 #                              make_allocator_figure (reuse against manual, per RAM budget), make_ram_figure (time against RAM budget, per dimension set),
 #                              make_slices_figure (time against the number of slices, the plans of one RAM budget, all dimension sets; 23 Nov),
+#                              make_env_figure (mock against real environment; only from several run folders, see plot_benchmarks.jl; 23 Nov),
 #                              and the list BENCH_PLOTS that make_all_benchmark_plots runs at the end of the benchmark
 #
 # More plots can be made/added later.
@@ -378,6 +379,49 @@ function slices_slopes(rows; ram = 3)
         push!(out, (; dims = d, n = length(rd), slices = extrema([r.slices for r in rd]), slope = sum((x .- xm) .* (y .- ym)) / sum((x .- xm) .^ 2)))
     end
     return out
+end
+
+# Mock against real environment (23 Nov): the same plan (dimensions, tree, cuts, RAM budget) and allocator timed once on the mock environment and once on
+# the real one (the :validate profile runs both, in two run folders: plot_benchmarks.jl pools the run folders). One row of two panels per allocator:
+#   left:  time of every plan, filled marker = mock, open marker = real (same colour and marker = same tree), a thin line joins the two of one plan
+#   right: (t_real - t_mock) / t_mock in percent (> 0: the real environment is slower)
+# x = the dimension sets, sorted by the mean mock time. nothing if no plan was timed on both.
+function make_env_figure(rows)
+    ok = [r for r in rows if isfinite(r.tmin)]
+    mock = Dict((plan_id(r), r.alloc) => r for r in ok if startswith(r.env, "mock"))
+    pairs = [(a = mock[(plan_id(r), r.alloc)], b = r) for r in ok if startswith(r.env, "real") && haskey(mock, (plan_id(r), r.alloc))]
+    isempty(pairs) && return nothing
+    panels = Any[]
+    allocs = sort(unique(p.a.alloc for p in pairs))
+    for alloc in allocs
+        ps_all = [p for p in pairs if p.a.alloc == alloc]
+        dims = unique(bench_dims(p.a) for p in ps_all)
+        meanmock(d) = (v = [p.a.tmin for p in ps_all if bench_dims(p.a) == d]; sum(v) / length(v))
+        order = sort(dims; by = meanmock)
+        n = length(order)
+        xpos = Dict(d => i for (i, d) in enumerate(order))
+        ylims, yticks = log_time_axis(vcat([p.a for p in ps_all], [p.b for p in ps_all]))
+        common = (; xticks = (1:n, dims_label.(order)), xrotation = 45, xlims = (0.5, n + 0.5), gridalpha = 0.25, xlabel = "(χenv, χpeps, D), sorted by mean mock time")
+        pt = plot(; ylabel = "time of the contraction [s]", yscale = :log10, ylims, yticks, legend = :topleft, minorgrid = true, minorgridalpha = 0.12,
+            title = "allocator $alloc: filled = mock, open = real", common...)
+        pr = plot(; ylabel = "(t_real - t_mock) / t_mock [%]", legend = false, title = "allocator $alloc: > 0 means the real environment is slower", common...)
+        hline!(pr, [0.0]; color = :black, linewidth = 1, label = "")
+        for (k, tk) in enumerate(TREE_KINDS)
+            ps = [p for p in ps_all if tree_kind(p.a.source) == tk.kind]
+            isempty(ps) && continue
+            x = [xpos[bench_dims(p.a)] + dodge(k) for p in ps]
+            ta = [p.a.tmin for p in ps]; tb = [p.b.tmin for p in ps]
+            plot!(pt, vcat([[xi - 0.025, xi + 0.025, NaN] for xi in x]...), vcat([[a, b, NaN] for (a, b) in zip(ta, tb)]...); color = tk.color, linewidth = 1, label = "")
+            scatter!(pt, x .- 0.025, ta; color = tk.color, marker = tk.marker, markersize = 7, markerstrokecolor = :white, markerstrokewidth = 1, label = tk.kind)
+            scatter!(pt, x .+ 0.025, tb; color = :white, marker = tk.marker, markersize = 7, markerstrokecolor = tk.color, markerstrokewidth = 2, label = "")
+            scatter!(pr, x, 100 .* (tb .- ta) ./ ta; color = tk.color, marker = tk.marker, markersize = 7, markerstrokecolor = :white, markerstrokewidth = 1, label = tk.kind)
+        end
+        append!(panels, (pt, pr))
+    end
+    height = 120 + 620 * length(allocs)
+    return plot(panels...; layout = (length(allocs), 2), size = (1900, height), left_margin = 10mm, bottom_margin = 12mm, top_margin = 4mm,
+        plot_title = bench_label([p.a for p in pairs]) * "\nmock against real environment: same plan and allocator, only the environment differs",
+        plot_titlefontsize = 10, plot_titlevspan = 100 / height)
 end
 
 # The figure of make_times_figure for the rows of ONE allocator (nothing if that allocator has no finished plan)
