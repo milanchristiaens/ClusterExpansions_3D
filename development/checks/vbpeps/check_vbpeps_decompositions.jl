@@ -21,6 +21,7 @@
 #                  julia -t 4 --project=development/fast_vbpeps development/checks/vbpeps/check_vbpeps_decompositions.jl
 #   the plot:  REPLOT_DIR = the run folder, in the ClusterExpansions environment:
 #                  julia --project=. development/checks/vbpeps/check_vbpeps_decompositions.jl
+#              or development/checks/plot_checks.jl (23 Nov; the newest run folder, the same plot plus the speed-up against n, no setting to edit)
 # The PEPO file (development/initial_pepos/ising_model_3D_CE_pepos.jl) must have BETA, the D_CE of D_CES and start states for the χpeps of CHIPEPS.
 # PROFILE (see the settings) chooses the threads: :laptop (julia -t 4, as the vbPEPS compare on the laptop) or :hpc (Hortense, julia -t 2 on 2 cores,
 # as the full vbPEPS run there; development/hpc/job_decompositions.pbs sets CE_DECOMP_PROFILE), so that the result holds for the compare run on that

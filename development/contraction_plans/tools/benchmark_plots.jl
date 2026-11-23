@@ -5,6 +5,7 @@
 #   results.csv of a run       BENCH_HEADER, append_bench_row, read_bench_results   (ONE row per timed plan, all repetitions in it)
 #   Plots                      make_times_figure (ONE figure, 2 panels, one figure per allocator),
 #                              make_allocator_figure (reuse against manual, per RAM budget), make_ram_figure (time against RAM budget, per dimension set),
+#                              make_slices_figure (time against the number of slices, the plans of one RAM budget, all dimension sets; 23 Nov),
 #                              and the list BENCH_PLOTS that make_all_benchmark_plots runs at the end of the benchmark
 #
 # More plots can be made/added later.
@@ -323,6 +324,62 @@ function make_ram_figure(rows)
         plot_titlevspan = 100 / height)       # room for the 3 lines of the title
 end
 
+# Time against the number of slices, for the plans made for ONE RAM budget (ram; 3 GiB is the budget of all compare runs), all dimension sets in one figure
+# (23 Nov). One colour per dimension set, one marker per tree. Left: the time itself (log-log). Right: the time divided by the time of the plan with the
+# fewest slices of the same set (and, for a draw, the fastest of those), so that the sets lie on top of each other and the trend within a set is visible.
+# The numbers printed by plot_benchmarks.jl: the slope of log(time) against log(slices) per set. nothing if there is no plan of this budget.
+function make_slices_figure(rows; ram = 3)
+    sel = [r for r in rows if isfinite(r.tmin) && r.ram_gib == ram && isfinite(r.slices)]
+    isempty(sel) && return nothing
+    order = dims_order(sel)
+    colors = Dict(d => palette(:tab10)[mod1(i, 10)] for (i, d) in enumerate(order))
+    p1 = plot(; title = "time against slices (plans for $(fmt_gib(ram)) GiB)", xlabel = "number of slices", ylabel = "time of the contraction [s]",
+        xscale = :log10, yscale = :log10, legend = :outertopright, gridalpha = 0.25, minorgrid = true, minorgridalpha = 0.1)
+    # ticks of the ratio axes at 1, 2, 5, 10, ... (plain numbers instead of 10^0.5)
+    rx = [r.slices / minimum(q.slices for q in sel if bench_dims(q) == bench_dims(r)) for r in sel]
+    ry = [r.tmin / minimum(q.tmin for q in sel if bench_dims(q) == bench_dims(r)) for r in sel]
+    ratio_ticks(v) = (t = [m * 10.0^k for k in 0:ceil(Int, log10(max(maximum(v), 1.0))) for m in (1, 2, 5) if m * 10.0^k <= 1.5 * maximum(v)];
+                      (t, [string(isinteger(x) ? Int(x) : x) for x in t]))
+    p2 = plot(; title = "relative to the plan with the fewest slices of the same set", xlabel = "number of slices / fewest slices of the set",
+        ylabel = "time / time of that plan", xscale = :log10, yscale = :log10, legend = false, gridalpha = 0.25, minorgrid = true, minorgridalpha = 0.1,
+        xticks = ratio_ticks(rx), yticks = ratio_ticks(ry))
+    hline!(p2, [1.0]; color = :black, linewidth = 1, label = "")
+    for d in order
+        rd = [r for r in sel if bench_dims(r) == d]
+        r0 = sort(rd; by = r -> (r.slices, r.tmin))[1]
+        scatter!(p1, [NaN], [NaN]; color = colors[d], marker = :circle, markerstrokewidth = 0, label = "($(dims_label(d)))")   # legend: the set
+        for tk in TREE_KINDS
+            pts = [r for r in rd if tree_kind(r.source) == tk.kind]
+            isempty(pts) && continue
+            scatter!(p1, [r.slices for r in pts], [r.tmin for r in pts]; color = colors[d], marker = tk.marker, markersize = 6, markerstrokewidth = 0.5,
+                markerstrokecolor = :white, label = "")
+            scatter!(p2, [r.slices / r0.slices for r in pts], [r.tmin / r0.tmin for r in pts]; color = colors[d], marker = tk.marker, markersize = 6,
+                markerstrokewidth = 0.5, markerstrokecolor = :white, label = "")
+        end
+    end
+    # the markers of the trees, in grey, for the legend
+    for tk in TREE_KINDS
+        any(r -> tree_kind(r.source) == tk.kind, sel) && scatter!(p1, [NaN], [NaN]; color = :gray, marker = tk.marker, label = "tree: $(tk.kind)")
+    end
+    return plot(p1, p2; layout = (1, 2), size = (1900, 720), left_margin = 10mm, bottom_margin = 10mm, top_margin = 4mm,
+        plot_title = bench_label(sel) * "\ncolour = (χenv, χpeps, D), marker = tree", plot_titlefontsize = 10, plot_titlevspan = 0.1)
+end
+
+# The slope of log(time) against log(slices) per dimension set (least squares; only sets with at least two different slice numbers): a slope near 1 means
+# the time grows like the number of slices, near 0 that the slices do not matter
+function slices_slopes(rows; ram = 3)
+    sel = [r for r in rows if isfinite(r.tmin) && r.ram_gib == ram && isfinite(r.slices)]
+    out = []
+    for d in dims_order(sel)
+        rd = [r for r in sel if bench_dims(r) == d]
+        x = log.([r.slices for r in rd]); y = log.([r.tmin for r in rd])
+        length(unique(x)) >= 2 || continue
+        xm, ym = sum(x) / length(x), sum(y) / length(y)
+        push!(out, (; dims = d, n = length(rd), slices = extrema([r.slices for r in rd]), slope = sum((x .- xm) .* (y .- ym)) / sum((x .- xm) .^ 2)))
+    end
+    return out
+end
+
 # The figure of make_times_figure for the rows of ONE allocator (nothing if that allocator has no finished plan)
 times_figure_of(alloc) = rows -> (sub = rows_of(rows, alloc); isempty(sub) ? nothing : make_times_figure(sub))
 
@@ -332,6 +389,7 @@ const BENCH_PLOTS = Pair{String,Function}[
     "benchmark_times_manual.png" => times_figure_of("manual"),
     "benchmark_allocators.png" => make_allocator_figure,
     "benchmark_ram.png" => make_ram_figure,
+    "benchmark_slices.png" => make_slices_figure,
 ]
 
 # Makes every plot of BENCH_PLOTS from the rows and saves it in outdir. Every plot is made in its own try, so that a plot that cannot be made does not stop the others

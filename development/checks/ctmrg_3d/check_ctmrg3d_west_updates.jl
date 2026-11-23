@@ -1,173 +1,173 @@
-# Check (moved from development/profiling/comparing/compare_west_updates.jl on 22 Nov): the CTMRG3D option `west_updates` (:auto, 1, 2, 4)
-# on the 3D Ising model near βc:
-# magnetization, needed CTMRG iterations, number of partial_ctmrgstep calls and timings.
-# One extra case: :auto with PEPO bond dimension D = 5.
+# Check of the CTMRG3D option `west_updates` (src/ctmrg3D/ctmrg3D_helpers.jl, ctmrg_4steps): how many West updates (partial_ctmrgstep) per side and
+# per CTMRG3D iteration. :auto = repeat the West update of a side until the corner spectrum changes by less than west_tol, at most 4; an integer k =
+# always k West updates per side. The compare runs use :auto and 1 (the cases *_auto and *_w1); this check adds 2 and 4.
+# (Rewritten on 23 Nov: it now reads the PEPOs of the PEPO file of stage 1 and uses the settings of the CTMRG3D compare, as check_ctmrg3d_init.jl;
+# before, it evolved its own PEPOs with D = 4 and 5 and had no :oblique.)
 #
-# Output: table on screen + CSV in data/checks/check_ctmrg3d_west_updates/.
-# Run from the clone: julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_west_updates.jl
+# For every set in DIMS, every β in BETAS, every projector kind in PROJECTORS and every value in WEST_UPDATES we run MPSKit.expectation_value from the
+# same cold start (INIT, INIT_SEED; the start of the compare) and store per run:
+#   m = <σᶻ>, the number of CTMRG3D iterations, the number of partial_ctmrgstep calls (the West updates: the real amount of work), the last ϵ,
+#   converged / not converged / stopped (no progress) / timed out, the time of the CTMRG3D iterations and the time of the two contractions of m.
+# Question it answers: which west_updates reaches the same m in the least time? (Error source: contraction/environment (3) only; the PEPO is fixed.)
+# :oblique uses the stagnation stop of the compare (STAGNATION_WINDOW), because it does not converge (see the results report of 23 Nov).
+#
+# Every run is appended to data/checks/check_ctmrg3d_west_updates/<date>_<time>.csv immediately (a crash keeps the earlier runs).
+# The figure: development/checks/plot_checks.jl.
+# Run in the ClusterExpansions environment, with the threads of the CTMRG3D compare (PowerShell, in the clone folder):
+#   julia +1.12 -t 4 --project=. development/checks/ctmrg_3d/check_ctmrg3d_west_updates.jl
+# On Hortense: development/hpc/job_check_ctmrg3d.pbs with CHECK=west_updates (see the Hortense guide, section 21).
 
-using TensorKit, TensorKitTensors, MPSKit, PEPSKit, ClusterExpansions, TimerOutputs, Random, LinearAlgebra, Printf
-using ClusterExpansions: contract_onesite_dispatch
+using TensorKit
+using TensorKitTensors
+using MPSKit
+using PEPSKit
+using ClusterExpansions
+using LinearAlgebra
+using Random
+using JLD2
+using TimerOutputs
+const CE = ClusterExpansions
 
-Random.seed!(123456789); setprecision(128)
+# load_pepos (the PEPO file of stage 1)
+include(joinpath(@__DIR__, "..", "..", "initial_pepos", "pepo_files.jl"))
 
-# Defining some common settings
-J, g = 1.0, 0.0
-chipeps, chienv = 4, 6
-pepsspace, envspace = ℂ^chipeps, ℂ^chienv
-obs = SpinOperators.σᶻ(Float64, Trivial)
-Δβ_iter = 0.005
-# Close to phase transition: βc = 0.221 654 626(5)  (Ferrenberg, Xu and Landau (2018)).
-β_obs = [0.20, 0.22, 0.24]
-ctm_miniter, ctm_maxiter, ctm_tol = 3, 150, 1e-7
-ram_gib = 4
-# Sometimes it is handy to perform each simulation multiple times to get more statistics:
-n_timing_reps = 1        # >1: report the minimum time over repeated runs (magnetization result stays same)
+# ======================================================================================================================
+# Settings
+# ======================================================================================================================
+const DIMS = [(8, 4, 3), (11, 5, 3)]     # (χenv, χpeps, D_CE), the sets of check_ctmrg3d_init.jl
+const BETAS = [0.19, 0.21, 0.225, 0.25]  # below, near and above βc ≈ 0.2217 (must be in the PEPO file)
+const PROJECTORS = [:svd, :oblique]
+const WEST_UPDATES = [:auto, 1, 2, 4]
+const BLAS_THREADS = 4                   # CTMRG3D gets its parallelism from BLAS (as the CTMRG3D compare)
 
-cases = [
-    (name = ":auto, D=5", D = 5, west_updates = :auto),
-    (name = ":auto, D=4", D = 4, west_updates = :auto),
-    (name = "1, D=4",     D = 4, west_updates = 1),
-    (name = "2, D=4",     D = 4, west_updates = 2),
-    (name = "4, D=4",     D = 4, west_updates = 4),
-    (name = "6, D=4",     D = 4, west_updates = 6),
-    (name = "10, D=4",     D = 4, west_updates = 10),
-]
+# CTMRG3D settings: those of the CTMRG3D compare (ising_model_3D_CE_CTMRG_compare.jl)
+const ctm_miniter = 3
+const ctm_maxiter = 80
+const ctm_tol = 1e-7
+const INIT = :random                     # the cold start of the compare
+const INIT_SEED = 1
+const STAGNATION_WINDOW = 20             # the stagnation stop of the compare, only for :oblique (0 = off)
+const STAGNATION_FACTOR = 0.5
+const MAX_SECONDS = 1200.0               # time limit of the CTMRG3D iterations of one run (s)
+const RAM_GIB = 3                        # RAM budget of the sliced contraction of m (contract_onesite_auto)
+const MACHINE = get(ENV, "CE_CHECK_MACHINE", "laptop")   # contract_onesite_auto uses the plan times of this machine
+# false: contract_onesite_auto slices the current tree itself (plans = nothing); the Hortense job sets CE_CHECK_PLANS=false
+const USE_PLANS = get(ENV, "CE_CHECK_PLANS", "true") == "true"
+const ONESITE_KWARGS = USE_PLANS ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing)
 
-# Construct the PEPO at each β_obs, once per D
-ce_alg = ising_operators(J, g, 0.0; T = BigFloat, symmetry = "Oh", verbosity = 0)
-ΔO = evolution_operator_cubic(ce_alg, Δβ_iter; T_conv = Float64)
+const J = 1.0
+const g = 0.0
+const Δβ_iter = 0.005
+const T = Float64
+const spin_symmetry = Trivial
+const to = CE.to                         # the timer that the package code writes to
 
-function evolve_states(D)
-    trunc_alg = NoEnvTruncation(truncrank(D); verbosity = 0)
-    # From time_evolve_cubic file: we construct O at β=0
-    O = evolution_operator_cubic(ce_alg, 0.0; T_conv = Float64)
-    states = []
-    β_prev = 0.0
-    for β in β_obs
-        nsteps = round(Int, (β - β_prev) / Δβ_iter)
-        @assert abs(nsteps - (β - β_prev) / Δβ_iter) < 1e-10 "β_obs values must be multiples of Δβ_iter"
-        for _ in 1:nsteps
-            O, _ = approximate_state((O, ΔO), trunc_alg; rot_invariance = false)
-        end
-        push!(states, O)
-        β_prev = β
-    end
-    return states
-end
-
-# Now we save the PEPO O tensor in states (one for every D)
-states = Dict{Int, Any}()
-for D in unique(c.D for c in cases)
-    t = @elapsed (states[D] = evolve_states(D))
-    @info "PEPO states for D = $D built in $(round(t; digits = 1)) s"
-end
-
-# Now we define some helpers (same recipe as MPSKit.expectation_value)
-function traced_O(P)
-    @tensor O[-1 -2 -3 -4 -5 -6] := twist(P, 2)[1 1; -1 -2 -3 -4 -5 -6]
-    return flip(permute(O, ((), (1, 2, 3, 4, 5, 6))), [4 5 6])
-end
-function traced_M(P, obs)
-    @tensor M[-1 -2 -3 -4 -5 -6] := twist(P, 2)[1 2; -1 -2 -3 -4 -5 -6] * obs[2; 1]
-    return flip(permute(M, ((), (1, 2, 3, 4, 5, 6))), [4 5 6])
-end
-
-# Total number of calls of the timer entry `label`, wherever it is nested in the TimerOutput tree
-function ncalls_of(t::TimerOutput, label)
-    n = 0
-
-    # For all direct children of t (k = label string, v = the child TimerOutput)
+# ======================================================================================================================
+# One run
+# ======================================================================================================================
+# Total number of calls and total time (s) of the timer entry `label`, wherever it is nested in the TimerOutput tree
+function timer_total(t::TimerOutput, label)
+    n, s = 0, 0.0
     for (k, v) in t.inner_timers
-        # If k is the label, we add the child's call count
-        k == label && (n += TimerOutputs.ncalls(v))
-        # Recursively go into deeper levels (but k has still to be matching with label)
-        n += ncalls_of(v, label)
+        if k == label
+            n += TimerOutputs.ncalls(v); s += TimerOutputs.time(v) / 1e9
+        end
+        n2, s2 = timer_total(v, label)
+        n += n2; s += s2
     end
-    return n
+    return n, s
 end
 
-# P is the PEPO tensor for D=4 or for D=5) (with physical legs still open)
-# west_updates is :auto, 1, 2 or 4
-function run_case(P, west_updates; maxiter = ctm_maxiter, reps = n_timing_reps)
-    # Trace physical legs: (one time with obs in physical legs)
-    O = traced_O(P)
-    M = traced_M(P, obs)
-
-    m = NaN; iters = 0; conv = false; npart = 0
-    t_ctm = Inf; t_con = Inf
-
-    # For all asked reps (only timing differs):
-    for _ in 1:reps
-        # First time the construction of the fresh env from O
-        reset_timer!(ClusterExpansions.to)
-        env = CTMRG3D(O; trunc_env = truncrank(chienv), trunc_bpeps = truncrank(chipeps), Vbp = pepsspace, Vv = envspace,
-                      miniter = ctm_miniter, maxiter, tol = ctm_tol, verbosity = 0, west_updates)
-        t0 = time_ns()
-
-        # Now time the CTMRG iterations/convergence
-        # Also store the ϵ's!!
-        env, ϵs = MPSKit.leading_boundary(env)
-        t1 = (time_ns() - t0) / 1e9
-        # Count the number of partial ctmrgsteps that were used (same as total number of indivual West updates)
-        npart = ncalls_of(ClusterExpansions.to, "partial_ctmrgstep")
-        
-        # Time the contraction of env
-        t0 = time_ns()
-        num = contract_onesite_dispatch(env, M, ram_gib)
-        den = contract_onesite_dispatch(env, O, ram_gib)
-        t2 = (time_ns() - t0) / 1e9
-        # Store the expectatioan value of magnetization
-        m = num / den
-        
-        # The total number of ϵ's is equal to the number of full CTMRG iterations performed
-        iters = length(ϵs)
-        # Define boolean which is True if last ϵ is below the tolerance, which means it indeed converged in the given max_iter
-        conv = ϵs[end] < ctm_tol
-
-        # If n_timing_reps>1, then we only store the lowest t_ctm and the lowest t_con
-        t_ctm = min(t_ctm, t1); t_con = min(t_con, t2)
-    end
-    return (; m, iters, conv, npart, t_ctm, t_con)
+function run_one(PEPO, obs, dims, projectors, west_updates)
+    chienv, chipeps, _ = dims
+    reset_timer!(to)
+    t0 = time()
+    expvals, _, ϵs, timed_out = MPSKit.expectation_value(PEPO, [obs], ℂ^chipeps, ℂ^chienv; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol,
+                                                          verbosity = 0, west_updates, projectors, init = INIT, init_seed = INIT_SEED, max_seconds = MAX_SECONDS,
+                                                          stagnation_window = projectors === :oblique ? STAGNATION_WINDOW : 0, stagnation_factor = STAGNATION_FACTOR,
+                                                          return_env = true, ram_gib = RAM_GIB, onesite_kwargs = ONESITE_KWARGS)
+    dt = time() - t0
+    npart, _ = timer_total(to, "partial_ctmrgstep")
+    _, t_ctm = timer_total(to, "EV: leading_boundary (CTMRG3D iterations)")
+    _, t_num = timer_total(to, "EV: contract_onesite numerator (M)")
+    _, t_den = timer_total(to, "EV: contract_onesite denominator (O)")
+    conv = ϵs[end] < ctm_tol
+    status = conv ? "converged" : timed_out ? "timed out" : length(ϵs) < ctm_maxiter ? "stopped (no progress)" : "not converged"
+    return (; m = real(expvals[1]), iters = length(ϵs), npart, eps = ϵs[end], status, t_ctm, t_contract = t_num + t_den, time_s = dt)
 end
 
-#  warm-up (compilation), result discarded
-run_case(states[cases[1].D][1], cases[1].west_updates; maxiter = 2, reps = 1)
+# ======================================================================================================================
+# CSV and summary
+# ======================================================================================================================
+const HEADER = "chi_env,chi_peps,D_CE,beta,projectors,west_updates,m,iterations,partial_steps,eps_last,status,t_ctm_s,t_contract_s,time_s"
 
-#  main loop
-results = []
-for (ib, β) in enumerate(β_obs)
-    for c in cases
-        r = run_case(states[c.D][ib], c.west_updates)
-        push!(results, (; β, c.name, c.D, c.west_updates, r...))
-        @info "β = $β, $(c.name): m = $(r.m), $(r.iters) iterations, $(r.npart) partial steps"
+function append_row(path, dims, β, projectors, west_updates, r)
+    open(path, "a") do io
+        println(io, join((dims..., β, projectors, west_updates, r.m, r.iters, r.npart, r.eps, r.status, round(r.t_ctm; digits = 2),
+                          round(r.t_contract; digits = 2), round(r.time_s; digits = 2)), ","))
     end
+    return nothing
 end
 
-# Printing of the table
-println()
-for β in β_obs
-    rs = filter(r -> r.β == β, results)
-    ref = only(filter(r -> r.D == 4 && r.west_updates == 10, rs))      # reference: 10 West updates, D = 4
-    println("β = $β   (|Δm| is relative to the 'west_updates = 10, D = 4' run; not defined for D = 5)")
-    @printf("%-12s %-20s %-10s %-6s %-9s %-10s %-10s %-10s\n",
-            "case", "m", "|Δm|", "iters", "converged", "partial", "t_CTM [s]", "t_contr [s]")
-    for r in rs
-        dm = r.D == 4 ? @sprintf("%.2e", abs(r.m - ref.m)) : "n/a"
-        @printf("%-12s %-20.15f %-10s %-6d %-9s %-10d %-10.2f %-10.2f\n",
-                r.name, r.m, dm, r.iters, r.conv ? "yes" : "NO", r.npart, r.t_ctm, r.t_con)
+# Per (set, β, projectors): every west_updates with m, |m - m of :auto|, iterations, West updates and the CTMRG3D time
+function print_summary(rows)
+    fmt(x) = isfinite(x) ? string(round(x; sigdigits = 6)) : "-"
+    println("\n===== west_updates: m, |Δm| to :auto, iterations, West updates (partial_ctmrgstep), CTMRG3D time =====")
+    for dims in DIMS, β in BETAS, projectors in PROJECTORS
+        sub = filter(r -> r.dims == dims && r.β == β && r.projectors == projectors, rows)
+        isempty(sub) && continue
+        ref = filter(r -> r.west_updates === :auto, sub)
+        m_ref = isempty(ref) ? NaN : abs(ref[1].m)
+        println("$dims β = $β :$projectors")
+        for r in sub
+            println("    ", rpad(string(r.west_updates), 7), rpad("m = $(fmt(r.m))", 20), rpad("|Δ|m|| = $(fmt(abs(abs(r.m) - m_ref)))", 24),
+                    rpad("$(r.iters) it", 8), rpad("$(r.npart) West updates", 20), rpad("t_CTM = $(round(r.t_ctm; digits = 1)) s", 20), r.status)
+        end
     end
-    println()
+    return nothing
 end
 
-# Saving the CSV
-outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "checks", "check_ctmrg3d_west_updates"))
-mkpath(outdir)
-csvpath = joinpath(outdir, "west_updates_comparison.csv")
-open(csvpath, "w") do io
-    println(io, "beta,case,D,west_updates,m,iterations,converged,partial_steps,t_ctm_s,t_contract_s")
-    for r in results
-        println(io, join((r.β, r.name, r.D, r.west_updates, r.m, r.iters, r.conv, r.npart, r.t_ctm, r.t_con), ","))
+# ======================================================================================================================
+# Main
+# ======================================================================================================================
+function main()
+    BLAS.set_num_threads(BLAS_THREADS)
+    outdir = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "checks", "check_ctmrg3d_west_updates"))
+    mkpath(outdir)
+    path = joinpath(outdir, Libc.strftime("%Y%m%d_%H%M", time()) * ".csv")
+    write(path, HEADER * "\n")
+    @info "Results: $path (threads = $(Threads.nthreads()), BLAS threads = $(BLAS.get_num_threads()))"
+    obs = SpinOperators.σᶻ(T, spin_symmetry)
+
+    # Warm-up (compilation, not stored): the smallest β and the first set, every projector kind and every west_updates, two iterations
+    let PEPO = only(load_pepos([BETAS[1]], Δβ_iter, DIMS[1][3], J, g)), t0 = time()
+        for projectors in PROJECTORS, w in WEST_UPDATES
+            MPSKit.expectation_value(PEPO, [obs], ℂ^DIMS[1][2], ℂ^DIMS[1][1]; miniter = 1, maxiter = 2, tol = ctm_tol, projectors, west_updates = w,
+                                     init = INIT, return_env = true, ram_gib = RAM_GIB, onesite_kwargs = ONESITE_KWARGS)
+        end
+        @info "Warm-up took $(round(time() - t0; digits = 1)) s"
     end
+
+    rows = NamedTuple[]
+    for dims in DIMS
+        PEPOs = load_pepos(BETAS, Δβ_iter, dims[3], J, g)
+        for (i, β) in enumerate(BETAS), projectors in PROJECTORS, w in WEST_UPDATES
+            r = try
+                run_one(PEPOs[i], obs, dims, projectors, w)
+            catch err
+                @error "$dims β = $β $projectors west_updates = $w failed" exception = (err, catch_backtrace())
+                (; m = NaN, iters = 0, npart = 0, eps = NaN, status = "ERROR: " * replace(first(sprint(showerror, err), 100), "," => ";", "\n" => " "),
+                 t_ctm = NaN, t_contract = NaN, time_s = NaN)
+            end
+            append_row(path, dims, β, projectors, w, r)
+            push!(rows, (; dims, β, projectors, west_updates = w, r...))
+            println("RUN $dims β = $β :$projectors west_updates = $w: m = $(r.m), $(r.iters) it, $(r.npart) West updates, ϵ = $(r.eps), $(r.status), ",
+                    "t_CTM = $(round(r.t_ctm; digits = 1)) s, t_contract = $(round(r.t_contract; digits = 1)) s")
+            flush(stdout)
+        end
+    end
+    print_summary(rows)
+    return nothing
 end
-@info "wrote $csvpath"
+
+main()

@@ -92,6 +92,9 @@ IN_FAST_ENV || include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_ref
 #   :timing  Hortense, fast against slow (round 1, next to the pilots): (27, 3, 3), the smallest candidate, 1 β near βc, the cold case, 30 min on 4 cores,
 #            one job per implementation (:pepskit needs the 4 cores for its memory; both get them, so the times can be compared)
 #   :hpc     Hortense, the full run: all β, 21.3 h per case on 3 cores (64 core hours); one job per case (CE_COMPARE_CASES), the 2 jobs in parallel
+#   :equal   Hortense, fast against slow with converged results (23 Nov): (14, 2, 2), where both implementations converge, all β, the cold case, at most
+#            720 s per β, 4 cores; one job per implementation, as :timing. Both start from the same state (PEPO file), so f and m should agree
+#            (development/checks/plot_checks.jl compares them, and the time per call, with the rows of :timing)
 # The Hortense job scripts can also choose the dimensions (CE_COMPARE_DIMS), the cases (CE_COMPARE_CASES) and the run (CE_COMPARE_RUN) of one job
 # (see compare_dims in ../tools/compare_tools.jl).
 # The same CORE budget per case as the CTMRG3D compare (cores × time): on Hortense vbPEPS runs on 3 cores and CTMRG3D on 4, so vbPEPS gets 4/3 of
@@ -114,10 +117,12 @@ const PROFILES = Dict(
                 julia_threads = 3, blas_threads = 1),
     :timing => (; dims = (27, 3, 3), β_obs = [0.21], cases = ["false_cold"], run_budget_s = 1800.0, max_seconds_obs = 1800.0, min_seconds_obs = 60.0,
                 julia_threads = 4, blas_threads = 1),
+    :equal  => (; dims = (14, 2, 2), β_obs = β_ALL, cases = ["false_cold"], run_budget_s = 4200.0, max_seconds_obs = 1200.0, min_seconds_obs = 60.0,
+                julia_threads = 4, blas_threads = 1),
     :hpc    => (; dims = HPC_DIMS, β_obs = β_ALL, cases = CASES_ALL, run_budget_s = 76800.0, max_seconds_obs = 25600.0, min_seconds_obs = 60.0,
                 julia_threads = 3, blas_threads = 1),
 )
-haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot, timing or hpc")
+haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_COMPARE_PROFILE): use laptop, pilot, timing, equal or hpc")
 const P = PROFILES[PROFILE]
 # Which PEPO (environment variable CE_COMPARE_PEPO, as in the CTMRG3D compare): ce (default, the CE PEPOs) or exact (the file of the exact PEPOs of stage 1,
 # bond dimension 2, so D_CE of the dims must be 2; the setting column of the results file then ends in _exactpepo)
