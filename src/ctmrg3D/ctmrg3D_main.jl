@@ -20,6 +20,9 @@ tot = 27
 # This function runs CTMRG sweeps on env, untill the corner spectrum stops changing, or untill maxiter is reached,
 # or untill env.max_seconds is used up (checked after every full iteration, so the limit can be overshot by at most one iteration).
 # Returns (env, ϵs, timed_out); timed_out = true only if the time limit stopped it (env is then the environment of the last iteration, not converged).
+# Stagnation stop (stagnation_window > 0, CTMRG3D only; 23 Nov): we stop when the smallest ϵ of the last stagnation_window iterations is not below
+# stagnation_factor × the smallest ϵ before them, i.e. the iteration no longer makes progress (:oblique: m fixed to ±1e-4 while ϵ stays at ~5e-3).
+# It returns as "not converged" (timed_out = false) with fewer than maxiter iterations.
 function MPSKit.leading_boundary(env::CTMRG3D_alg)
     t_start = time()
     S_old = id(envspace(env))
@@ -43,6 +46,13 @@ function MPSKit.leading_boundary(env::CTMRG3D_alg)
             return env, ϵs, true
 
         end
+        w = hasproperty(env, :stagnation_window) ? env.stagnation_window : 0
+        if w > 0 && i >= 2w && i > env.miniter && minimum(ϵs[end-w+1:end]) > env.stagnation_factor * minimum(ϵs[1:end-w])
+            if env.verbosity > 0
+                @warn "CTMRG3D stopped after $i iterations: no progress over the last $w (smallest ϵ $(minimum(ϵs[end-w+1:end])), before $(minimum(ϵs[1:end-w]))); not converged"
+            end
+            return env, ϵs, false
+        end
         S_old = copy(S_new)
     end
     if env.verbosity > 0
@@ -61,12 +71,13 @@ end
 # env0: nothing = cold start (init = :ones, :random or :nishino_okunishi, seed init_seed);
 #       an earlier converged CTMRG3D (e.g. of the previous β) = warm start from its C, E, A
 # max_seconds: time limit of the CTMRG3D iterations (leading_boundary) for a given β, Inf = none. The contractions of the observables come on top of it.
+# stagnation_window, stagnation_factor: the stagnation stop of leading_boundary (0 = off; CTMRG3D only, CTMRG3DOctant ignores them)
 # Contractions of observables are counted towards the case budget though!
 # return_env = true (used in compare scripts, also for cold starts): returns (expvals, env, ϵs, timed_out) instead of expvals, so that env can be the env0 of the next call
 # (timed_out = true if max_seconds stopped the iterations)
 function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, 
                                  verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, projectors = :svd, projector_exponent = 0.5, class_projectors = false, env0 = nothing, init = :ones, init_seed = 1, 
-                                 max_seconds = Inf, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
+                                 max_seconds = Inf, stagnation_window = 0, stagnation_factor = 0.5, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
         O = flip(permute(O, ((),(1,2,3,4,5,6))), [4 5 6])
@@ -75,7 +86,7 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
 
     trunc_bpeps = truncrank(dim(bpepsspace))
     trunc_env = truncrank(dim(envspace))
-    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, projector_exponent, class_projectors, env0, init, init_seed, max_seconds)
+    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, projector_exponent, class_projectors, env0, init, init_seed, max_seconds, stagnation_window, stagnation_factor)
     env, ϵs, timed_out = @timeit to "EV: leading_boundary (CTMRG3D iterations)" leading_boundary(env);
     expvals = []
     for obs = obss

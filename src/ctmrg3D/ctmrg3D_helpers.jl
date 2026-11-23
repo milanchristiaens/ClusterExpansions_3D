@@ -105,6 +105,8 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     class_projectors::Bool             # false (original): every new bond its own projector; true: one projector per class of translation-equivalent bonds
                                        # (gauge fix, see get_projectors_svd_class / get_projectors_oblique_class), for :svd and :oblique
     max_seconds::Float64               # time limit of leading_boundary in seconds (Inf = none)
+    stagnation_window::Int             # 0 = off; > 0: leading_boundary stops when ϵ did not improve by stagnation_factor over this many iterations
+    stagnation_factor::Float64         #   (23 Nov: :oblique reaches m to ±1e-4 in ~20 iterations, while its corner spectrum keeps changing by ~5e-3)
 
     # env0 = nothing: cold start, the 26 environment tensors depend on init:
     #        init = :random (default) every tensor random (randn), for both projector kinds.    
@@ -119,7 +121,7 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
 function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, 
                 maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol, 
                 projectors::Symbol = :svd, projector_exponent::Real = 0.5, class_projectors::Bool = false, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, 
-                max_seconds::Real = Inf) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
+                max_seconds::Real = Inf, stagnation_window::Int = 0, stagnation_factor::Real = 0.5) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
         init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
         if env0 === nothing && init === :nishino_okunishi
             A, E, C = nishino_okunishi_init(O; Vp, seed = init_seed)
@@ -136,8 +138,10 @@ function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = spa
         projectors in (:svd, :oblique) || throw(ArgumentError("projectors must be :svd or :oblique, got :$projectors"))
         
         max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
+        stagnation_window >= 0 && 0 < stagnation_factor <= 1 || throw(ArgumentError("need stagnation_window ≥ 0 and 0 < stagnation_factor ≤ 1"))
         new{T, S, TT, typeof(A[1]), typeof(E[1]), typeof(C[1])}(O, A, E, C, trunc_bpeps, trunc_env, miniter, maxiter, tol, 
-                                                                verbosity, west_updates, west_tol, projectors, Float64(projector_exponent), class_projectors, Float64(max_seconds))
+                                                                verbosity, west_updates, west_tol, projectors, Float64(projector_exponent), class_projectors, Float64(max_seconds),
+                                                                stagnation_window, Float64(stagnation_factor))
     end
 end
 

@@ -143,6 +143,11 @@ const ctm_miniter = 3
 const ctm_maxiter = env_override("CE_COMPARE_MAXITER", s -> parse(Int, s), P.maxiter)   # from the profile (80, the octant pilot 300)
 const ctm_verbosity = env_override("CE_COMPARE_VERBOSITY", s -> parse(Int, s), 0)
 const ctm_tol = 1e-7
+# Stagnation stop for the :oblique cases (23 Nov): stop when ϵ did not improve by STAGNATION_FACTOR over STAGNATION_WINDOW iterations (0 = off).
+# Sandbox (8,4,2) β 0.225: :oblique has m to ±1e-4 after ~20 iterations but ϵ stays ~5e-3; Hortense (16,6,2): m the same after 80 and 200 iterations.
+# Not used for :svd (converges) and the octant (converges slowly, a window would stop it too early).
+const STAGNATION_WINDOW = env_override("CE_COMPARE_STAGNATION", s -> parse(Int, s), 20)
+const STAGNATION_FACTOR = 0.5
 const RAM_GIB = P.ram_gib         # nothing = contract_onesite (unsliced); a number = contract_onesite_auto with this RAM budget in GiB (uses the plan file)
 const MACHINE = P.machine         # contract_onesite_auto only uses the plan times measured on this machine
 const INIT = :random              # cold start: :ones (all ones), :random (random tensors) or :nishino_okunishi, the same for all cases
@@ -229,6 +234,7 @@ contract_s(t) = sum(section_s(t, SEC_OBS, s) for s in SEC_CONTRACT)
 ctm_kwargs(projectors, west_updates) = (; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol, verbosity = ctm_verbosity, west_updates,
                            projectors = projectors in (:oblique, :obliqueclass) ? :oblique : :svd, class_projectors = projectors in (:svdclass, :obliqueclass),
                            ctm_alg = projectors === :octant ? CTMRG3DOctant : CTMRG3D,
+                           stagnation_window = projectors in (:oblique, :obliqueclass) ? STAGNATION_WINDOW : 0, stagnation_factor = STAGNATION_FACTOR,
                            ram_gib = RAM_GIB, init = INIT, init_seed = INIT_SEED, onesite_kwargs = P.plan_file ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing))
 
 function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace, obs, resultspath, outdir, run)
@@ -257,7 +263,7 @@ function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace,
             t_ctm, t_con = section_s(to, SEC_OBS, SEC_CTMRG) - tc0, contract_s(to) - tk0
             m = expvals[1]
             conv = ϵs[end] < ctm_tol
-            check = (conv ? "ok" : timed_out ? "timed out" : "not converged") * (warm && !use_warm ? "; cold start near βc" : "") * check_m(β, real(m))   # check_m: m below βc
+            check = (conv ? "ok" : timed_out ? "timed out" : length(ϵs) < ctm_maxiter ? "stopped (no progress)" : "not converged") * (warm && !use_warm ? "; cold start near βc" : "") * check_m(β, real(m))   # check_m: m below βc
             GC.gc()             # the garbage of the contraction (see memory_note in ../tools/compare_tools.jl); after dt, so not in the timings
 
             println("OBS $name β = $(round(β; digits = 3)): m = $m, $(length(ϵs)) iterations, ϵ = $(ϵs[end]), CTMRG $(round(t_ctm; digits = 1)) s ",
