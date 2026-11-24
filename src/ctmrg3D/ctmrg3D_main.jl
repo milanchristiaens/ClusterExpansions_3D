@@ -71,12 +71,13 @@ end
 #       an earlier converged CTMRG3D (e.g. of the previous β) = warm start from its C, E, A
 # max_seconds: time limit of the CTMRG3D iterations (leading_boundary) for a given β, Inf = none. The contractions of the observables come on top of it.
 # stagnation_window, stagnation_factor: the stagnation stop of leading_boundary (0 = off; CTMRG3D only, CTMRG3DOctant ignores them)
+# face_projector: P_f of CTMRG3DOctant, :rho, :edge or :edge_env (see ctmrg3D_octant.jl); only passed on when ctm_alg = CTMRG3DOctant
 # Contractions of observables are counted towards the case budget though!
 # return_env = true (used in compare scripts, also for cold starts): returns (expvals, env, ϵs, timed_out) instead of expvals, so that env can be the env0 of the next call
 # (timed_out = true if max_seconds stopped the iterations)
 function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, 
                                  verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, projectors = :svd, projector_exponent = 0.5, class_projectors = false, env0 = nothing, init = :ones, init_seed = 1, 
-                                 max_seconds = Inf, stagnation_window = 0, stagnation_factor = 0.5, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
+                                 max_seconds = Inf, stagnation_window = 0, stagnation_factor = 0.5, face_projector = :rho, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]
         O = flip(permute(O, ((),(1,2,3,4,5,6))), [4 5 6])
@@ -85,7 +86,8 @@ function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepss
 
     trunc_bpeps = truncrank(dim(bpepsspace))
     trunc_env = truncrank(dim(envspace))
-    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, projector_exponent, class_projectors, env0, init, init_seed, max_seconds, stagnation_window, stagnation_factor)
+    alg_kwargs = ctm_alg === CTMRG3DOctant ? (; face_projector) : (;)
+    env = @timeit to "EV: CTMRG3D init (27 tensors)" ctm_alg(O; trunc_env, trunc_bpeps, Vbp = bpepsspace, Vv = envspace, miniter, maxiter, tol, verbosity, west_updates, west_tol, projectors, projector_exponent, class_projectors, env0, init, init_seed, max_seconds, stagnation_window, stagnation_factor, alg_kwargs...)
     env, ϵs, timed_out = @timeit to "EV: leading_boundary (CTMRG3D iterations)" leading_boundary(env);
     expvals = []
     for obs = obss

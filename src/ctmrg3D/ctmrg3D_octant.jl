@@ -2,7 +2,7 @@
 # Use: expectation_value(PEPO, obss, bpepsspace, envspace; ctm_alg = CTMRG3DOctant, ...); it needs a real O with the cube symmetry (rot_invariance = true) and no symmetry sectors.
 # Plain arrays: O[u, n, e, d, s, w], c[x, y, z] (the corner at (+,+,+), legs to -x, -y, -z), e[c-, c+, fU, fN] (the x-edge at (0,+,+)), a[o, +x, +y, -x, -y] (the up face at (0,0,+)).
 
-using LinearAlgebra: I, Diagonal, Symmetric, diagm, eigen, qr, svdvals
+using LinearAlgebra: I, Diagonal, Symmetric, diagm, eigen, qr, svdvals, tr
 
 mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
     O::TT                              # the TensorMap O (used for the spaces of the 27-tensor copy)
@@ -24,6 +24,7 @@ mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
     oversample::Int                    # block size = χenv + oversample
     trunc_window::Int                  # gap cut (see _gap_cut): the cuts of P_c (χenv) and P_f (χpeps) may move by at most trunc_window
     trunc_rtol::Float64                # gap cut: two values count as one group when they differ by at most trunc_rtol (relative)
+    face_projector::Symbol             # P_f: :rho (reduced matrix of the truncated ρ_F), :edge (enlarged edge) or :edge_env (enlarged edge weighted with the new corner)
 end
 
 # Same keywords as CTMRG3D (so that expectation_value(...; ctm_alg = CTMRG3DOctant) works); projectors, projector_exponent, class_projectors,
@@ -33,13 +34,15 @@ end
 #   env0: an earlier CTMRG3DOctant (warm start, e.g. the previous β): we copy c, e, a, P.
 #   trunc_window, trunc_rtol: the gap cut of P_c and P_f (_gap_cut), the same rule and defaults as truncgap of BetterPEPSKit in the vbPEPS compare
 #         (window 4, rtol 1e-3); trunc_window = 0 gives the plain cut at χenv, χpeps.
+#   face_projector: :rho (P_f from the truncated ρ_F, _octant_face_projector), :edge or :edge_env (P_f from the enlarged edge, _octant_face_projector_edge)
 function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]), Vbp = oneunit(space(O)[1]), trunc_env = nothing, trunc_bpeps = nothing,
                        miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0, env0 = nothing, init::Symbol = :random,
                        init_seed::Int = 1, max_seconds::Real = Inf, subspace_tol::Real = min(1e-6, 10 * tol), subspace_maxiter::Int = 30, oversample::Int = 8,
-                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, kwargs...) where {T,S}
+                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, face_projector::Symbol = :rho, kwargs...) where {T,S}
     T <: Real || throw(ArgumentError("CTMRG3DOctant: O must be real (Float64), got $T"))
     sectortype(O) == Trivial || throw(ArgumentError("CTMRG3DOctant: O must have no symmetry sectors"))
     init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
+    face_projector in (:rho, :edge, :edge_env) || throw(ArgumentError("face_projector must be :rho, :edge or :edge_env, got :$face_projector"))
     o = convert(Array, O)
     _check_cube_symmetric(o)
     chi_env, chi_peps = dim(Vv), dim(Vbp)        # (expectation_value passes trunc_env = truncrank(dim(Vv)) as well: the same numbers)
@@ -57,7 +60,7 @@ function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]),
     end
     max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
     return CTMRG3DOctant{T, typeof(O)}(O, o, c, ed, a, P, chi_env, chi_peps, miniter, maxiter, tol, verbosity, Float64(max_seconds),
-                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol))
+                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol), face_projector)
 end
 
 function _check_cube_symmetric(o)
@@ -229,6 +232,49 @@ function _octant_face_projector(U, λ, χ, p, D, nkeep; window = 4, rtol = 1e-3,
     return ev.vectors[:, order[1:k]]
 end
 
+# The enlarged edge e·A_U·A_N·O with its two corner legs projected by P_c and both face legs open: Et[i, j, (ym, Os), (zm, Od)]
+# (the e′ of _octant_renormalize before P_f)
+function _octant_edge(e, a, o, Pc)
+    χ, p, D = size(e, 1), size(e, 3), size(o, 1)
+    χn = size(Pc, 2)
+    P5 = reshape(Pc, χ, p, p, D, χn)
+    @tensor T1[xp, u, xm, ym, oN, Oe, Od, Ow, Os] := a[oU, xp, u, xm, ym] * o[oU, oN, Oe, Od, Os, Ow]
+    @tensor T2[xp, u, xm, ym, Os, Oe, Ow, n, xp2, xm2, zm, Od] := T1[xp, u, xm, ym, oN, Oe, Od, Ow, Os] * a[oN, n, xp2, zm, xm2]
+    @tensor EP[op, u, n, xm2, xm, Ow, i] := e[om, op, u, n] * P5[om, xm2, xm, Ow, i]
+    @tensor T3[xp, ym, Os, Oe, xp2, zm, Od, op, i] := T2[xp, u, xm, ym, Os, Oe, Ow, n, xp2, xm2, zm, Od] * EP[op, u, n, xm2, xm, Ow, i]
+    @tensor Et[i, j, ym, Os, zm, Od] := T3[xp, ym, Os, Oe, xp2, zm, Od, op, i] * P5[op, xp, xp2, Oe, j]
+    return reshape(Et, χn, χn, p * D, p * D)
+end
+
+# P_f from the enlarged edge: the Gram matrix on one face leg, with the other legs glued to a copy, averaged over the two face legs.
+# weighted = true (:edge_env): the two corner legs get σ = c′·c′ᵀ (the new corner, unfolded on one leg) between bra and ket.
+# Top nkeep eigenvectors, moved by the gap cut.
+function _octant_face_projector_edge(e, a, o, Pc, WP, nkeep; weighted = true, window = 4, rtol = 1e-3, verbosity = 0)
+    F, χn = size(Pc)
+    if weighted
+        W3 = reshape(WP, F, F, χn)
+        @tensor cn[i, j, k] := W3[y, z, i] * Pc[y, j] * Pc[z, k]
+        cm = reshape(cn, χn, :)
+        ev = eigen(Symmetric(cm * transpose(cm)))
+        S = ev.vectors * Diagonal(sqrt.(max.(ev.values, 0) ./ maximum(ev.values))) * transpose(ev.vectors)
+    else
+        S = Matrix{eltype(Pc)}(I, χn, χn)
+    end
+    Et = _octant_edge(e, a, o, Pc)
+    @tensor Ew[i, j, k, l] := S[i, i2] * S[j, j2] * Et[i2, j2, k, l]
+    n = size(Ew, 3)
+    Mk = reshape(permutedims(Ew, (3, 1, 2, 4)), n, :)
+    Ml = reshape(permutedims(Ew, (4, 1, 2, 3)), n, :)
+    Gk, Gl = Mk * transpose(Mk), Ml * transpose(Ml)
+    ρf = Symmetric((Gk / tr(Gk) + Gl / tr(Gl)) / 2)
+    evf = eigen(ρf)
+    order = sortperm(evf.values; rev = true)
+    μ = max.(evf.values[order], 0)
+    k = _gap_cut(μ, nkeep; window, rtol, margin = 0)
+    k != nkeep && verbosity > 0 && @info "octant: the cut of P_f at $nkeep splits a near-degenerate group (ratio $(round(μ[nkeep + 1] / μ[nkeep]; sigdigits = 4))); keeping $k"
+    return evf.vectors[:, order[1:k]]
+end
+
 # New c, e, a from P_c (F × χ'), P_f (p·D × p') and WP = Qᵀ·P_c (F² × χ')
 function _octant_renormalize(env::CTMRG3DOctant, Pc, Pf, WP)
     e, a, o = env.e, env.a, env.o
@@ -263,7 +309,14 @@ function ctmrgstep(env::CTMRG3DOctant)
     pn = min(env.chi_peps, p * D)
     B = @timeit to "octant: B = C·E·E·A" _octant_B(env.c, env.e, env.a)
     U, λ, WU = @timeit to "octant: P_c (subspace iteration)" _octant_top_eigvecs(env, B, χn)
-    Pf = @timeit to "octant: P_f" _octant_face_projector(U, λ, χ, p, D, pn; window = env.trunc_window, rtol = env.trunc_rtol, verbosity = env.verbosity)
+    Pf = @timeit to "octant: P_f" begin
+        if env.face_projector in (:edge, :edge_env)
+            _octant_face_projector_edge(env.e, env.a, env.o, U, WU, pn; weighted = env.face_projector === :edge_env, window = env.trunc_window,
+                                        rtol = env.trunc_rtol, verbosity = env.verbosity)
+        else
+            _octant_face_projector(U, λ, χ, p, D, pn; window = env.trunc_window, rtol = env.trunc_rtol, verbosity = env.verbosity)
+        end
+    end
     @timeit to "octant: new C, E, A" _octant_renormalize(env, U, Pf, WU)
     return corner_spectrum(env)
 end
