@@ -1,0 +1,22 @@
+#!/bin/bash
+# Times TREE_CURRENT with k_min - 1, k_min, k_min + 1 and k_min + 2 cuts and two garbage-collection intervals on 4 cores (as the CTMRG3D compare),
+# and fits the memory rule of the contraction plans from the measured peak memory. Results in data/contraction_plans/slicing_cost/<run>/.
+#PBS -A starting_2026_079
+#PBS -N slicing_cost
+#PBS -l nodes=1:ppn=4
+#PBS -l walltime=10:00:00
+#PBS -j oe
+
+# ---------------- settings ----------------
+JULIA_THREADS=4
+BLAS_THREADS=4
+DIMS="8,4,3;12,4,3;10,5,3;12,5,3;16,4,3"     # (χenv,χpeps,D) sets, cheapest first
+GC_EVERY="1,10"
+MAX_HOURS=8                                   # no new plan is started after this many hours
+# ------------------------------------------
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+export OPENBLAS_NUM_THREADS=$BLAS_THREADS
+export CE_SLICING_DIMS="$DIMS" CE_SLICING_GC="$GC_EVERY" CE_SLICING_HOURS=$MAX_HOURS
+cd "$REPO"
+julia -O1 -t $JULIA_THREADS --project=. development/contraction_plans/slicing_cost.jl
