@@ -31,6 +31,7 @@ function main()
     names = RUNS === nothing ? sort(filter(d -> isfile(joinpath(BASE, d, "results.csv")), readdir(BASE))) : RUNS
     pooled = NamedTuple[]
     everything = NamedTuple[]     # all timed rows of the selected run folders (every allocator, environment and budget), for part 3
+    nruns = 0                     # number of run folders of this machine
     for name in names
         dir = joinpath(BASE, name)
         mach = run_machine(dir)
@@ -39,6 +40,7 @@ function main()
             continue
         end
         rows = read_bench_results(joinpath(dir, "results.csv"))
+        nruns += 1
         @info "run $name: $(count(r -> isfinite(r.tmin), rows)) timed plans"
         PER_RUN && make_all_benchmark_plots(rows, dir)
         append!(pooled, [r for r in rows if isfinite(r.tmin) && r.alloc == ALLOCATOR && startswith(r.env, ENVIRONMENT) && r.ram_gib == RAM_GIB])
@@ -60,6 +62,19 @@ function main()
         catch err
             @error "$file failed" exception = (err, catch_backtrace())
         end
+    end
+    # the times figure of the plans for RAM_GIB with ALLOCATOR and ENVIRONMENT, with all repetitions of all runs
+    file = "all_runs_times_$(ALLOCATOR)_$(MACHINE).png"
+    try
+        sub = pool_repetitions(rows_of([r for r in everything if r.ram_gib == RAM_GIB && startswith(r.env, ENVIRONMENT)], ALLOCATOR))
+        if isempty(sub)
+            @info "$file not made: no plan with allocator $ALLOCATOR"
+        else
+            savefig(make_times_figure(sub; nruns), joinpath(BASE, file))
+            @info "Plot saved: $(joinpath(BASE, file)) ($(length(sub)) plans)"
+        end
+    catch err
+        @error "$file failed" exception = (err, catch_backtrace())
     end
     isempty(pooled) && return @warn "no timed plan for the combined figure (MACHINE = $MACHINE, RAM_GIB = $RAM_GIB, ALLOCATOR = $ALLOCATOR, ENVIRONMENT = $ENVIRONMENT)"
 

@@ -24,6 +24,8 @@ const RUN_KEYS = Dict(
     "check_vbpeps_decompositions" => ["chi_env", "chi_peps", "D_CE", "network", "method"],
 )
 const DATA_DIR = normpath(joinpath(@__DIR__, "..", "..", "data", "checks"))
+const INIT_PROJECTORS = ["svd"]   # the projectors shown in the two init figures: ["svd"], ["oblique"] or ["svd", "oblique"]
+const WEST_PROJECTORS = ["svd"]   # the projectors shown in the west_updates figure: ["svd"], ["oblique"] or ["svd", "oblique"]
 # The results file of the vbPEPS compare with the rows of PEPSKit and BetterPEPSKit (profiles :timing and :equal); nothing = skip this figure.
 # The Hortense rows: copy the Hortense results file to the laptop under another name (it must not overwrite the laptop file).
 const IMPL_RESULTS = normpath(joinpath(@__DIR__, "..", "..", "data", "profiling", "comparing", "hortense_results.csv"))
@@ -79,11 +81,13 @@ const INIT_STARTS = [("ones", "ones"), ("random", "random"), ("nishino_okunishi"
 function init_figure(rows, yof, ylabel; references = false)
     panels = []
     for s in unique(setname.(rows)), β in sort(unique(num.(rows, "beta")))
-        sel = [r for r in rows if setname(r) == s && num(r, "beta") == β]
+        sel = [r for r in rows if setname(r) == s && num(r, "beta") == β && r["projectors"] in INIT_PROJECTORS]
         ys = [yof(r) for r in sel]
         p = plot(; title = "$s, β = $β", xticks = (1:3, last.(INIT_STARTS)), xlims = (0.5, 3.5), ylabel, legend = :outerright, titlefontsize = 9,
                  ylims = references ? :auto : (0, 1.1 * maximum(ys)))
-        for (proj, col, dx) in (("svd", :blue, -0.12), ("oblique", :red, 0.12))
+        shown = [(proj, col, dx) for (proj, col, dx) in (("svd", :blue, -0.12), ("oblique", :red, 0.12)) if proj in INIT_PROJECTORS]
+        for (proj, col, dx) in shown
+            length(shown) == 1 && (dx = 0.0)
             for (k, (init, _)) in enumerate(INIT_STARTS)
                 rr = [r for r in sel if r["projectors"] == proj && r["init"] == init]
                 length(rr) >= 2 && plot!(p, [k + dx, k + dx], collect(extrema(yof.(rr))); color = col, linewidth = 2, alpha = 0.5, label = "")
@@ -181,19 +185,20 @@ function plot_west_updates(rows, csv)
     haskey(rows[1], "case") && return plot_west_updates_old(rows, csv)
     panels = []
     for s in unique(setname.(rows)), proj in unique(getindex.(rows, "projectors"))
+        proj in WEST_PROJECTORS || continue
         sel = [r for r in rows if setname(r) == s && r["projectors"] == proj]
         isempty(sel) && continue
         βs = sort(unique(num.(sel, "beta")))
         p1 = plot(; title = "$s :$proj: |m|", xlabel = "β", ylabel = "|m|", legend = :topleft, titlefontsize = 9)
         plot_ising_references!(p1, minimum(βs) - 0.01, maximum(βs) + 0.01)
-        p2 = plot(; title = "$s :$proj: CTMRG3D time (s)", xlabel = "β", legend = false, titlefontsize = 9, ylims = (0, :auto))
-        p3 = plot(; title = "$s :$proj: West updates (partial_ctmrgstep calls)", xlabel = "β", legend = false, titlefontsize = 9, ylims = (0, :auto))
+        p2 = plot(; title = "$s :$proj: CTMRG3D time (s)", xlabel = "β", legend = false, titlefontsize = 9, ylims = (0, 1.1 * maximum(num.(sel, "t_ctm_s"))))
+        p3 = plot(; title = "$s :$proj: West updates (partial_ctmrgstep calls)", xlabel = "β", legend = false, titlefontsize = 9, ylims = (0, 1.1 * maximum(num.(sel, "partial_steps"))))
         for (k, w) in enumerate(unique(getindex.(sel, "west_updates")))
             rr = sort([r for r in sel if r["west_updates"] == w]; by = r -> num(r, "beta"))
             nc = [r["status"] != "converged" for r in rr]
             x = num.(rr, "beta")
             for (p, y) in ((p1, abs.(num.(rr, "m"))), (p2, num.(rr, "t_ctm_s")), (p3, num.(rr, "partial_steps")))
-                plot!(p, x, y; color = k, marker = :circle, label = "west_updates = $w")
+                plot!(p, x, y; color = k, marker = :circle, markersize = 5, markerstrokewidth = 0, label = "west_updates = $w")
                 any(nc) && scatter!(p, x[nc], y[nc]; color = k, markershape = :xcross, markersize = 8, label = "")
             end
         end
@@ -218,7 +223,7 @@ function plot_west_updates_old(rows, csv)
 end
 
 # check_vbpeps_decompositions (results.csv of a run folder): per network the time per CTMRG step of both methods against the sets (χenv, χpeps, D_CE),
-# sorted by n = χenv · bond (the size of the decomposed matrix), and the speed-up t_dense / t_block-Krylov against n (> 1: block-Krylov is faster)
+# sorted by n = χenv · bond (size of enlarged corner that is decomposed, is nxn), and the speed-up t_dense / t_block-Krylov against n (> 1: block-Krylov is faster)
 function plot_decompositions(rows, csv)
     rows = [r for r in rows if isfinite(num(r, "t_step_s")) && num(r, "t_step_s") > 0]
     dset(r) = "($(r["chi_env"]),$(r["chi_peps"]),$(r["D_CE"]))"
@@ -255,7 +260,7 @@ function plot_decompositions(rows, csv)
         scatter!(pr, first.(ps), last.(ps); color = k, marker, label = network)
     end
     out = joinpath(dirname(csv), "decompositions_times.png")
-    fig = plot(panels..., pr; layout = (1, length(panels) + 1), size = (2200, 700), left_margin = 8mm, bottom_margin = 24mm,
+    fig = plot(panels..., pr; layout = (1, length(panels) + 1), size = (2200, 700), left_margin = 14mm, bottom_margin = 24mm,
                plot_title = "fast vbPEPS (BetterPEPSKit): dense against block-Krylov, β = $(rows[1]["beta"]), $(rows[1]["steps"]) timed C4v CTMRG steps per set")
     savefig(fig, out); @info "wrote $out"
 end
@@ -281,27 +286,41 @@ function plot_vbpeps_impls(path)
     isempty(pairs) && return @warn "vbPEPS implementations: no observation with rows of both PEPSKit and BetterPEPSKit in $path"
     sort!(pairs; by = p -> (parse.(Int, (p[1][4], p[1][5], p[1][6])), p[1][3]))
     labels = ["($(k[4]),$(k[5]),$(k[6])) β=$(k[3])" * (endswith(k[2], "_exactpepo") ? " ex" : "") for (k, _, _) in pairs]
-    x = 1:length(pairs)
-    percall(r) = num(r, "time_s") / max(num(r, "iterations"), 1)
+        percall(r) = num(r, "time_s") / max(num(r, "iterations"), 1)
     done(r) = r["timed_out"] != "true"
-    common = (; xticks = (x, labels), xrotation = 45, xlims = (0.5, length(pairs) + 0.5), titlefontsize = 10)
-    p1 = plot(; title = "time per cost-function call (s)", yscale = :log10, legend = :topleft, common...)
+    # x axis = β; the observations of one set (χenv, χpeps, D_CE) have one colour; PEPSKit = circle, BetterPEPSKit = diamond (open = timed out)
+    group_of(p) = (p[1][1], p[1][2], (p[1][4], p[1][5], p[1][6]))
+    groups = sort(unique(group_of.(pairs)); by = g -> (parse.(Int, g[3]), g[1], g[2]))
+    several_cases = length(unique(g[1] for g in groups)) > 1
+    glabel(g) = "($(join(g[3], ",")))" * (endswith(g[2], "_exactpepo") ? " exact PEPO" : "") * (several_cases ? " $(g[1])" : "")
+    colours = [:royalblue, :darkorange, :seagreen, :purple, :crimson, :goldenrod]
+    betas = sort(unique(p[1][3] for p in pairs))
+    dx = 0.012 * (maximum(betas) - minimum(betas) + 0.01)
+    common = (; xlabel = "β", xlims = (minimum(betas) - 0.01, maximum(betas) + 0.01), titlefontsize = 10)
+    p1 = plot(; title = "time per cost-function call (s)", yscale = :log10, legend = :topright, common...)
     p2 = plot(; title = "|m| (open marker = timed out)", legend = :topleft, common...)
     p3 = plot(; title = "difference PEPSKit - BetterPEPSKit (open = a run timed out)", yscale = :log10, legend = :topleft, common...)
-    for (impl, i, col, dx) in (("PEPSKit", 2, :firebrick, -0.1), ("BetterPEPSKit", 3, :royalblue, 0.1))
-        rs = [p[i] for p in pairs]
-        scatter!(p1, x .+ dx, percall.(rs); color = col, label = impl)
-        scatter!(p2, x .+ dx, abs.(num.(rs, "m_re")); color = [done(r) ? col : :white for r in rs], markerstrokecolor = col, label = impl)
+    for (gi, g) in enumerate(groups), (impl, i, marker, shift) in (("PEPSKit", 2, :circle, -dx), ("BetterPEPSKit", 3, :diamond, dx))
+        col = colours[mod1(gi, length(colours))]
+        ps = [p for p in pairs if group_of(p) == g]
+        x = [p[1][3] + shift for p in ps]; rs = [p[i] for p in ps]; fill_colours = [done(r) ? col : :white for r in rs]
+        scatter!(p1, x, percall.(rs); color = col, marker, markercolor = fill_colours, markerstrokecolor = col, label = "$(glabel(g)) $impl")
+        plot!(p2, x, abs.(num.(rs, "m_re")); color = col, marker, markercolor = fill_colours, markerstrokecolor = col, linealpha = 0.4, label = "$(glabel(g)) $impl")
     end
     both = [done(p[2]) && done(p[3]) for p in pairs]
     df = [max(abs(num(p[2], "f") - num(p[3], "f")), 1e-16) for p in pairs]
     dm = [max(abs(abs(num(p[2], "m_re")) - abs(num(p[3], "m_re"))), 1e-16) for p in pairs]
-    scatter!(p3, x, df; marker = :square, color = [b ? :black : :white for b in both], markerstrokecolor = :black, label = "|Δf|")
-    scatter!(p3, x, dm; marker = :diamond, color = [b ? :green : :white for b in both], markerstrokecolor = :green, label = "|Δ|m||")
+    for (gi, g) in enumerate(groups)
+        col = colours[mod1(gi, length(colours))]
+        js = [j for j in eachindex(pairs) if group_of(pairs[j]) == g]
+        x = [pairs[j][1][3] for j in js]
+        scatter!(p3, x, df[js]; marker = :square, color = col, markercolor = [both[j] ? col : :white for j in js], markerstrokecolor = col, label = "$(glabel(g)) |Δf|")
+        scatter!(p3, x, dm[js]; marker = :diamond, color = col, markercolor = [both[j] ? col : :white for j in js], markerstrokecolor = col, label = "$(glabel(g)) |Δ|m||")
+    end
     outdir = mkpath(joinpath(DATA_DIR, "vbpeps_implementations"))
     out = joinpath(outdir, "pepskit_vs_betterpepskit.png")
     fig = plot(p1, p2, p3; layout = (1, 3), size = (1900, 620), left_margin = 8mm, bottom_margin = 18mm,
-               plot_title = "vbPEPS: PEPSKit (Sander) against BetterPEPSKit (Lander), the same observation and start state; newest run per implementation")
+               plot_title = "vbPEPS: PEPSKit against BetterPEPSKit, the same observation and start state")
     savefig(fig, out); @info "wrote $out"
     println("\n===== vbPEPS: PEPSKit against BetterPEPSKit (newest run of each per observation) =====")
     println(rpad("observation", 26), rpad("case", 12), rpad("calls P / B", 14), rpad("s per call P / B (×)", 26), rpad("f P", 16), rpad("f B", 16), rpad("|Δf|", 10),

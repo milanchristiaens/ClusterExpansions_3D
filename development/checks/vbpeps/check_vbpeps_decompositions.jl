@@ -58,7 +58,7 @@ const NETWORKS = [("<psi|psi>", :circle), ("<psi|O|psi>", :square)]
 
 # If REPLOT_DIR is the NAME of a run folder (for example "20261118_1800") in data/checks/check_vbpeps_decompositions/,
 # we only redo the summary and the plot from its results.csv (in the ClusterExpansions environment). Leave it "" for a normal run.
-const REPLOT_DIR = ""
+const REPLOT_DIR = "20261123_equal_betterpepskit"
 
 # ======================================================================================================================
 # results.csv of a run: one row per (set, network, method)

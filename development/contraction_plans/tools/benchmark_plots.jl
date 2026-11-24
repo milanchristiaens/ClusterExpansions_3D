@@ -104,13 +104,14 @@ end
 dodge(k) = (k - (length(TREE_KINDS) + 1) / 2) * 0.1
 
 # The text under the title: what is fixed in the run (taken from the rows, so it is also right when the plots are made again later)
-function bench_label(rows)
+function bench_label(rows; nruns = 0)
     ok = filter(r -> isfinite(r.tmin), rows)
     isempty(ok) && return "no finished plan"
     uniq(f) = join(sort(unique(string(f(r)) for r in ok)), "/")
     reps = maximum(length(r.times) for r in ok)
+    timetext = nruns > 0 ? "time = fastest of all repetitions of $nruns runs (solid = fastest, see-through = the others)" : "time = fastest of $reps repetitions"
     return "contract_onesite (27 tensors, dense), environment: $(uniq(r -> r.env)), plans made for RAM budget $(uniq(r -> r.ram_gib)) GiB, allocator $(uniq(r -> r.alloc)), " *
-           "BLAS threads $(uniq(r -> r.blas)), time = fastest of $reps repetitions\n" *
+           "BLAS threads $(uniq(r -> r.blas)), $timetext\n" *
            "varied: (χenv, χpeps, D) and tree + cut bonds        fixed: everything else"
 end
 
@@ -136,8 +137,8 @@ function other_times(r)
     return ts
 end
 
-# Left panel: the time of every plan (solid point = fastest repetition, see-through points = the other repetitions);
-# x = the dimension sets (sorted by mean time), y = time in seconds (log), one colour per tree. No lines.
+# Left panel: the time of every plan (solid point = fastest repetition, see-through points = the other repetitions, a bar from the fastest to the slowest);
+# x = the dimension sets (sorted by mean time), y = time in seconds (log), one colour per tree.
 function plot_bench_times(rows)
     order = dims_order(rows)
     n = length(order)
@@ -148,10 +149,16 @@ function plot_bench_times(rows)
     for (k, tk) in enumerate(TREE_KINDS)
         pts = sort([r for r in rows if isfinite(r.tmin) && tree_kind(r.source) == tk.kind]; by = r -> xpos[bench_dims(r)])
         isempty(pts) && continue
-        xo = Float64[]; yo = Float64[]
-        for r in pts, t in other_times(r)
-            push!(xo, xpos[bench_dims(r)] + dodge(k)); push!(yo, t)
+        xo = Float64[]; yo = Float64[]; xb = Float64[]; yb = Float64[]
+        for r in pts
+            x = xpos[bench_dims(r)] + dodge(k)
+            ts = other_times(r)
+            for t in ts
+                push!(xo, x); push!(yo, t)
+            end
+            isempty(ts) || (append!(xb, (x, x, NaN)); append!(yb, (r.tmin, maximum(ts), NaN)))
         end
+        isempty(xb) || plot!(p, xb, yb; color = tk.color, linewidth = 3, linealpha = 0.5, label = "")
         isempty(xo) || scatter!(p, xo, yo; color = tk.color, marker = tk.marker, markersize = 7, markeralpha = 0.35, markerstrokewidth = 0, label = "")
         scatter!(p, [xpos[bench_dims(r)] + dodge(k) for r in pts], [r.tmin for r in pts]; color = tk.color,
             marker = tk.marker, markersize = 7, markerstrokecolor = :white, markerstrokewidth = 1, label = tk.kind)
@@ -201,9 +208,9 @@ function plot_bench_deviation(rows)
 end
 
 # ONE figure with the two panels next to each other
-function make_times_figure(rows)
+function make_times_figure(rows; nruns = 0)
     return plot(plot_bench_times(rows), plot_bench_deviation(rows); layout = (1, 2), size = (1900, 760), left_margin = 10mm, bottom_margin = 12mm, top_margin = 4mm,
-        plot_title = bench_label(rows), plot_titlefontsize = 10)
+        plot_title = bench_label(rows; nruns), plot_titlefontsize = 10)
 end
 
 # ======================================================================================================================
@@ -399,6 +406,20 @@ function make_env_figure(rows)
     return plot(panels...; layout = (length(allocs), 2), size = (1900, height), left_margin = 10mm, bottom_margin = 12mm, top_margin = 4mm,
         plot_title = bench_label([p.a for p in pairs]) * "\nmock against real environment: same plan and allocator, only the environment differs",
         plot_titlefontsize = 10, plot_titlevspan = 100 / height)
+end
+
+# One row per plan (and allocator and environment kind) from the rows of several runs: the repetitions of all runs are kept together in times, tmin is the fastest of them
+function pool_repetitions(rows)
+    groups = Dict{Any,Vector{NamedTuple}}()
+    for r in rows
+        isfinite(r.tmin) && push!(get!(groups, (plan_id(r), r.alloc, startswith(r.env, "mock") ? "mock" : "real"), NamedTuple[]), r)
+    end
+    out = NamedTuple[]
+    for g in values(groups)
+        times = reduce(vcat, [r.times for r in g])
+        push!(out, merge(first(sort(g; by = r -> r.tmin)), (; times, tmin = minimum(times))))
+    end
+    return out
 end
 
 # The figure of make_times_figure for the rows of ONE allocator (nothing if that allocator has no finished plan)
