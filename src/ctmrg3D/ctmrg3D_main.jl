@@ -20,7 +20,7 @@ tot = 27
 # This function runs CTMRG sweeps on env, untill the corner spectrum stops changing, or untill maxiter is reached,
 # or untill env.max_seconds is used up (checked after every full iteration, so the limit can be overshot by at most one iteration).
 # Returns (env, ϵs, timed_out); timed_out = true only if the time limit stopped it (env is then the environment of the last iteration, not converged).
-# Stagnation stop (stagnation_window > 0, CTMRG3D only): we stop when the smallest ϵ of the last stagnation_window iterations is not below stagnation_factor × the smallest ϵ before them, i.e. the iteration makes no progress.
+# Stagnation stop (stagnation_window > 0): we stop when the smallest ϵ of the last stagnation_window iterations is not below stagnation_factor × the smallest ϵ before them, i.e. the iteration makes no progress.
 # It returns as "not converged" (timed_out = false) with fewer than maxiter iterations.
 function MPSKit.leading_boundary(env::CTMRG3D_alg)
     t_start = time()
@@ -70,8 +70,8 @@ end
 # env0: nothing = cold start (init = :ones, :random or :nishino_okunishi, seed init_seed);
 #       an earlier converged CTMRG3D (e.g. of the previous β) = warm start from its C, E, A
 # max_seconds: time limit of the CTMRG3D iterations (leading_boundary) for a given β, Inf = none. The contractions of the observables come on top of it.
-# stagnation_window, stagnation_factor: the stagnation stop of leading_boundary (0 = off; CTMRG3D only, CTMRG3DOctant ignores them)
-# face_projector: P_f of CTMRG3DOctant, :rho, :edge or :edge_env (see ctmrg3D_octant.jl); only passed on when ctm_alg = CTMRG3DOctant
+# stagnation_window, stagnation_factor: the stagnation stop of leading_boundary (0 = off)
+# face_projector: P_f of CTMRG3DOctant, :rho, :edge, :edge_env or :edge_lead (see ctmrg3D_octant.jl); only passed on when ctm_alg = CTMRG3DOctant
 # Contractions of observables are counted towards the case budget though!
 # return_env = true (used in compare scripts, also for cold starts): returns (expvals, env, ϵs, timed_out) instead of expvals, so that env can be the env0 of the next call
 # (timed_out = true if max_seconds stopped the iterations)

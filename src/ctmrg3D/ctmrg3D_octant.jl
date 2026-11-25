@@ -24,7 +24,9 @@ mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
     oversample::Int                    # block size = χenv + oversample
     trunc_window::Int                  # gap cut (see _gap_cut): the cuts of P_c (χenv) and P_f (χpeps) may move by at most trunc_window
     trunc_rtol::Float64                # gap cut: two values count as one group when they differ by at most trunc_rtol (relative)
-    face_projector::Symbol             # P_f: :rho (reduced matrix of the truncated ρ_F), :edge (enlarged edge) or :edge_env (enlarged edge weighted with the new corner)
+    face_projector::Symbol             # P_f: :rho (reduced matrix of the truncated ρ_F), :edge (enlarged edge), :edge_env / :edge_lead (enlarged edge weighted with the new corner)
+    stagnation_window::Int             # stagnation stop of leading_boundary (0 = off)
+    stagnation_factor::Float64
 end
 
 # Same keywords as CTMRG3D (so that expectation_value(...; ctm_alg = CTMRG3DOctant) works); projectors, projector_exponent, class_projectors,
@@ -34,15 +36,17 @@ end
 #   env0: an earlier CTMRG3DOctant (warm start, e.g. the previous β): we copy c, e, a, P.
 #   trunc_window, trunc_rtol: the gap cut of P_c and P_f (_gap_cut), the same rule and defaults as truncgap of BetterPEPSKit in the vbPEPS compare
 #         (window 4, rtol 1e-3); trunc_window = 0 gives the plain cut at χenv, χpeps.
-#   face_projector: :rho (P_f from the truncated ρ_F, _octant_face_projector), :edge or :edge_env (P_f from the enlarged edge, _octant_face_projector_edge)
+#   face_projector: :rho (P_f from the truncated ρ_F, _octant_face_projector), :edge, :edge_env or :edge_lead (P_f from the enlarged edge,
+#         _octant_face_projector_edge; :edge_lead closes the corner legs with the leading eigenvector of σ instead of weighting them with σ)
+#   stagnation_window, stagnation_factor: the stagnation stop of leading_boundary (0 = off)
 function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]), Vbp = oneunit(space(O)[1]), trunc_env = nothing, trunc_bpeps = nothing,
                        miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0, env0 = nothing, init::Symbol = :random,
                        init_seed::Int = 1, max_seconds::Real = Inf, subspace_tol::Real = min(1e-6, 10 * tol), subspace_maxiter::Int = 30, oversample::Int = 8,
-                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, face_projector::Symbol = :rho, kwargs...) where {T,S}
+                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, face_projector::Symbol = :rho, stagnation_window::Int = 0, stagnation_factor::Real = 0.5, kwargs...) where {T,S}
     T <: Real || throw(ArgumentError("CTMRG3DOctant: O must be real (Float64), got $T"))
     sectortype(O) == Trivial || throw(ArgumentError("CTMRG3DOctant: O must have no symmetry sectors"))
     init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
-    face_projector in (:rho, :edge, :edge_env) || throw(ArgumentError("face_projector must be :rho, :edge or :edge_env, got :$face_projector"))
+    face_projector in (:rho, :edge, :edge_env, :edge_lead) || throw(ArgumentError("face_projector must be :rho, :edge, :edge_env or :edge_lead, got :$face_projector"))
     o = convert(Array, O)
     _check_cube_symmetric(o)
     chi_env, chi_peps = dim(Vv), dim(Vbp)        # (expectation_value passes trunc_env = truncrank(dim(Vv)) as well: the same numbers)
@@ -60,7 +64,8 @@ function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]),
     end
     max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
     return CTMRG3DOctant{T, typeof(O)}(O, o, c, ed, a, P, chi_env, chi_peps, miniter, maxiter, tol, verbosity, Float64(max_seconds),
-                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol), face_projector)
+                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol), face_projector,
+                                       stagnation_window, Float64(stagnation_factor))
 end
 
 function _check_cube_symmetric(o)
@@ -247,16 +252,22 @@ function _octant_edge(e, a, o, Pc)
 end
 
 # P_f from the enlarged edge: the Gram matrix on one face leg, with the other legs glued to a copy, averaged over the two face legs.
-# weighted = true (:edge_env): the two corner legs get σ = c′·c′ᵀ (the new corner, unfolded on one leg) between bra and ket.
+# weighted = true (:edge_env): the two corner legs get σ = c′·c′ᵀ (the new corner, unfolded on one leg) between bra and ket; lead = true (:edge_lead):
+# both corner legs are closed with the leading eigenvector v₁ of σ (the limit of σ^p for large p), so the edge becomes a matrix in the two face legs.
 # Top nkeep eigenvectors, moved by the gap cut.
-function _octant_face_projector_edge(e, a, o, Pc, WP, nkeep; weighted = true, window = 4, rtol = 1e-3, verbosity = 0)
+function _octant_face_projector_edge(e, a, o, Pc, WP, nkeep; weighted = true, lead = false, window = 4, rtol = 1e-3, verbosity = 0)
     F, χn = size(Pc)
     if weighted
         W3 = reshape(WP, F, F, χn)
         @tensor cn[i, j, k] := W3[y, z, i] * Pc[y, j] * Pc[z, k]
         cm = reshape(cn, χn, :)
         ev = eigen(Symmetric(cm * transpose(cm)))
-        S = ev.vectors * Diagonal(sqrt.(max.(ev.values, 0) ./ maximum(ev.values))) * transpose(ev.vectors)
+        if lead
+            v1 = ev.vectors[:, argmax(ev.values)]
+            S = v1 * transpose(v1)
+        else
+            S = ev.vectors * Diagonal(sqrt.(max.(ev.values, 0) ./ maximum(ev.values))) * transpose(ev.vectors)
+        end
     else
         S = Matrix{eltype(Pc)}(I, χn, χn)
     end
@@ -310,8 +321,9 @@ function ctmrgstep(env::CTMRG3DOctant)
     B = @timeit to "octant: B = C·E·E·A" _octant_B(env.c, env.e, env.a)
     U, λ, WU = @timeit to "octant: P_c (subspace iteration)" _octant_top_eigvecs(env, B, χn)
     Pf = @timeit to "octant: P_f" begin
-        if env.face_projector in (:edge, :edge_env)
-            _octant_face_projector_edge(env.e, env.a, env.o, U, WU, pn; weighted = env.face_projector === :edge_env, window = env.trunc_window,
+        if env.face_projector in (:edge, :edge_env, :edge_lead)
+            _octant_face_projector_edge(env.e, env.a, env.o, U, WU, pn; weighted = env.face_projector !== :edge,
+                                        lead = env.face_projector === :edge_lead, window = env.trunc_window,
                                         rtol = env.trunc_rtol, verbosity = env.verbosity)
         else
             _octant_face_projector(U, λ, χ, p, D, pn; window = env.trunc_window, rtol = env.trunc_rtol, verbosity = env.verbosity)

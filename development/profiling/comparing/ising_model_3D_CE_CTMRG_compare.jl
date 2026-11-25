@@ -49,9 +49,10 @@ const CASES_ALL = ["svd_cold_auto", "svd_warm_auto", "oblique_cold_auto", "obliq
 #   octant_*: Proposal 2 (CTMRG3DOctant, ctmrg3D_octant.jl; west_updates has no meaning there)
 #   octantedge_*: CTMRG3DOctant with face_projector = :edge_env (P_f from the enlarged edge, weighted with the corner)
 #   octantedgeplain_*: CTMRG3DOctant with face_projector = :edge (P_f from the enlarged edge, no weight)
+#   octantedgelead_*: CTMRG3DOctant with face_projector = :edge_lead (P_f from the enlarged edge, corner legs closed with the leading corner state)
 const CASES_EXTRA = ["svdclass_cold_auto", "svdclass_warm_auto", "obliqueclass_cold_auto", "obliqueclass_warm_auto",
                      "svdclass_cold_w1", "svdclass_warm_w1", "obliqueclass_cold_w1", "obliqueclass_warm_w1", "octant_cold", "octant_warm", "octantedge_cold", "octantedge_warm",
-                     "octantedgeplain_cold", "octantedgeplain_warm"]
+                     "octantedgeplain_cold", "octantedgeplain_warm", "octantedgelead_cold", "octantedgelead_warm"]
 # Hortense: the number of cores of the job (job_ctmrg_compare.pbs passes CORES as CE_COMPARE_CORES).
 # Julia and BLAS threads = cores; the full run keeps 64 core hours per case, at most a third per observation.
 const HPC_CORES = parse(Int, get(ENV, "CE_COMPARE_CORES", "5"))
@@ -74,8 +75,9 @@ const P = PROFILES[PROFILE]
 #   CE_COMPARE_MAXITER    the iteration cap of every case
 #   CE_COMPARE_BUDGET_S   seconds for the case, and also the most one observation may use
 #   CE_COMPARE_VERBOSITY  verbosity of CTMRG3D / CTMRG3DOctant: 1 = ϵ of every iteration in the log (0 = nothing, the default)
+#   CE_COMPARE_OCTANT_STAGNATION  stagnation window of the octant cases (0 = off, the default), for example 100
 #   CE_COMPARE_PEPO       ce (default: the CE PEPOs of the PEPO file) or exact (bond dimension 2, so D_CE of the dims must be 2; the setting column of the results file then ends in _exactpepo)
-const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY", "CE_COMPARE_PEPO") if haskey(ENV, n)]
+const OVERRIDES = [n for n in ("CE_COMPARE_BETAS", "CE_COMPARE_MAXITER", "CE_COMPARE_BUDGET_S", "CE_COMPARE_VERBOSITY", "CE_COMPARE_PEPO", "CE_COMPARE_OCTANT_STAGNATION") if haskey(ENV, n)]
 const PEPO_KIND = env_override("CE_COMPARE_PEPO", s -> Symbol(lowercase(s)), :ce)
 PEPO_KIND in (:ce, :exact) || error("CE_COMPARE_PEPO = $PEPO_KIND: use ce or exact")
 BLAS.set_num_threads(P.blas_threads)
@@ -97,8 +99,10 @@ const ctm_maxiter = env_override("CE_COMPARE_MAXITER", s -> parse(Int, s), P.max
 const ctm_verbosity = env_override("CE_COMPARE_VERBOSITY", s -> parse(Int, s), 0)
 const ctm_tol = 1e-7
 # Stagnation stop for the :oblique cases: stop when ϵ did not improve by STAGNATION_FACTOR over STAGNATION_WINDOW iterations (0 = off).
-# :oblique has the same m after few iterations while ϵ stays large; not used for :svd (converges) and the octant (converges slowly, a window would stop it too early).
+# :oblique has the same m after few iterations while ϵ stays large; not used for :svd (converges); for the octant see OCTANT_STAGNATION_WINDOW.
 const STAGNATION_WINDOW = env_override("CE_COMPARE_STAGNATION", s -> parse(Int, s), 20)
+# The same stop for the octant cases (0 = off): they converge slowly near βc, so a window that is too short stops them too early
+const OCTANT_STAGNATION_WINDOW = env_override("CE_COMPARE_OCTANT_STAGNATION", s -> parse(Int, s), 0)
 const STAGNATION_FACTOR = 0.5
 const RAM_GIB = P.ram_gib         # nothing = contract_onesite (unsliced); a number = contract_onesite_auto with this RAM budget in GiB (uses the plan file)
 const MACHINE = P.machine         # contract_onesite_auto only uses the plan times measured on this machine
@@ -144,6 +148,8 @@ const CASES = filter(c -> c[1] in RUN_CASES, [
     ("octantedge_warm", :octantedge, true, :auto),
     ("octantedgeplain_cold", :octantedgeplain, false, :auto),
     ("octantedgeplain_warm", :octantedgeplain, true, :auto),
+    ("octantedgelead_cold", :octantedgelead, false, :auto),
+    ("octantedgelead_warm", :octantedgelead, true, :auto),
 ])
 
 # If REPLOT_DIR is the NAME of a run folder (for example "20261116_1500") in data/profiling/comparing/ising_model_3D_CE_CTMRG_compare/,
@@ -164,7 +170,7 @@ const CASE_COLORS = Dict("svd_cold_auto" => :steelblue, "svd_warm_auto" => :ligh
                          "svdclass_cold_auto" => :purple, "svdclass_warm_auto" => :plum, "obliqueclass_cold_auto" => :darkorange, "obliqueclass_warm_auto" => :gold,
                          "svdclass_cold_w1" => :indigo, "svdclass_warm_w1" => :orchid, "obliqueclass_cold_w1" => :chocolate, "obliqueclass_warm_w1" => :khaki,
                          "octant_cold" => :darkgreen, "octant_warm" => :lightgreen, "octantedge_cold" => :teal, "octantedge_warm" => :turquoise,
-                         "octantedgeplain_cold" => :olive, "octantedgeplain_warm" => :yellowgreen)
+                         "octantedgeplain_cold" => :olive, "octantedgeplain_warm" => :yellowgreen, "octantedgelead_cold" => :navy, "octantedgelead_warm" => :cornflowerblue)
 
 # The timer sections of one observation (the inner names are those of MPSKit.expectation_value in ctmrg3D_main.jl)
 const SEC_OBS = "expectation_value (CTMRG3D and observable)"
@@ -184,14 +190,17 @@ function section_s(t::TimerOutput, path...)
 end
 contract_s(t) = sum(section_s(t, SEC_OBS, s) for s in SEC_CONTRACT)
 
+const OCTANT_KINDS = (:octant, :octantedge, :octantedgeplain, :octantedgelead)
+const FACE_PROJECTOR = Dict(:octantedge => :edge_env, :octantedgeplain => :edge, :octantedgelead => :edge_lead)
 # (the pilot slices the current tree itself: plans = nothing)
 # projectors of a case: :svd, :oblique, :svdclass, :obliqueclass (class_projectors = true), :octant (ctm_alg = CTMRG3DOctant), :octantedge
-# (CTMRG3DOctant with face_projector = :edge_env) or :octantedgeplain (face_projector = :edge)
+# (CTMRG3DOctant with face_projector = :edge_env), :octantedgeplain (face_projector = :edge) or :octantedgelead (face_projector = :edge_lead)
 ctm_kwargs(projectors, west_updates) = (; miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol, verbosity = ctm_verbosity, west_updates,
                            projectors = projectors in (:oblique, :obliqueclass) ? :oblique : :svd, class_projectors = projectors in (:svdclass, :obliqueclass),
-                           ctm_alg = projectors in (:octant, :octantedge, :octantedgeplain) ? CTMRG3DOctant : CTMRG3D,
-                           face_projector = projectors === :octantedge ? :edge_env : projectors === :octantedgeplain ? :edge : :rho,
-                           stagnation_window = projectors in (:oblique, :obliqueclass) ? STAGNATION_WINDOW : 0, stagnation_factor = STAGNATION_FACTOR,
+                           ctm_alg = projectors in OCTANT_KINDS ? CTMRG3DOctant : CTMRG3D,
+                           face_projector = get(FACE_PROJECTOR, projectors, :rho),
+                           stagnation_window = projectors in (:oblique, :obliqueclass) ? STAGNATION_WINDOW : projectors in OCTANT_KINDS ? OCTANT_STAGNATION_WINDOW : 0,
+                           stagnation_factor = STAGNATION_FACTOR,
                            ram_gib = RAM_GIB, init = INIT, init_seed = INIT_SEED, onesite_kwargs = P.plan_file ? (; machine = MACHINE) : (; machine = MACHINE, plans = nothing))
 
 function run_case(name, projectors, warm, west_updates, Os, pepsspace, envspace, obs, resultspath, outdir, run)
@@ -303,8 +312,9 @@ end
 # Label, colour and line style of a case in all plots (colour: projectors, line style: warm start)
 case_label(projectors, warm, west = :auto) = projectors === :octant ? "octant (proposal 2), $(warm ? "warm" : "cold")" :
                                             projectors === :octantedge ? "octant, P_f edge_env, $(warm ? "warm" : "cold")" :
-                                            projectors === :octantedgeplain ? "octant, P_f edge, $(warm ? "warm" : "cold")" : "$projectors, $(warm ? "warm" : "cold"), west $west"
-colour(projectors) = Dict(:svd => :royalblue, :oblique => :crimson, :svdclass => :purple, :obliqueclass => :darkorange, :octant => :forestgreen, :octantedge => :teal, :octantedgeplain => :olive)[projectors]
+                                            projectors === :octantedgeplain ? "octant, P_f edge, $(warm ? "warm" : "cold")" :
+                                            projectors === :octantedgelead ? "octant, P_f edge_lead, $(warm ? "warm" : "cold")" : "$projectors, $(warm ? "warm" : "cold"), west $west"
+colour(projectors) = Dict(:svd => :royalblue, :oblique => :crimson, :svdclass => :purple, :obliqueclass => :darkorange, :octant => :forestgreen, :octantedge => :teal, :octantedgeplain => :olive, :octantedgelead => :navy)[projectors]
 style(warm, west = :auto) = west === :auto ? (warm ? :dash : :solid) : (warm ? :dashdot : :dot)
 
 # One line per case in the panel p: y(r) of every finished observation r of the case, sorted by β, and a cross where the observation did not converge.
