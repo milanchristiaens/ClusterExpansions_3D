@@ -266,7 +266,7 @@ function plot_decompositions(rows, csv)
 end
 
 # PEPSKit (Sander's vbPEPS, slow) against BetterPEPSKit (Lander's, fast): the vbPEPS rows of the results file whose setting ends in the implementation (fixed_env_pepskit, fixed_env_betterpepskit).
-# Two rows are the same observation if case, setting, β and (χenv, χpeps, D_CE) agree; per implementation we take the newest run. Panels: time per cost-function call, |m| of both, and |Δf|, |Δ|m|| between them.
+# Two rows are the same observation if case, setting, β and (χenv, χpeps, D_CE) agree; per implementation we take the newest run. Panels: |m| of both, time per cost-function call, and |Δf| and |Δ|m|| between them.
 function plot_vbpeps_impls(path)
     isfile(path) || return @warn "vbPEPS implementations: no file $path (copy the Hortense results file first, see the Hortense guide)"
     lines = filter(!isempty, readlines(path))
@@ -286,40 +286,55 @@ function plot_vbpeps_impls(path)
     isempty(pairs) && return @warn "vbPEPS implementations: no observation with rows of both PEPSKit and BetterPEPSKit in $path"
     sort!(pairs; by = p -> (parse.(Int, (p[1][4], p[1][5], p[1][6])), p[1][3]))
     labels = ["($(k[4]),$(k[5]),$(k[6])) β=$(k[3])" * (endswith(k[2], "_exactpepo") ? " ex" : "") for (k, _, _) in pairs]
-        percall(r) = num(r, "time_s") / max(num(r, "iterations"), 1)
+    percall(r) = num(r, "time_s") / max(num(r, "iterations"), 1)
     done(r) = r["timed_out"] != "true"
-    # x axis = β; the observations of one set (χenv, χpeps, D_CE) have one colour; PEPSKit = circle, BetterPEPSKit = diamond (open = timed out)
+    # x axis = β; the observations of one set (χenv, χpeps, D_CE) have one colour; PEPSKit = circle, BetterPEPSKit = diamond (open = timed out), both at the same β
     group_of(p) = (p[1][1], p[1][2], (p[1][4], p[1][5], p[1][6]))
     groups = sort(unique(group_of.(pairs)); by = g -> (parse.(Int, g[3]), g[1], g[2]))
     several_cases = length(unique(g[1] for g in groups)) > 1
     glabel(g) = "($(join(g[3], ",")))" * (endswith(g[2], "_exactpepo") ? " exact PEPO" : "") * (several_cases ? " $(g[1])" : "")
     colours = [:royalblue, :darkorange, :seagreen, :purple, :crimson, :goldenrod]
-    betas = sort(unique(p[1][3] for p in pairs))
-    dx = 0.012 * (maximum(betas) - minimum(betas) + 0.01)
-    common = (; xlabel = "β", xlims = (minimum(betas) - 0.01, maximum(betas) + 0.01), titlefontsize = 10)
-    p1 = plot(; title = "time per cost-function call (s)", yscale = :log10, legend = :topright, common...)
-    p2 = plot(; title = "|m| (open marker = timed out)", legend = :topleft, common...)
-    p3 = plot(; title = "difference PEPSKit - BetterPEPSKit (open = a run timed out)", yscale = :log10, legend = :topleft, common...)
-    for (gi, g) in enumerate(groups), (impl, i, marker, shift) in (("PEPSKit", 2, :circle, -dx), ("BetterPEPSKit", 3, :diamond, dx))
-        col = colours[mod1(gi, length(colours))]
-        ps = [p for p in pairs if group_of(p) == g]
-        x = [p[1][3] + shift for p in ps]; rs = [p[i] for p in ps]; fill_colours = [done(r) ? col : :white for r in rs]
-        scatter!(p1, x, percall.(rs); color = col, marker, markercolor = fill_colours, markerstrokecolor = col, label = "$(glabel(g)) $impl")
-        plot!(p2, x, abs.(num.(rs, "m_re")); color = col, marker, markercolor = fill_colours, markerstrokecolor = col, linealpha = 0.4, label = "$(glabel(g)) $impl")
-    end
     both = [done(p[2]) && done(p[3]) for p in pairs]
-    df = [max(abs(num(p[2], "f") - num(p[3], "f")), 1e-16) for p in pairs]
-    dm = [max(abs(abs(num(p[2], "m_re")) - abs(num(p[3], "m_re"))), 1e-16) for p in pairs]
+    floor_d = 1e-16     # a difference of zero is drawn at this height, with a triangle
+    df = [max(abs(num(p[2], "f") - num(p[3], "f")), floor_d) for p in pairs]
+    dm = [max(abs(abs(num(p[2], "m_re")) - abs(num(p[3], "m_re"))), floor_d) for p in pairs]
+    ytop = 10.0^ceil(log10(3 * max(maximum(df), maximum(dm))))
+    betas = sort(unique(p[1][3] for p in pairs))
+    common = (; xlims = (minimum(betas) - 0.01, maximum(betas) + 0.01), titlefontsize = 10)
+    diff_common = (; yscale = :log10, ylims = (floor_d / 10, ytop), legend = false, common...)
+    p_m = plot(; title = "|m| (open marker = timed out)", xlabel = "β", ylabel = "|m|", legend = :topleft, common...)
+    p_t = plot(; title = "time per cost-function call (s)", xlabel = "β", yscale = :log10, legend = :topright, common...)
+    p_df = plot(; title = "|Δf| = |f(PEPSKit) − f(BetterPEPSKit)|", diff_common...)
+    p_dm = plot(; title = "||m|(PEPSKit) − |m|(BetterPEPSKit)|", xlabel = "β", diff_common...)
     for (gi, g) in enumerate(groups)
         col = colours[mod1(gi, length(colours))]
         js = [j for j in eachindex(pairs) if group_of(pairs[j]) == g]
         x = [pairs[j][1][3] for j in js]
-        scatter!(p3, x, df[js]; marker = :square, color = col, markercolor = [both[j] ? col : :white for j in js], markerstrokecolor = col, label = "$(glabel(g)) |Δf|")
-        scatter!(p3, x, dm[js]; marker = :diamond, color = col, markercolor = [both[j] ? col : :white for j in js], markerstrokecolor = col, label = "$(glabel(g)) |Δ|m||")
+        rP = [pairs[j][2] for j in js]; rB = [pairs[j][3] for j in js]
+        fillP = [done(r) ? col : :white for r in rP]; fillB = [done(r) ? col : :white for r in rB]
+        # time per call: both implementations at the same β, joined by a vertical line
+        for (xi, a, b) in zip(x, rP, rB)
+            plot!(p_t, [xi, xi], [percall(a), percall(b)]; color = col, linealpha = 0.5, label = "")
+        end
+        scatter!(p_t, x, percall.(rP); color = col, marker = :circle, markersize = 6, markercolor = fillP, markerstrokecolor = col, label = "$(glabel(g)) PEPSKit")
+        scatter!(p_t, x, percall.(rB); color = col, marker = :diamond, markersize = 6, markercolor = fillB, markerstrokecolor = col, label = "$(glabel(g)) BetterPEPSKit")
+        # |m|: the two overlap, the small diamond (BetterPEPSKit) lies on top of the big circle (PEPSKit)
+        plot!(p_m, x, abs.(num.(rP, "m_re")); color = col, linealpha = 0.4, marker = :circle, markersize = 9, markercolor = fillP, markerstrokecolor = col, markerstrokewidth = 1.5, label = "$(glabel(g)) PEPSKit")
+        plot!(p_m, x, abs.(num.(rB, "m_re")); color = col, linealpha = 0.4, marker = :diamond, markersize = 5, markercolor = fillB, markerstrokecolor = :black, markerstrokewidth = 1, label = "$(glabel(g)) BetterPEPSKit")
+        # the differences: one panel each; open = a run timed out; a triangle = the difference is below floor_d
+        for (p, d, shape) in ((p_df, df, :square), (p_dm, dm, :diamond))
+            y = d[js]
+            scatter!(p, x, y; color = col, marker = [yi <= floor_d ? :dtriangle : shape for yi in y], markersize = 6,
+                     markercolor = [both[j] ? col : :white for j in js], markerstrokecolor = col, label = "")
+        end
+    end
+    for p in (p_df, p_dm)
+        hline!(p, [floor_d]; color = :gray, linestyle = :dot, label = "")
+        annotate!(p, maximum(betas), 5 * floor_d, text("▼ = identical (below $(floor_d))", 7, :gray, :right))
     end
     outdir = mkpath(joinpath(DATA_DIR, "vbpeps_implementations"))
     out = joinpath(outdir, "pepskit_vs_betterpepskit.png")
-    fig = plot(p1, p2, p3; layout = (1, 3), size = (1900, 620), left_margin = 8mm, bottom_margin = 18mm,
+    fig = plot(p_m, p_t, p_df, p_dm; layout = @layout([a b [c; d]]), size = (1900, 620), left_margin = 8mm, bottom_margin = 18mm,
                plot_title = "vbPEPS: PEPSKit against BetterPEPSKit, the same observation and start state")
     savefig(fig, out); @info "wrote $out"
     println("\n===== vbPEPS: PEPSKit against BetterPEPSKit (newest run of each per observation) =====")

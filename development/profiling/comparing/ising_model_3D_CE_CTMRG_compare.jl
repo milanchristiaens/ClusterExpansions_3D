@@ -154,7 +154,7 @@ const CASES = filter(c -> c[1] in RUN_CASES, [
 
 # If REPLOT_DIR is the NAME of a run folder (for example "20261116_1500") in data/profiling/comparing/ising_model_3D_CE_CTMRG_compare/,
 # we only redo all the plots from the rows of that run in the results file and nothing else is run. Leave it "" for a normal run.
-const REPLOT_DIR = ""
+REPLOT_DIR = ""
 
 # Settings of the spread plot (|m| of every case minus the mean |m| of the cases, per β)
 const SPREAD_EXCLUDE_CASES = String[]       # cases that we leave out completely, for example ["oblique_warm_w1"]

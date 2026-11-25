@@ -142,7 +142,7 @@ const CASES = filter(c -> c[1] in RUN_CASES, [
 # If REPLOT_DIR is the NAME of a run folder (for example "20261116_1500") in data/profiling/comparing/ising_model_3D_CE_vbPEPS_compare/,
 # we only redo all the plots from the rows of that run in the results file and nothing else is run (no calculation, no compilation of the pullback).
 # Leave it "" for a normal run.
-REPLOT_DIR = ""
+REPLOT_DIR = "20261124_1134_big_vbpeps"
 
 # Settings of the spread plot (|m| of every case minus the mean |m| of the cases, per β)
 const SPREAD_EXCLUDE_CASES = String[]       # cases that we leave out completely, for example ["true_warm"]
