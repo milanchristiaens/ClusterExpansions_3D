@@ -7,8 +7,9 @@ struct BpepsTimeLimit <: Exception end
 
 # Find the boundary PEPS of the 3D PEPO.
 # Returns (; psi, env2, env3, cost, numfg, normgradhistory, timed_out); psi is an InfinitePEPS, env3 is the CTMRG environment of <psi|O|psi>.
-#   max_seconds: stop after the first LBFGS iteration that ends later than max_seconds after the start of this call (default Inf = no limit);
-#     then the last iterate is returned with timed_out = true, numfg = number of cost-function calls and normgradhistory = nothing
+#   max_seconds: once one LBFGS iteration is finished, stop at the first iteration end or cost-function call after max_seconds since the start of this
+#     call (default Inf = no limit); then the last finished iterate is returned with timed_out = true, numfg = number of cost-function calls and
+#     normgradhistory = nothing
 #   bpepsspace, envspace: virtual space of the boundary PEPS (χpeps) and of the CTMRG environment (χenv)
 #   boundary_alg_type: SimultaneousCTMRG (default, no symmetry needed) or C4vCTMRG (with symmetrization = RotateReflect(); needs a C4v symmetric PEPO)
 #   state0: (psi, env2, env3) of an earlier call (warm start, e.g. the neighbouring β), instead of the power-method start
@@ -60,11 +61,21 @@ function bpeps_optimize(
 
     # For max_seconds: count the cost-function calls, and remember the last iterate (x, f) that finalize! has seen
     ncalls = Ref(0)
+    iters_done = Ref(0)
     last_state = Ref{Any}(nothing)
-    counted_costfun(x) = (ncalls[] += 1; costfun(x))
+    function counted_costfun(x)
+        # also inside the line search: once an iteration is finished, we stop before a new call if the time is up
+        iters_done[] > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
+        ncalls[] += 1
+        t_call = time()
+        res = costfun(x)
+        optimizer_verbosity >= 2 && @info "bPEPS: cost-function call $(ncalls[]) took $(round(time() - t_call; digits = 1)) s"
+        return res
+    end
     function finalize_limited!(x, f, g, numiter)
         x, f, g = finalize!(x, f, g, numiter)
         last_state[] = (x, f)
+        iters_done[] = numiter
         # after a finished iteration (numiter > 0) we stop if the time is up
         numiter > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
         return x, f, g

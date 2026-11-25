@@ -176,11 +176,21 @@ function bpeps_optimize(
     retract, finalize! = bpeps_symmetrize_retract_and_finalize!(symmetrization, bpeps_retract)
 
     ncalls = Ref(0)
+    iters_done = Ref(0)
     last_state = Ref{Any}(nothing)
-    counted_costfun(x) = (ncalls[] += 1; costfun(x))
+    function counted_costfun(x)
+        # also inside the line search: once an iteration is finished, we stop before a new call if the time is up
+        iters_done[] > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
+        ncalls[] += 1
+        t_call = time()
+        res = costfun(x)
+        optimizer_verbosity >= 2 && @info "bPEPS: cost-function call $(ncalls[]) took $(round(time() - t_call; digits = 1)) s"
+        return res
+    end
     function finalize_limited!(x, f, g, numiter)
         x, f, g = finalize!(x, f, g, numiter)
         last_state[] = (x, f)
+        iters_done[] = numiter
         numiter > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
         return x, f, g
     end

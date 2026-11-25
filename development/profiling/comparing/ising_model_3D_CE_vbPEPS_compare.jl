@@ -98,13 +98,16 @@ const SEED_BASE = 1000              # observation i uses Random.seed!(SEED_BASE 
 const BETA_C = 0.2217               # warm cases: a β closer than WARM_WINDOW to BETA_C starts cold (nothing = always warm)
 const WARM_WINDOW = 0.02
 
-# Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one LBFGS iteration overshoot per observation).
+# Time limits (seconds). Total of the run is about: compile of `true` (~6000 s) + compile of `false` (a few minutes) + 4 * RUN_BUDGET_S (+ at most one cost-function call overshoot per observation).
 # For a comparison with CTMRG3D at the same core budget, (cores × RUN_BUDGET_S) must be the same in both compare scripts (see the profiles).
 const RUN_BUDGET_S = env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.run_budget_s)           # per case (laptop 1 h on 4 cores; Hortense 21.3 h on 3 cores = the core budget of CTMRG3D)
 # The most one observation may use, also: MAX_OBS_FACTOR × the fair share RUN_BUDGET_S / length(β_obs), so that β near βc that do not converge do not leave the last β almost nothing
 const MAX_OBS_FACTOR = 1.2
 const MAX_SECONDS_OBS = min(env_override("CE_COMPARE_BUDGET_S", s -> parse(Float64, s), P.max_seconds_obs), MAX_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))   # per observation (lowered further when the case budget is running out)
-const MIN_SECONDS_OBS = P.min_seconds_obs     # but every observation gets at least this
+# Every observation gets at least MIN_OBS_FACTOR × the fair share, also when earlier ones used more (the case may then go over RUN_BUDGET_S),
+# and never less than the profile's min_seconds_obs
+const MIN_OBS_FACTOR = 0.5
+const MIN_SECONDS_OBS = max(P.min_seconds_obs, MIN_OBS_FACTOR * RUN_BUDGET_S / length(β_obs))
 
 
 # Implementation of vbPEPS (see the top of this file); the Hortense job scripts can set it with the environment variable CE_COMPARE_IMPL
@@ -122,7 +125,7 @@ const FAST_KWARGS = (; sparse = true, truncation_window = 4, truncation_rtol = 1
 # keeps the boundary PEPS symmetric. Everything is Float64 (the element type of the PEPOs).
 const base_kwargs = (;
     boundary_alg_type = C4vCTMRG, symmetrization = RotateReflect(),
-    boundary_tol = 1.0e-10, boundary_maxiter = 1500, boundary_verbosity = 1,
+    boundary_tol = 1.0e-8, boundary_maxiter = 300, boundary_verbosity = 1,   # the CTMRG error often stays at 1e-8 – 1e-6 (gap cut); a lower tol only runs to maxiter
     gradient_tol = 1.0e-6, gradient_maxiter = 5, gradient_krylovdim = 20,
     optimizer_memory = 64, optimizer_tol = 1.0e-5,
     optimizer_maxiter = env_override("CE_COMPARE_MAXITER", s -> parse(Int, s), 100),   # 100 is super high, but the time limit stops it before that
