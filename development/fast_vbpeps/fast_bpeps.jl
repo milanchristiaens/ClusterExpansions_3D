@@ -179,7 +179,7 @@ function bpeps_optimize(
     iters_done = Ref(0)
     last_state = Ref{Any}(nothing)
     function counted_costfun(x)
-        # also inside the line search: once an iteration is finished, we stop before a new call if the time is up
+        # Check if time is finished after a single cost evaluation/call inside a LBFGS step
         iters_done[] > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
         ncalls[] += 1
         t_call = time()
@@ -191,6 +191,7 @@ function bpeps_optimize(
         x, f, g = finalize!(x, f, g, numiter)
         last_state[] = (x, f)
         iters_done[] = numiter
+        # Check if time is finished after a full LBFGS step
         numiter > 0 && time() - t_start > max_seconds && throw(BpepsTimeLimit())
         return x, f, g
     end
