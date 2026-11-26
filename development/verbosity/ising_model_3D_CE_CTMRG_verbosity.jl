@@ -67,7 +67,7 @@ for i in eachindex(β_obs)
     end
     m, = MPSKit.expectation_value(O, [obs], pepsspace, envspace;
                                   miniter = ctm_miniter, maxiter = ctm_maxiter, tol = ctm_tol,
-                                  verbosity = ctm_verbosity, ram_gib, west_updates = :auto)
+                                  verbosity = ctm_verbosity, ram_gib, west_updates = :1)
     push!(ms, m)
     @info "β = $(β_obs[i]): magnetization = $m"
 end

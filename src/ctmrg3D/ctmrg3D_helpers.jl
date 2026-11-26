@@ -114,7 +114,7 @@ mutable struct CTMRG3D{T, S, TT <: AbstractTensorMap{T, S, 0, 6}, TA <: Abstract
     #   init = :nishino_okunishi  the 3×3×3 cube of O tensors with the outward legs closed by one random vector (see nishino_okunishi_init); needs a cube-symmetric O
     # env0 = an earlier CTMRG3D: warm start, we copy its C, E, A and only take the new O
 function CTMRG3D(O::TT; trunc_bpeps = notrunc(), trunc_env = notrunc(), Vp = space(O)[1]', Vbp = oneunit(Vp), Vv = oneunit(Vp), miniter::Int = 5, 
-                maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :auto, west_tol::Float64 = 0.01 * tol, 
+                maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0 , west_updates::Union{Int, Symbol} = :1, west_tol::Float64 = 0.01 * tol, 
                 projectors::Symbol = :svd, projector_exponent::Real = 0.5, class_projectors::Bool = false, env0 = nothing, init::Symbol = :ones, init_seed::Int = 1, 
                 max_seconds::Real = Inf, stagnation_window::Int = 0, stagnation_factor::Real = 0.5) where {T, S, TT <: AbstractTensorMap{T, S, 0, 6}}        
         init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))

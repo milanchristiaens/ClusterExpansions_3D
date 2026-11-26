@@ -76,7 +76,7 @@ end
 # return_env = true (used in compare scripts, also for cold starts): returns (expvals, env, ϵs, timed_out) instead of expvals, so that env can be the env0 of the next call
 # (timed_out = true if max_seconds stopped the iterations)
 function MPSKit.expectation_value(PEPO::AbstractTensorMap{A,S,2,6}, obss, bpepsspace, envspace; ctm_alg = CTMRG3D, miniter = 5, maxiter = 150, tol = 1e-8, 
-                                 verbosity = 0, west_updates = :auto, west_tol = 0.01 * tol, projectors = :svd, projector_exponent = 0.5, class_projectors = false, env0 = nothing, init = :ones, init_seed = 1, 
+                                 verbosity = 0, west_updates = :1, west_tol = 0.01 * tol, projectors = :svd, projector_exponent = 0.5, class_projectors = false, env0 = nothing, init = :ones, init_seed = 1, 
                                  max_seconds = Inf, stagnation_window = 0, stagnation_factor = 0.5, face_projector = :rho, return_env = false, ram_gib = nothing, onesite_kwargs = (;)) where {A,S}
     O = @timeit to "EV: build O (trace physical legs and flip)" begin
         @tensor O[-1 -2 -3 -4 -5 -6] := twist(PEPO, 2)[1 1; -1 -2 -3 -4 -5 -6]

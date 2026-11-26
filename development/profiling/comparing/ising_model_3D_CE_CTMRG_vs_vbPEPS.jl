@@ -107,7 +107,7 @@ function plot_magnetization(rows, specs)
         ys = [hypot(r.m_re, r.m_im) for r in sub]
         plot!(p, βs, ys; color = c.color, linestyle = c.linestyle, marker = c.marker, markersize = 4, label = c.label)
         idx = findall(r -> r.timed_out || r.converged === false, sub)
-        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = c.color, markershape = :xcross, markersize = 9, markerstrokewidth = 2, label = "")
+        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = c.color, markershape = :xcross, markersize = 5, markerstrokewidth = 1, label = "")
     end
     plot_ising_references!(p, minimum(r.β for r in rows), maximum(r.β for r in rows))
     vline!(p, [βc_ising]; color = :gray, linestyle = :dot, label = "")

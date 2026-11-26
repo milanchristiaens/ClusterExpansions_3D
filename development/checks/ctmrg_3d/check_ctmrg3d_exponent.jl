@@ -29,7 +29,7 @@ const BLAS_THREADS = 4                   # CTMRG3D gets its parallelism from BLA
 const ctm_miniter = 3
 const CTM_MAXITER = 300                  # more than the 80 of the compare: P = 0 converges slowly
 const ctm_tol = 1e-7
-const WEST_UPDATES = :auto
+const WEST_UPDATES = :1
 const MAX_SECONDS = 1800.0               # time limit of the CTMRG3D iterations of one run (s; P = 0 converges slowly)
 const RAM_GIB = 3                        # RAM budget of the sliced contraction (contract_onesite_auto); nothing = unsliced contract_onesite
 

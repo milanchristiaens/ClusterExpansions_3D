@@ -195,10 +195,10 @@ function bpeps_optimize(
         return x, f, g
     end
 
-    local psi, env2, env3, cost, numfg
+    local psi, env2, env3, cost, numfg, normgradhistory
     timed_out = false
     try
-        (psi, env2, env3), cost, _, numfg, _ = @timeit to "bPEPS: LBFGS optimization" optimize(
+        (psi, env2, env3), cost, _, numfg, normgradhistory = @timeit to "bPEPS: LBFGS optimization" optimize(
             counted_costfun, (psi_start, env2_0, env3_0), optimizer_alg;
             inner = PEPSKit.real_inner, retract, (transport!) = bpeps_transport!, (finalize!) = finalize_limited!,
         )
@@ -206,9 +206,11 @@ function bpeps_optimize(
         err isa BpepsTimeLimit || rethrow()
         (psi, env2, env3), cost = last_state[]
         numfg = ncalls[]
+        normgradhistory = nothing
         timed_out = true
     end
-    return (; psi, env2, env3, cost, numfg, timed_out)
+    normgrad = normgradhistory === nothing ? NaN : last(normgradhistory)
+    return (; psi, env2, env3, cost, numfg, normgrad, timed_out)
 end
 
 # ⟨M⟩ = ⟨ψ|M|ψ⟩ / ⟨ψ|O|ψ⟩ on the converged state (M = the 2D tensor of the observable, bpeps_pepo_tensor(PEPO, obs) of ClusterExpansions)
@@ -224,7 +226,7 @@ end
 const STATES = Dict{String, Any}()     # (psi, env2, env3) of the last observation of every case, for the warm start
 
 # One observation: optimize (warm start from STATES[key] if warm, otherwise from psi0p, the packed start tensor) and measure M.
-# Returns (; cost, numfg, timed_out, m).
+# Returns (; cost, numfg, timed_out, normgrad, m).
 function run_observation(key::String, Op, Mp, psi0p, χpeps::Int, χenv::Int; warm::Bool, seed::Int, kwargs...)
     Random.seed!(seed)
     O, M = unpack_tensor(Op), unpack_tensor(Mp)
@@ -235,7 +237,7 @@ function run_observation(key::String, Op, Mp, psi0p, χpeps::Int, χenv::Int; wa
         (; r, m = only(bpeps_observables(O, [M], r)))
     end
     STATES[key] = (result.r.psi, result.r.env2, result.r.env3)
-    return (; cost = result.r.cost, numfg = result.r.numfg, timed_out = result.r.timed_out, m = ComplexF64(result.m))
+    return (; cost = result.r.cost, numfg = result.r.numfg, timed_out = result.r.timed_out, normgrad = result.r.normgrad, m = ComplexF64(result.m))
 end
 
 # The timer as a plain Dict (TimerOutputs.todict); and a reset (at the start of every case)

@@ -21,7 +21,7 @@ const RESULTS_FILE = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "prof
 const OUT_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "big_compare_plots"))
 
 # The curves: a run is found by the end of its run name (the newest run in the file with that ending); a run without rows is left out
-const VBPEPS_SUFFIX = "_equal_betterpepskit"
+const VBPEPS_SUFFIX = "_small_bpk"
 const SERIES = [
     (; key = :svd,       suffix = "_big_svd",              label = "CTMRG3D :svd",                color = :royalblue),
     (; key = :oblique,   suffix = "_big_oblique",          label = "CTMRG3D :oblique",            color = :crimson),
@@ -30,6 +30,10 @@ const SERIES = [
     (; key = :lead,      suffix = "_big_octantedgelead",   label = "octant, P_f :edge_lead",      color = :purple),
     (; key = :vbpeps,    suffix = VBPEPS_SUFFIX,           label = "vbPEPS",      color = :darkorange),
 ]
+
+# The results file does not say whether LBFGS of a vbPEPS observation converged: here we list, per run (end of the run name), the β where the job log says
+# that it stopped at the iteration cap or without progress (‖∇f‖ above the tolerance)
+const LOG_NOT_CONVERGED = Dict("_small_bpk" => [0.21, 0.215, 0.22])
 
 # The figures: file name, the curves in it, and whether the Bethe / BP line is in it
 const FIGURES = [
@@ -48,7 +52,7 @@ const BETA_RANGE = (0.19, 0.255)
 const M_YLIMS = (-0.02, 0.85)
 const DIFF_YLIMS = (-0.6, 0.7)
 
-# Markers: a small dot per observation, a small cross on top of it when the observation did not converge or timed out
+# Markers: a small dot per observation, a small cross on top of it when the observation did not converge, timed out or has an unphysical f
 const DOT_SIZE = 3
 const CROSS_SIZE = 5
 const CROSS_STROKE = 1
@@ -62,7 +66,9 @@ const LEGEND_POSITION = :bottomright
 latest_run(rows, suffix) = (runs = unique(r.run for r in rows if endswith(r.run, suffix)); isempty(runs) ? nothing : maximum(runs))
 
 magnetization(r) = hypot(r.m_re, r.m_im)
-not_converged(r) = r.converged === false || r.timed_out      # CTMRG3D: ϵ not below the tolerance; vbPEPS: timed out
+flagged(r) = r.algorithm == "vbPEPS" && !(r.check in ("ok", ""))     # unphysical f (check_cost)
+log_not_converged(r) = any(endswith(r.run, k) && any(b -> isapprox(b, r.β), v) for (k, v) in LOG_NOT_CONVERGED)
+not_converged(r) = r.converged === false || r.timed_out || flagged(r) || log_not_converged(r)      # CTMRG3D: ϵ not below the tolerance; vbPEPS: timed out, unphysical f or LBFGS not converged
 
 # The rows of every curve inside BETA_RANGE, sorted by β, with the dimensions (and the CE PEPO, if it is not the exact one) in the label
 function load_series(rows_all)
@@ -78,7 +84,7 @@ function load_series(rows_all)
         exact = endswith(rows[1].setting, "_exactpepo")
         label = "$(s.label), (χenv, χpeps) = ($(rows[1].chienv), $(rows[1].chipeps))" * (exact ? "" : ", CE PEPO D_CE = $(rows[1].D_CE)")
         data[s.key] = merge(s, (; run = run, rows = rows, label = label, exact = exact))
-        @info "$(s.label): run $run, $(length(rows)) β, $(count(not_converged, rows)) not converged or timed out"
+        @info "$(s.label): run $run, $(length(rows)) β, $(count(not_converged, rows)) not converged, timed out or unphysical f"
     end
     return data
 end
@@ -116,7 +122,7 @@ function make_figure(spec, data, βs)
             scatter!(p_d, b[idx], d[idx]; color = s.color, markershape = :xcross, markersize = CROSS_SIZE, markerstrokewidth = CROSS_STROKE, label = "")
         end
     end
-    n_curves > 0 && scatter!(p_d, Float64[], Float64[]; color = :gray, markershape = :xcross, markersize = CROSS_SIZE, markerstrokewidth = CROSS_STROKE, label = "not converged or timed out")
+    n_curves > 0 && scatter!(p_d, Float64[], Float64[]; color = :gray, markershape = :xcross, markersize = CROSS_SIZE, markerstrokewidth = CROSS_STROKE, label = "not converged, timed out or unphysical f")
 
     vline!(p_m, [βc_ising]; color = :gray, linestyle = :dot, label = "")
     vline!(p_d, [βc_ising]; color = :gray, linestyle = :dot, label = "")

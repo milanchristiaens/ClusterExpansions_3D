@@ -27,7 +27,7 @@ const BLAS_THREADS = 4                   # CTMRG3D gets its parallelism from BLA
 const ctm_miniter = 3
 const ctm_maxiter = 80
 const ctm_tol = 1e-7
-const WEST_UPDATES = :auto
+const WEST_UPDATES = :1
 const MAX_SECONDS = 600.0                # time limit of the CTMRG3D iterations of one run (s)
 const RAM_GIB = 3                        # RAM budget of the sliced contraction (contract_onesite_auto); nothing = unsliced contract_onesite
 const MACHINE = get(ENV, "CE_CHECK_MACHINE", "laptop")   # contract_onesite_auto uses the plan times of this machine

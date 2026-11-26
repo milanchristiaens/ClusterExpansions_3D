@@ -326,7 +326,7 @@ function plot_cases!(p, rows, y; labelled = false)
         ys = [y(r) for r in sub]
         plot!(p, βs, ys; color = colour(projectors), linestyle = style(warm, west), marker = :circle, markersize = 4, label = labelled ? case_label(projectors, warm, west) : "")
         idx = findall(r -> r.converged === false, sub)
-        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = colour(projectors), markershape = :xcross, markersize = 9, markerstrokewidth = 2, label = "")
+        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = colour(projectors), markershape = :xcross, markersize = 5, markerstrokewidth = 1, label = "")
     end
     return p
 end

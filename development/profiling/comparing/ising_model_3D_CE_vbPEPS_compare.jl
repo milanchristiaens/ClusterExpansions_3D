@@ -202,7 +202,7 @@ function run_case(name, warm, diff, Os, pepsspace, envspace, obs, resultspath, o
             flush(stdout)       # the line is in the job log at once (also when the job is killed later)
 
             append_ising_row(resultspath; row_settings..., β, m = ComplexF64(res.m), f = res.cost, iters = res.numfg, timed_out = res.timed_out,
-                             allowed_s = allowed, time_s = dt, check)
+                             converged = !res.timed_out && res.normgrad <= kwargs.optimizer_tol, eps = res.normgrad, allowed_s = allowed, time_s = dt, check)
         # Runs if anything inside the try block threw an error
         catch err
             # Time untill failure
@@ -247,7 +247,7 @@ function warmup(diff, Os, pepsspace, envspace, obs)
 end
 
 # ======================================================================================================================
-# One observation with the implementation VBPEPS_IMPL: returns ((; cost, numfg, timed_out, m), state for the next warm start)
+# One observation with the implementation VBPEPS_IMPL: returns ((; cost, numfg, timed_out, normgrad, m), state for the next warm start)
 # input = Os[i] (see run_case), β = β_obs[i]
 # ======================================================================================================================
 function observe(name, i, input, pepsspace, envspace, obs, warm, state, allowed, kwargs)
@@ -262,7 +262,7 @@ function observe(name, i, input, pepsspace, envspace, obs, warm, state, allowed,
         end
         r = res.result
         # (psi, env2, env3) for the warm start of the next observation (also after a timeout)
-        return (; cost = r.cost, numfg = r.numfg, timed_out = r.timed_out, m = res.m), (r.psi, r.env2, r.env3)
+        return (; cost = r.cost, numfg = r.numfg, timed_out = r.timed_out, normgrad = r.normgradhistory === nothing ? NaN : last(r.normgradhistory), m = res.m), (r.psi, r.env2, r.env3)
     end
 
     # :betterpepskit: the 2D tensors O and M and (cold start) the start state come from the PEPO file; FastBpeps keeps the state of the warm start
@@ -315,7 +315,7 @@ function plot_cases!(p, rows, y; labelled = false)
         ys = [y(r) for r in sub]
         plot!(p, βs, ys; color = colour(diff), linestyle = style(warm), marker = :circle, markersize = 4, label = labelled ? case_label(warm, diff) : "")
         idx = findall(r -> r.timed_out, sub)
-        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = colour(diff), markershape = :xcross, markersize = 9, markerstrokewidth = 2, label = "")
+        isempty(idx) || scatter!(p, βs[idx], ys[idx]; color = colour(diff), markershape = :xcross, markersize = 5, markerstrokewidth = 1, label = "")
     end
     return p
 end

@@ -145,7 +145,7 @@ function plot_exponent(rows, csv)
             rr = sort([r for r in sel if num(r, "P") == P]; by = r -> num(r, "beta"))
             conv = [r["status"] == "converged" for r in rr]
             plot!(p1, num.(rr, "beta"), abs.(num.(rr, "m")); color = k, marker = :circle, label = "P = $P")
-            any(.!conv) && scatter!(p1, num.(rr[.!conv], "beta"), abs.(num.(rr[.!conv], "m")); color = k, markershape = :xcross, markersize = 7, label = "")
+            any(.!conv) && scatter!(p1, num.(rr[.!conv], "beta"), abs.(num.(rr[.!conv], "m")); color = k, markershape = :xcross, markersize = 5, markerstrokewidth = 1, label = "")
             for (j, r) in enumerate(rr)
                 ϵ = parse.(Float64, split(r["eps_all"], ";"))
                 plot!(p2, 1:length(ϵ), max.(ϵ, 1e-16); color = k, linestyle = (:solid, :dash, :dot)[mod1(j, 3)], label = "P = $P, β = $(r["beta"])")
@@ -199,7 +199,7 @@ function plot_west_updates(rows, csv)
             x = num.(rr, "beta")
             for (p, y) in ((p1, abs.(num.(rr, "m"))), (p2, num.(rr, "t_ctm_s")), (p3, num.(rr, "partial_steps")))
                 plot!(p, x, y; color = k, marker = :circle, markersize = 5, markerstrokewidth = 0, label = "west_updates = $w")
-                any(nc) && scatter!(p, x[nc], y[nc]; color = k, markershape = :xcross, markersize = 8, label = "")
+                any(nc) && scatter!(p, x[nc], y[nc]; color = k, markershape = :xcross, markersize = 5, markerstrokewidth = 1, label = "")
             end
         end
         push!(panels, p1, p2, p3)
@@ -288,7 +288,7 @@ function plot_vbpeps_impls(path)
     labels = ["($(k[4]),$(k[5]),$(k[6])) β=$(k[3])" * (endswith(k[2], "_exactpepo") ? " ex" : "") for (k, _, _) in pairs]
     percall(r) = num(r, "time_s") / max(num(r, "iterations"), 1)
     done(r) = r["timed_out"] != "true"
-    # x axis = β; the observations of one set (χenv, χpeps, D_CE) have one colour; PEPSKit = circle, BetterPEPSKit = diamond (open = timed out), both at the same β
+    # x axis = β; the observations of one set (χenv, χpeps, D_CE) have one colour; PEPSKit = filled, BetterPEPSKit = hollow, × = timed out
     group_of(p) = (p[1][1], p[1][2], (p[1][4], p[1][5], p[1][6]))
     groups = sort(unique(group_of.(pairs)); by = g -> (parse.(Int, g[3]), g[1], g[2]))
     several_cases = length(unique(g[1] for g in groups)) > 1
@@ -300,41 +300,47 @@ function plot_vbpeps_impls(path)
     dm = [max(abs(abs(num(p[2], "m_re")) - abs(num(p[3], "m_re"))), floor_d) for p in pairs]
     ytop = 10.0^ceil(log10(3 * max(maximum(df), maximum(dm))))
     betas = sort(unique(p[1][3] for p in pairs))
-    common = (; xlims = (minimum(betas) - 0.01, maximum(betas) + 0.01), titlefontsize = 10)
+    common = (; xlims = (minimum(betas) - 0.01, maximum(betas) + 0.01), titlefontsize = 10, legendfontsize = 7)
     diff_common = (; yscale = :log10, ylims = (floor_d / 10, ytop), legend = false, common...)
-    p_m = plot(; title = "|m| (open marker = timed out)", xlabel = "β", ylabel = "|m|", legend = :topleft, common...)
-    p_t = plot(; title = "time per cost-function call (s)", xlabel = "β", yscale = :log10, legend = :topright, common...)
-    p_df = plot(; title = "|Δf| = |f(PEPSKit) − f(BetterPEPSKit)|", diff_common...)
-    p_dm = plot(; title = "||m|(PEPSKit) − |m|(BetterPEPSKit)|", xlabel = "β", diff_common...)
+    p_m = plot(; title = "|m|", xlabel = "β", ylabel = "|m|", legend = :topleft, common...)
+    p_t = plot(; title = "time per cost-function call (s)", xlabel = "β", yscale = :log10, legend = false, common...)
+    p_df = plot(; title = "|Δf| = |f(PEPSKit) − f(BetterPEPSKit)|", xlabel = "β", diff_common...)
+    p_dm = plot(; title = "||m|(PEPSKit) − |m|(BetterPEPSKit)|", diff_common...)
+    cross!(p, x, y, mask) = any(mask) && scatter!(p, x[mask], y[mask]; marker = :x, markersize = 4, markercolor = :black, markerstrokecolor = :black, markerstrokewidth = 1, label = "")
     for (gi, g) in enumerate(groups)
         col = colours[mod1(gi, length(colours))]
         js = [j for j in eachindex(pairs) if group_of(pairs[j]) == g]
         x = [pairs[j][1][3] for j in js]
         rP = [pairs[j][2] for j in js]; rB = [pairs[j][3] for j in js]
-        fillP = [done(r) ? col : :white for r in rP]; fillB = [done(r) ? col : :white for r in rB]
+        outP = .!done.(rP); outB = .!done.(rB)
         # time per call: both implementations at the same β, joined by a vertical line
         for (xi, a, b) in zip(x, rP, rB)
             plot!(p_t, [xi, xi], [percall(a), percall(b)]; color = col, linealpha = 0.5, label = "")
         end
-        scatter!(p_t, x, percall.(rP); color = col, marker = :circle, markersize = 6, markercolor = fillP, markerstrokecolor = col, label = "$(glabel(g)) PEPSKit")
-        scatter!(p_t, x, percall.(rB); color = col, marker = :diamond, markersize = 6, markercolor = fillB, markerstrokecolor = col, label = "$(glabel(g)) BetterPEPSKit")
-        # |m|: the two overlap, the small diamond (BetterPEPSKit) lies on top of the big circle (PEPSKit)
-        plot!(p_m, x, abs.(num.(rP, "m_re")); color = col, linealpha = 0.4, marker = :circle, markersize = 9, markercolor = fillP, markerstrokecolor = col, markerstrokewidth = 1.5, label = "$(glabel(g)) PEPSKit")
-        plot!(p_m, x, abs.(num.(rB, "m_re")); color = col, linealpha = 0.4, marker = :diamond, markersize = 5, markercolor = fillB, markerstrokecolor = :black, markerstrokewidth = 1, label = "$(glabel(g)) BetterPEPSKit")
-        # the differences: one panel each; open = a run timed out; a triangle = the difference is below floor_d
-        for (p, d, shape) in ((p_df, df, :square), (p_dm, dm, :diamond))
+        scatter!(p_t, x, percall.(rP); marker = :circle, markersize = 4, markercolor = col, markerstrokecolor = col, label = "")
+        scatter!(p_t, x, percall.(rB); marker = :circle, markersize = 4, markercolor = :white, markerstrokecolor = col, markerstrokewidth = 1.2, label = "")
+        cross!(p_t, x, percall.(rP), outP); cross!(p_t, x, percall.(rB), outB)
+        # |m|: the two overlap, the hollow ring (BetterPEPSKit) lies around the small filled dot (PEPSKit), which we draw again on top of the ring
+        mP = abs.(num.(rP, "m_re")); mB = abs.(num.(rB, "m_re"))
+        plot!(p_m, x, mP; color = col, linealpha = 0.4, marker = :circle, markersize = 3, markercolor = col, markerstrokecolor = col, label = "$(glabel(g)) PEPSKit")
+        plot!(p_m, x, mB; color = col, linealpha = 0.4, marker = :circle, markersize = 6, markercolor = :white, markerstrokecolor = col, markerstrokewidth = 1.2, label = "$(glabel(g)) BetterPEPSKit")
+        scatter!(p_m, x, mP; marker = :circle, markersize = 3, markercolor = col, markerstrokecolor = col, label = "")
+        cross!(p_m, x, mP, outP); cross!(p_m, x, mB, outB)
+        # the differences: × = a run timed out; a triangle = the difference is below floor_d
+        for (p, d) in ((p_df, df), (p_dm, dm))
             y = d[js]
-            scatter!(p, x, y; color = col, marker = [yi <= floor_d ? :dtriangle : shape for yi in y], markersize = 6,
-                     markercolor = [both[j] ? col : :white for j in js], markerstrokecolor = col, label = "")
+            scatter!(p, x, y; marker = [yi <= floor_d ? :dtriangle : :circle for yi in y], markersize = 4, markercolor = col, markerstrokecolor = col, label = "")
+            cross!(p, x, y, .!both[js])
         end
     end
+    scatter!(p_m, [NaN], [NaN]; marker = :x, markersize = 4, markercolor = :black, markerstrokecolor = :black, markerstrokewidth = 1, label = "timed out")
     for p in (p_df, p_dm)
         hline!(p, [floor_d]; color = :gray, linestyle = :dot, label = "")
         annotate!(p, maximum(betas), 5 * floor_d, text("▼ = identical (below $(floor_d))", 7, :gray, :right))
     end
     outdir = mkpath(joinpath(DATA_DIR, "vbpeps_implementations"))
     out = joinpath(outdir, "pepskit_vs_betterpepskit.png")
-    fig = plot(p_m, p_t, p_df, p_dm; layout = @layout([a b [c; d]]), size = (1900, 620), left_margin = 8mm, bottom_margin = 18mm,
+    fig = plot(p_m, p_t, p_dm, p_df; layout = @layout([a b [c; d]]), size = (1900, 620), left_margin = 8mm, bottom_margin = 18mm,
                plot_title = "vbPEPS: PEPSKit against BetterPEPSKit, the same observation and start state")
     savefig(fig, out); @info "wrote $out"
     println("\n===== vbPEPS: PEPSKit against BetterPEPSKit (newest run of each per observation) =====")
