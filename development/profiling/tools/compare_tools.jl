@@ -166,6 +166,18 @@ function append_ising_row(path; algorithm, run, case, setting, warm, β, D_CE, c
     return nothing
 end
 
+# The results file of the model comparison (models_3D_CE_bp_compare.jl and models_3D_CE_vbpeps_compare.jl): one row per (model, algorithm, run, case, β),
+# with the two observables of the model (obs1, obs2; model_observable_names in model_pepos.jl)
+const MODELS_RESULTS_PATH = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "models_3D_CE_results.csv"))
+const MODELS_CSV_HEADER = "model,algorithm,run,case,beta,D_CE,chi_peps,chi_env,obs1_name,obs1,obs2_name,obs2,iterations,converged,eps_last,timed_out,time_s,cores,check"
+function append_models_row(vals)
+    mkpath(dirname(MODELS_RESULTS_PATH))
+    (isfile(MODELS_RESULTS_PATH) && filesize(MODELS_RESULTS_PATH) > 0) || open(io -> println(io, MODELS_CSV_HEADER), MODELS_RESULTS_PATH, "a")
+    fld(x) = x isa AbstractFloat ? (isnan(x) ? "" : string(round(x; sigdigits = 12))) : replace(string(x), ',' => ' ')
+    open(io -> println(io, join(map(fld, vals), ",")), MODELS_RESULTS_PATH, "a")
+    return nothing
+end
+
 # All rows of the file, optionally only those of one algorithm and/or one run
 function read_ising_results(path = ISING_RESULTS_PATH; algorithm = nothing, run = nothing)
     num(s) = isempty(s) ? NaN : parse(Float64, s)

@@ -24,7 +24,8 @@ mutable struct CTMRG3DOctant{T<:Real, TT} <: CTMRG3D_alg
     oversample::Int                    # block size = χenv + oversample
     trunc_window::Int                  # gap cut (see _gap_cut): the cuts of P_c (χenv) and P_f (χpeps) may move by at most trunc_window
     trunc_rtol::Float64                # gap cut: two values count as one group when they differ by at most trunc_rtol (relative)
-    face_projector::Symbol             # P_f: :rho (reduced matrix of the truncated ρ_F), :edge (enlarged edge), :edge_env / :edge_lead (enlarged edge weighted with the new corner)
+    face_projector::Symbol             # P_f from the enlarged edge: :unweighted, :sigma_weighted (corner legs weighted with σ) or :lead_weighted (corner legs closed with the leading vector of σ)
+    eigensolver::Symbol                # how we find the top eigenvectors of ρ_F: :subspace, :block_lanczos, :dense_block_lanczos or :dense_eigen (see _octant_top_eigvecs)
     stagnation_window::Int             # stagnation stop of leading_boundary (0 = off)
     stagnation_factor::Float64
 end
@@ -36,17 +37,21 @@ end
 #   env0: an earlier CTMRG3DOctant (warm start, e.g. the previous β): we copy c, e, a, P.
 #   trunc_window, trunc_rtol: the gap cut of P_c and P_f (_gap_cut), the same rule and defaults as truncgap of BetterPEPSKit in the vbPEPS compare
 #         (window 4, rtol 1e-3); trunc_window = 0 gives the plain cut at χenv, χpeps.
-#   face_projector: :rho (P_f from the truncated ρ_F, _octant_face_projector), :edge, :edge_env or :edge_lead (P_f from the enlarged edge,
-#         _octant_face_projector_edge; :edge_lead closes the corner legs with the leading eigenvector of σ instead of weighting them with σ)
+#   face_projector: :unweighted, :sigma_weighted or :lead_weighted (P_f from the enlarged edge, _octant_face_projector_edge; :lead_weighted closes
+#         the corner legs with the leading eigenvector of σ instead of weighting them with σ)
+#   eigensolver: P_c from ρ_F by subspace iteration (:subspace), block Lanczos on ρ_F as a linear map (:block_lanczos), or ρ_F built as a dense matrix
+#         and then block Lanczos (:dense_block_lanczos) or a dense eigendecomposition (:dense_eigen)
 #   stagnation_window, stagnation_factor: the stagnation stop of leading_boundary (0 = off)
 function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]), Vbp = oneunit(space(O)[1]), trunc_env = nothing, trunc_bpeps = nothing,
                        miniter::Int = 5, maxiter::Int = 150, tol::Float64 = 1e-8, verbosity::Int = 0, env0 = nothing, init::Symbol = :random,
                        init_seed::Int = 1, max_seconds::Real = Inf, subspace_tol::Real = min(1e-6, 10 * tol), subspace_maxiter::Int = 30, oversample::Int = 8,
-                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, face_projector::Symbol = :rho, stagnation_window::Int = 0, stagnation_factor::Real = 0.5, kwargs...) where {T,S}
+                       trunc_window::Int = 4, trunc_rtol::Real = 1e-3, face_projector::Symbol = :lead_weighted, eigensolver::Symbol = :subspace, stagnation_window::Int = 0, stagnation_factor::Real = 0.5, kwargs...) where {T,S}
     T <: Real || throw(ArgumentError("CTMRG3DOctant: O must be real (Float64), got $T"))
     sectortype(O) == Trivial || throw(ArgumentError("CTMRG3DOctant: O must have no symmetry sectors"))
     init in (:ones, :random, :nishino_okunishi) || throw(ArgumentError("init must be :ones, :random or :nishino_okunishi, got :$init"))
-    face_projector in (:rho, :edge, :edge_env, :edge_lead) || throw(ArgumentError("face_projector must be :rho, :edge, :edge_env or :edge_lead, got :$face_projector"))
+    face_projector in (:unweighted, :sigma_weighted, :lead_weighted) || throw(ArgumentError("face_projector must be :unweighted, :sigma_weighted or :lead_weighted, got :$face_projector"))
+    eigensolver in (:subspace, :block_lanczos, :dense_block_lanczos, :dense_eigen) ||
+        throw(ArgumentError("eigensolver must be :subspace, :block_lanczos, :dense_block_lanczos or :dense_eigen, got :$eigensolver"))
     o = convert(Array, O)
     _check_cube_symmetric(o)
     chi_env, chi_peps = dim(Vv), dim(Vbp)        # (expectation_value passes trunc_env = truncrank(dim(Vv)) as well: the same numbers)
@@ -64,7 +69,7 @@ function CTMRG3DOctant(O::AbstractTensorMap{T,S,0,6}; Vv = oneunit(space(O)[1]),
     end
     max_seconds > 0 || throw(ArgumentError("max_seconds must be > 0, got $max_seconds"))
     return CTMRG3DOctant{T, typeof(O)}(O, o, c, ed, a, P, chi_env, chi_peps, miniter, maxiter, tol, verbosity, Float64(max_seconds),
-                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol), face_projector,
+                                       Float64(subspace_tol), subspace_maxiter, oversample, trunc_window, Float64(trunc_rtol), face_projector, eigensolver,
                                        stagnation_window, Float64(stagnation_factor))
 end
 
@@ -130,9 +135,11 @@ function _octant_M(B)
     return Bm * transpose(Bm)
 end
 
-# ρ_F·V = X·M·Xᵀ·V
+# ρ_F·V = X·M·Xᵀ·V; _octant_rho_columns counts the columns of all products (for the eigensolver checks)
+const _octant_rho_columns = Ref(0)
 function _octant_rhoV(V, M, e, a, o)
     χ, p, D, b = size(e, 1), size(e, 3), size(o, 1), size(V, 2)
+    _octant_rho_columns[] += b
     X4 = _octant_xfwd(V, e, a, o)                                                   # [cx, β, uy, FyU, nz, FzN, oE, FzO, FyO]
     Xa = reshape(permutedims(X4, (1, 3, 5, 7, 2, 4, 9, 6, 8)), χ * p * p * D, :)      # (cx, uy, nz, oE) × (β, FyU, FyO, FzN, FzO)
     Z = reshape(M * Xa, χ, p, p, D, b, p, D, p, D)                                  # [cx, uy, nz, oE, β, FyU, FyO, FzN, FzO]
@@ -180,9 +187,46 @@ function _gap_cut(vals, target; window = 4, rtol = 1e-3, margin = 0)
     return cands[argmin([(abs(k - target), vals[k + 1] / vals[k]) for k in cands])]
 end
 
-# Top nkeep eigenvectors of ρ_F = Q·Qᵀ by block subspace iteration with Rayleigh-Ritz.
-# Returns (U, λ, WU): U (F × k) orthonormal, λ the eigenvalues (descending), WU = Qᵀ·U (F² × k), where k = nkeep moved by the gap cut
-# (_gap_cut; with the block of nkeep + oversample Ritz values we can also see the gap above nkeep).
+# ρ_F as a dense F × F matrix: the products ρ_F·V with V the columns of the identity, `chunk` columns at a time
+function _octant_rho_dense(M, e, a, o; chunk = 128)
+    F = size(e, 1) * size(e, 3)^2 * size(o, 1)
+    T = eltype(e)
+    ρ = Matrix{T}(undef, F, F)
+    for j0 in 1:chunk:F
+        cols = j0:min(j0 + chunk - 1, F)
+        V = zeros(T, F, length(cols))
+        for (k, j) in enumerate(cols)
+            V[j, k] = one(T)
+        end
+        ρ[:, cols] = _octant_rhoV(V, M, e, a, o)
+    end
+    return Symmetric((ρ + transpose(ρ)) / 2)
+end
+
+# ρ_F / s as an operator of KrylovKit (s: a scale, so that the tolerance of block Lanczos is relative to the largest eigenvalue).
+# rho is the dense ρ_F, or nothing for the linear map X·M·Xᵀ. For a block we do one product for all its vectors.
+struct _OctantRho{T, TM, TR}
+    M::TM
+    e::Array{T,4}
+    a::Array{T,5}
+    o::Array{T,6}
+    rho::TR
+    s::T
+end
+_octant_apply(op::_OctantRho, V::AbstractMatrix) = (op.rho === nothing ? _octant_rhoV(V, op.M, op.e, op.a, op.o) : op.rho * V) ./ op.s
+(op::_OctantRho)(x::AbstractVector) = vec(_octant_apply(op, reshape(x, :, 1)))
+function KrylovKit.apply(op::_OctantRho, b::KrylovKit.Block)
+    Y = _octant_apply(op, reduce(hcat, b.vec))
+    return KrylovKit.Block([Y[:, j] for j in axes(Y, 2)])
+end
+
+# Top nkeep eigenvectors of ρ_F = Q·Qᵀ, with the method env.eigensolver:
+#   :subspace             block subspace iteration with Rayleigh-Ritz on the linear map ρ_F = X·M·Xᵀ (block nkeep + oversample)
+#   :block_lanczos        block Lanczos of KrylovKit on the same linear map (block nkeep + oversample, Krylov dimension three blocks)
+#   :dense_block_lanczos  ρ_F built once as a dense matrix (_octant_rho_dense), then the same block Lanczos
+#   :dense_eigen          ρ_F built once as a dense matrix, then the top nkeep + oversample eigenpairs of LAPACK
+# All start from the P_c of the previous step (warm start). Returns (U, λ, WU): U (F × k) orthonormal, λ the eigenvalues (descending),
+# WU = Qᵀ·U (F² × k), where k = nkeep moved by the gap cut (_gap_cut; with nkeep + oversample values we can also see the gap above nkeep).
 function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
     e, a, o = env.e, env.a, env.o
     F = size(e, 1) * size(e, 3)^2 * size(o, 1)
@@ -199,42 +243,48 @@ function _octant_top_eigvecs(env::CTMRG3DOctant, B, nkeep)
         end
         V = Matrix(qr(V).Q)
     end
-    local λ, S
-    for it in 1:env.subspace_maxiter
-        Y = @timeit to "octant: ρ_F·V" _octant_rhoV(V, M, e, a, o)
-        H = Symmetric(V' * Y)
-        ev = eigen(H)
-        order = sortperm(ev.values; rev = true)
-        λ, S = ev.values[order], ev.vectors[:, order]
-        b == F && break
-        R = Y * S[:, 1:nkeep] - V * S[:, 1:nkeep] * Diagonal(λ[1:nkeep])
-        res = maximum(norm(R[:, k]) for k in 1:nkeep) / max(abs(λ[1]), eps(T))
-        env.verbosity > 2 && @info "octant subspace iteration $it: residual $res"
-        res < env.subspace_tol && break
-        V = Matrix(qr(Y * S).Q)                        # one power step (Y·S spans ρ_F·V)
+    solver = b == F ? :subspace : env.eigensolver
+    if solver === :subspace
+        local λ, Vk
+        for it in 1:env.subspace_maxiter
+            Y = @timeit to "octant: ρ_F·V" _octant_rhoV(V, M, e, a, o)
+            H = Symmetric(V' * Y)
+            ev = eigen(H)
+            order = sortperm(ev.values; rev = true)
+            λ, S = ev.values[order], ev.vectors[:, order]
+            Vk = V * S                                 # the Ritz vectors of this V (also when the last iteration does not converge)
+            b == F && break
+            R = Y * S[:, 1:nkeep] - V * S[:, 1:nkeep] * Diagonal(λ[1:nkeep])
+            res = maximum(norm(R[:, k]) for k in 1:nkeep) / max(abs(λ[1]), eps(T))
+            env.verbosity > 2 && @info "octant subspace iteration $it: residual $res"
+            res < env.subspace_tol && break
+            V = Matrix(qr(Y * S).Q)                    # one power step (Y·S spans ρ_F·V)
+        end
+        margin = b == F ? 0 : 1                        # on the full space all values are exact, otherwise the last Ritz value is not trusted
+    else
+        ρ = solver === :block_lanczos ? nothing : @timeit to "octant: dense ρ_F" _octant_rho_dense(M, e, a, o)
+        if solver === :dense_eigen
+            ev = @timeit to "octant: dense eigen" eigen(ρ, (F - b + 1):F)
+            order = sortperm(ev.values; rev = true)
+            λ, Vk = ev.values[order], ev.vectors[:, order]
+            margin = 0
+        else
+            Y0 = ρ === nothing ? _octant_rhoV(V, M, e, a, o) : ρ * V
+            s = maximum(norm(Y0[:, j]) for j in axes(Y0, 2))
+            op = _OctantRho(M, e, a, o, ρ, s)
+            alg = BlockLanczos(; krylovdim = 3 * b, maxiter = env.subspace_maxiter, tol = env.subspace_tol, verbosity = 0)
+            vals, vecs, info = @timeit to "octant: block Lanczos" eigsolve(op, KrylovKit.Block([V[:, j] for j in 1:b]), b, :LR, alg)
+            env.verbosity > 2 && @info "octant block Lanczos: $(info.converged) of $b converged, $(info.numops) products"
+            λ, Vk = s .* vals, reduce(hcat, vecs)
+            margin = 1
+        end
     end
-    # gap cut: on the full space (b == F) all values are exact (margin 0), otherwise the last Ritz value is not trusted (margin 1)
-    k = _gap_cut(λ, nkeep; window = env.trunc_window, rtol = env.trunc_rtol, margin = b == F ? 0 : 1)
+    # the gap cut
+    k = _gap_cut(λ, nkeep; window = env.trunc_window, rtol = env.trunc_rtol, margin)
     k != nkeep && env.verbosity > 0 && @info "octant: the cut of P_c at $nkeep splits a near-degenerate group (λ ratio $(round(λ[nkeep + 1] / λ[nkeep]; sigdigits = 4))); keeping $k"
-    U = V * S[:, 1:k]
+    U = Vk[:, 1:k]
     WU = @timeit to "octant: Qᵀ·P_c (for C')" _octant_QtV(U, B, e, a, o)
     return U, λ[1:k], WU
-end
-
-# P_f from the truncated ρ_F ≈ U·Λ·Uᵀ: reduced matrix of the (face, O) part of F, averaged over the two faces in F; top nkeep eigenvectors,
-# nkeep moved by the gap cut (_gap_cut, margin 0: a dense eigendecomposition)
-function _octant_face_projector(U, λ, χ, p, D, nkeep; window = 4, rtol = 1e-3, verbosity = 0)
-    U5 = reshape(U, χ, p, p, D, size(U, 2))
-    Ul = U5 .* reshape(max.(λ, 0), 1, 1, 1, 1, :)
-    @tensor ρ1[f, d, f2, d2] := U5[x, f, g, d, k] * Ul[x, f2, g, d2, k]
-    @tensor ρ2[f, d, f2, d2] := U5[x, g, f, d, k] * Ul[x, g, f2, d2, k]
-    ρf = Symmetric(reshape(ρ1 + ρ2, p * D, p * D) / 2)
-    ev = eigen(ρf)
-    order = sortperm(ev.values; rev = true)
-    μ = max.(ev.values[order], 0)
-    k = _gap_cut(μ, nkeep; window, rtol, margin = 0)
-    k != nkeep && verbosity > 0 && @info "octant: the cut of P_f at $nkeep splits a near-degenerate group (ratio $(round(μ[nkeep + 1] / μ[nkeep]; sigdigits = 4))); keeping $k"
-    return ev.vectors[:, order[1:k]]
 end
 
 # The enlarged edge e·A_U·A_N·O with its two corner legs projected by P_c and both face legs open: Et[i, j, (ym, Os), (zm, Od)]
@@ -252,7 +302,7 @@ function _octant_edge(e, a, o, Pc)
 end
 
 # P_f from the enlarged edge: the Gram matrix on one face leg, with the other legs glued to a copy, averaged over the two face legs.
-# weighted = true (:edge_env): the two corner legs get σ = c′·c′ᵀ (the new corner, unfolded on one leg) between bra and ket; lead = true (:edge_lead):
+# weighted = true (:sigma_weighted): the two corner legs get σ = c′·c′ᵀ (the new corner, unfolded on one leg) between bra and ket; lead = true (:lead_weighted):
 # both corner legs are closed with the leading eigenvector v₁ of σ (the limit of σ^p for large p), so the edge becomes a matrix in the two face legs.
 # Top nkeep eigenvectors, moved by the gap cut.
 function _octant_face_projector_edge(e, a, o, Pc, WP, nkeep; weighted = true, lead = false, window = 4, rtol = 1e-3, verbosity = 0)
@@ -319,16 +369,10 @@ function ctmrgstep(env::CTMRG3DOctant)
     χn = min(env.chi_env, F)
     pn = min(env.chi_peps, p * D)
     B = @timeit to "octant: B = C·E·E·A" _octant_B(env.c, env.e, env.a)
-    U, λ, WU = @timeit to "octant: P_c (subspace iteration)" _octant_top_eigvecs(env, B, χn)
-    Pf = @timeit to "octant: P_f" begin
-        if env.face_projector in (:edge, :edge_env, :edge_lead)
-            _octant_face_projector_edge(env.e, env.a, env.o, U, WU, pn; weighted = env.face_projector !== :edge,
-                                        lead = env.face_projector === :edge_lead, window = env.trunc_window,
-                                        rtol = env.trunc_rtol, verbosity = env.verbosity)
-        else
-            _octant_face_projector(U, λ, χ, p, D, pn; window = env.trunc_window, rtol = env.trunc_rtol, verbosity = env.verbosity)
-        end
-    end
+    U, _, WU = @timeit to "octant: P_c (eigenvectors of ρ_F)" _octant_top_eigvecs(env, B, χn)
+    Pf = @timeit to "octant: P_f" _octant_face_projector_edge(env.e, env.a, env.o, U, WU, pn; weighted = env.face_projector !== :unweighted,
+                                                             lead = env.face_projector === :lead_weighted, window = env.trunc_window,
+                                                             rtol = env.trunc_rtol, verbosity = env.verbosity)
     @timeit to "octant: new C, E, A" _octant_renormalize(env, U, Pf, WU)
     return corner_spectrum(env)
 end

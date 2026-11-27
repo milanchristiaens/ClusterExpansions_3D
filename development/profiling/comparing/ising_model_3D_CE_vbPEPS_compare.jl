@@ -53,7 +53,7 @@ IN_FAST_ENV || include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_ref
 # dims = (chienv, chipeps, D_CE). HPC_DIMS (the dims of :timing and :hpc) is the choice of the dimension pilot
 # Threads: vbPEPS works with small tensors, so every core is one Julia thread with 1 BLAS thread
 const PROFILE = Symbol(get(ENV, "CE_COMPARE_PROFILE", "laptop"))
-const β_ALL = [0.15, 0.21, 0.22, 0.225, 0.23, 0.25, 0.35]   # one point deep in each phase and five around βc ≈ 0.2217 (the finite-χ transition is shifted and smeared)
+const β_ALL = [0.15, 0.21, 0.22, 0.225, 0.2275, 0.23, 0.24, 0.25, 0.35]   # one point deep in each phase and five around βc ≈ 0.2217 (the finite-χ transition is shifted and smeared)
 const β_PILOT = [0.19, 0.22, 0.25]                    # the β of the pilots: paramagnet, just below βc (the slowest point), ordered
 const CASES_ALL = ["false_cold", "false_warm"]
 const HPC_DIMS = (32, 3, 3)                          # dims of :hpc: set to the choice of the pilot
@@ -90,7 +90,7 @@ const g = 0.0
 # chienv above the bond of the three-layer network (chipeps * D_CE * chipeps); the laptop keeps D_CE = 2; on Hortense D_CE = 3, the same as CTMRG3D
 const chienv, chipeps, D_CE = compare_dims(P.dims)
 PEPO_KIND === :exact && D_CE != 2 && error("CE_COMPARE_PEPO = exact has bond dimension 2: choose dims with D_CE = 2 (for example CE_COMPARE_DIMS = 27_3_2), not $D_CE")
-const Δβ_iter = 0.005
+const Δβ_iter = 0.0025
 # The β values of the observations (increasing; every value must be a multiple of Δβ_iter): from the profile
 const β_obs = env_override("CE_COMPARE_BETAS", parse_betas, P.β_obs)
 

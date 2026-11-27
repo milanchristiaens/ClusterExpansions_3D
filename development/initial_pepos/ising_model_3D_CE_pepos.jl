@@ -18,10 +18,10 @@ include(joinpath(@__DIR__, "..", "profiling", "tools", "compare_tools.jl"))
 # Settings
 # ======================================================================================================================
 const D_CES = [2, 3]                                    # one file per D_CE (laptop D_CE = 2 for vbPEPS, D_CE = 3 for CTMRG3D and on Hortense)
-const BETAS = [0.15, 0.19, 0.195, 0.20, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25, 0.35]   # β_ALL of the compare scripts and the β of their pilots (increasing, multiples of Δβ_iter)
+const BETAS = [0.15, 0.19, 0.195, 0.20, 0.205, 0.21, 0.215, 0.22, 0.225, 0.2275, 0.23, 0.24, 0.25, 0.35]   # β_ALL of the compare scripts and the β of their pilots (increasing, multiples of Δβ_iter)
 const EXACT_FILE = true                                 # also the file of the exact PEPOs (bond dimension 2; only g = 0)
 const CHIPEPS = [2, 3, 4, 5, 6, 7, 8]                   # χpeps of the start states of the vbPEPS
-const Δβ_iter = 0.005
+const Δβ_iter = 0.0025
 const J = 1.0
 const g = 0.0
 const MAXITER_INIT = 20                                 # power-method steps of the start states (base_kwargs.maxiter_init of the vbPEPS compare)

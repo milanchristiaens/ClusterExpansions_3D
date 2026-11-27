@@ -1,0 +1,17 @@
+#!/bin/bash
+# Quantum Monte Carlo reference of the 3D transverse-field Ising model (tfim_3d_qmc.jl) on CORES cores: the (L, β) points run in parallel threads.
+# It appends to data/reference/tfim3d_qmc.csv.
+#PBS -A starting_2026_079
+#PBS -N tfim_qmc
+#PBS -l nodes=1:ppn=8
+#PBS -l walltime=24:00:00
+#PBS -j oe
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+export QMC_G=${G:-2.0}
+export QMC_LS=${LS:-8_12_16_24}
+export QMC_BETAS=${BETAS:-0.22_0.23_0.24}
+export QMC_SWEEPS=${SWEEPS:-20000}
+export QMC_THERM=${THERM:-2000}
+cd "$REPO"
+julia --startup-file=no -t ${CORES:-8} development/reference/tfim_3d_qmc.jl

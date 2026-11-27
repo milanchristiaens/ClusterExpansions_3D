@@ -4,7 +4,7 @@
 #PBS -A starting_2026_079
 #PBS -N pepos
 #PBS -l nodes=1:ppn=4
-#PBS -l walltime=01:00:00
+#PBS -l walltime=02:00:00
 #PBS -j oe
 
 source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"

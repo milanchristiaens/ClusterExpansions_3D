@@ -9,8 +9,8 @@ ALGORITHMS="ctmrg vbpeps"                       # which compare scripts get jobs
 CTMRG_DIMS="16_6_3"                             # pilot candidates (chienv_chipeps_DCE) of CTMRG3D
 CTMRG_CORES=5                                   # cores of every CTMRG3D job
 VBPEPS_DIMS="27_3_3 32_3_3 36_3_3"              # pilot candidates of vbPEPS
-CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1 octant_cold octant_warm"
-# other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_* and obliqueclass_* (class_projectors = true)
+CTMRG_CASES="svd_cold_auto svd_warm_auto oblique_cold_auto oblique_warm_auto svd_cold_w1 svd_warm_w1 oblique_cold_w1 oblique_warm_w1 octantleadweighted_cold octantleadweighted_warm"
+# other CTMRG3D cases (CASES_EXTRA of the compare script): svdclass_* and obliqueclass_* (class_projectors = true), octantunweighted_*, octantsigmaweighted_*
 VBPEPS_CASES="false_cold false_warm"
 VBPEPS_IMPLS_TIMING="pepskit betterpepskit"     # timing: pepskit = PEPSKit 0.8.1 (slow reference), betterpepskit = fast
 VBPEPS_IMPL_RUN="betterpepskit"                 # implementation of vbPEPS in the pilot and the full run

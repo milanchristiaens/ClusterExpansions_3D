@@ -1,0 +1,22 @@
+#!/bin/bash
+# Runs models_3D_CE_bp_compare.jl for one model and one case on CORES cores (BP is computed in every job, it is cheap).
+# Needs the model PEPO files (job_models_pepos.pbs first).
+#PBS -A starting_2026_079
+#PBS -N models_compare
+#PBS -l nodes=1:ppn=4
+#PBS -l walltime=18:00:00
+#PBS -j oe
+
+JULIA_THREADS=${CORES:-4}
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+export OPENBLAS_NUM_THREADS=$JULIA_THREADS
+export CE_COMPARE_CORES=$JULIA_THREADS
+[ -n "${MODEL:-}" ] && export CE_MODEL=$MODEL
+[ -n "${DIMS:-}" ] && export CE_COMPARE_DIMS=$DIMS
+[ -n "${CASE:-}" ] && export CE_COMPARE_CASES=$CASE
+[ -n "${RUN:-}" ] && export CE_COMPARE_RUN=$RUN
+# Julia's garbage collector aims at HEAP_FRACTION of the job memory (0.75: the contraction with the 5 GiB plans keeps about 4 GiB alive)
+HEAP_FRACTION=${HEAP_FRACTION:-0.75}
+HEAP_HINT_MIB=$(awk -v c=$JULIA_THREADS -v f=$HEAP_FRACTION 'BEGIN { printf "%d", c * 1.86 * 1024 * f }')
+cd "$REPO"
+julia -t $JULIA_THREADS --heap-size-hint=${HEAP_HINT_MIB}M --project=. development/profiling/comparing/models_3D_CE_bp_compare.jl

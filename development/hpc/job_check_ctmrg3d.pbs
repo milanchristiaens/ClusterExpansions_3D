@@ -1,6 +1,6 @@
 #!/bin/bash
-# One CTMRG3D check (CHECK = west_updates, init or exponent) on 4 Hortense cores, as the CTMRG3D compare.
-# Needs the PEPO files (job_pepos.pbs first).
+# One CTMRG3D check (CHECK = west_updates, init, exponent or eigensolvers) on 4 Hortense cores, as the CTMRG3D compare.
+# Needs the PEPO files (job_pepos.pbs first; not for eigensolvers, which uses the exact PEPO). The checks read their CE_CHECK_* settings from qsub -v.
 #PBS -A starting_2026_079
 #PBS -N check_ctmrg3d
 #PBS -l nodes=1:ppn=4

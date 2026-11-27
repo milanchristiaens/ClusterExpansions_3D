@@ -47,7 +47,7 @@ const TIMED_STEPS = 20                   # CTMRG steps in the timed leading_boun
 
 const J = 1.0
 const g = 0.0
-const Δβ_iter = 0.005
+const Δβ_iter = 0.0025
 const MAXITER_INIT = 20                  # power-method steps of the start states in the PEPO file (MAXITER_INIT of ising_model_3D_CE_pepos.jl)
 const TRUNCATION_WINDOW = 4              # the gap cut of the vbPEPS compare (FAST_KWARGS there)
 const TRUNCATION_RTOL = 1.0e-3

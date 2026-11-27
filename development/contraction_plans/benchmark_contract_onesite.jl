@@ -12,6 +12,7 @@ const CE = ClusterExpansions
 # PROFILE: :laptop (default), :hpc or :validate (the Hortense job scripts set CE_BENCH_PROFILE)
 #   :laptop    the (11, 5, 3) plans for RAM budgets up to 3 GiB, both allocators (machine "laptop")
 #   :hpc       Hortense (4 cores), the 3 GiB plans of the candidates of the CTMRG3D dimension pilot, reuse allocator (the default of contract_onesite_auto)
+#   :hpc29     the same sets on a quarter node (16 cores), the 29 GiB plans
 #   :validate  Hortense (4 cores), three sets (low, medium, high), only the current tree and the ome-sc tree, both allocators; run once with the mock and once with the real environment (CE_BENCH_ENV=real)
 #   sources: the tree kinds that are timed ("current", "opt-true", "ome-flops", "ome-sc"); nothing = all
 # The time of a row goes into the plan file together with the machine (column machine), so the times of the two machines do not overwrite each other
@@ -22,10 +23,13 @@ const PROFILES = Dict(
     :hpc      => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(8, 4, 3), (10, 5, 3), (12, 4, 3), (12, 5, 3), (16, 4, 3), (16, 5, 3), (16, 6, 3), (18, 6, 3)],
                   allocators = ["reuse"], max_hours = 16,
                   sources = nothing, run_dir = ""),
+    :hpc29    => (; machine = "hortense", ram_min = 29, ram_max = 29, dims = [(8, 4, 3), (10, 5, 3), (12, 4, 3), (12, 5, 3), (16, 4, 3), (16, 5, 3), (16, 6, 3), (18, 6, 3)],
+                  allocators = ["reuse"], max_hours = 16,
+                  sources = nothing, run_dir = ""),
     :validate => (; machine = "hortense", ram_min = 3, ram_max = 3, dims = [(8, 4, 3), (11, 5, 3), (18, 6, 3)],  allocators = ["reuse", "manual"], max_hours = 13,
                   sources = ["current", "ome-sc"], run_dir = ""),
 )
-haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_BENCH_PROFILE): use laptop, hpc or validate")
+haskey(PROFILES, PROFILE) || error("unknown profile :$PROFILE (CE_BENCH_PROFILE): use laptop, hpc, hpc29 or validate")
 const P = PROFILES[PROFILE]
 const MACHINE    = P.machine                  # written into the column machine of every row that gets a time
 const PLAN_FILE  = CE.ONESITE_PLAN_FILE   # plan file that is read and updated (the same constant is in find_orders_ome.jl)

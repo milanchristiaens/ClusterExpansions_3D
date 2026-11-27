@@ -125,7 +125,7 @@ if :bp in PARTS
     end
     for β in BP_BETAS
         # Load the CE PEPOS for D=2 and D=3
-        P2 = only(load_pepos([β], 0.005, 2, 1.0, 0.0)); P3 = only(load_pepos([β], 0.005, 3, 1.0, 0.0))
+        P2 = only(load_pepos([β], 0.0025, 2, 1.0, 0.0)); P3 = only(load_pepos([β], 0.0025, 3, 1.0, 0.0))
         Oce, _ = OM(P2, σz)
         Oex, Mex = exact_OM(β, space(Oce))
         # Calculate the exact BP fixed point and obs

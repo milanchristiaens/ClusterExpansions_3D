@@ -1,5 +1,6 @@
 #!/bin/bash
-# Times the 3 GiB contraction plans of the CTMRG3D dimension candidates on 4 Hortense cores, the cores of the CTMRG3D compare.
+# Times the 3 GiB contraction plans of the CTMRG3D dimension candidates on 4 Hortense cores, the cores of the CTMRG3D compare (PROFILE = hpc),
+# or the 29 GiB plans of the same sets (PROFILE = hpc29, on a quarter node: qsub -l nodes=1:ppn=16 with THREADS=16).
 # The times go into src/utility/onesite_plans.csv with machine = hortense.
 #PBS -A starting_2026_079
 #PBS -N bench_plans
@@ -8,12 +9,12 @@
 #PBS -j oe
 
 # ---------------- settings ----------------
-JULIA_THREADS=4           # the plans are timed with 4 Julia threads and 4 BLAS threads, as the CTMRG3D compare uses them
-BLAS_THREADS=4
+JULIA_THREADS=${THREADS:-4}   # the plans are timed with THREADS Julia and BLAS threads (4: as the CTMRG3D compare uses them)
+BLAS_THREADS=${THREADS:-4}
 # ------------------------------------------
 
 source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
-export CE_BENCH_PROFILE=hpc
+export CE_BENCH_PROFILE=${PROFILE:-hpc}
 export OPENBLAS_NUM_THREADS=$BLAS_THREADS     # the child processes of the benchmark take their BLAS threads from here
 cd "$REPO"
 julia -O1 -t $JULIA_THREADS --project=. development/contraction_plans/benchmark_contract_onesite.jl

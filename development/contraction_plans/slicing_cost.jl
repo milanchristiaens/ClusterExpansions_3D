@@ -1,4 +1,4 @@
-# Measures what slicing itself costs: for every set of dimensions we time TREE_CURRENT with the fewest cuts that fit the RAM budget (k_min),
+# Measures what slicing itself costs: for every set of dimensions we time one tree (TREE_CURRENT, OPT_TRUE or an OME tree) with the fewest cuts that fit the RAM budget (k_min),
 # with one cut fewer and with one and two cuts more, each with two garbage-collection intervals, every plan in a fresh child process.
 # From the peak resident memory of these runs we also fit the memory rule (baseline + factor * model peak) and show which plans a fitted rule would allow.
 
@@ -8,19 +8,25 @@ using ClusterExpansions
 const CE = ClusterExpansions
 
 # ======================================================================================================================
-# SETTINGS (a Hortense job may pass CE_SLICING_DIMS, CE_SLICING_GC, CE_SLICING_HOURS, CE_SLICING_SUMMARY)
+# SETTINGS (a Hortense job may pass CE_SLICING_DIMS, CE_SLICING_GC, CE_SLICING_HOURS, CE_SLICING_SUMMARY, CE_SLICING_TREE, CE_SLICING_RAM)
 # ======================================================================================================================
 parse_dims(s) = [Tuple(parse.(Int, split(g, ','))) for g in split(s, ';') if !isempty(strip(g))]
 const DIMS = parse_dims(get(ENV, "CE_SLICING_DIMS", "8,4,3;12,4,3;10,5,3;12,5,3;16,4,3"))  # (χenv, χpeps, D), cheapest first
 const GC_EVERYS = parse.(Int, split(get(ENV, "CE_SLICING_GC", "1,10"), ','))                # gc_every of contract_onesite_sliced
 const MAX_HOURS = parse(Float64, get(ENV, "CE_SLICING_HOURS", "8"))                         # no new child is started after this many hours
 const SUMMARY_ONLY = get(ENV, "CE_SLICING_SUMMARY", "")      # name of an existing run folder: only remake its summary
-const RAM_GIB = 3                     # RAM budget that decides k_min (as the 3 GiB plans of the benchmark)
+const RAM_GIB = parse(Float64, get(ENV, "CE_SLICING_RAM", "3"))   # RAM budget that decides k_min (3: the 3 GiB plans of the benchmark, 29: a quarter node)
+# The tree: current (TREE_CURRENT), opt_true (OPT_TRUE), ome_flops or ome_scN (the OME tree of the ome-flops-mincuts or ome-scN-mincuts plan of the plan file for these
+# dimensions; ome_sc takes the sc tree with the fewest model flops; find_orders_ome.jl makes them with OME_SLICING = :mincuts or :both)
+const TREE = Symbol(get(ENV, "CE_SLICING_TREE", "current"))
 const T_MOCK = Float64                # element type of the mock environment
 const MOCK_SEED = 1                   # same seed as the benchmark: the same environment for all plans of a set
 const REPS = 2                        # timed repetitions per child (the fastest counts)
 const K_STEPS = (-1, 0, 1, 2)         # number of cuts relative to k_min
-const MAX_PEAK_GIB = 1.5              # the plan with k_min - 1 cuts only runs if its model peak is below this (4 cores ≈ 7.4 GiB)
+# The plan with k_min - 1 cuts does not fit RAM_GIB, but the job itself has more memory (JOB_GIB): it only runs if its model peak is below MAX_PEAK_GIB,
+# so that its predicted memory (rule 1.4 + 2.7 × peak) stays below 90 % of JOB_GIB (3 GiB budget on 4 cores: 1.5 GiB)
+const JOB_GIB = parse(Float64, get(ENV, "CE_SLICING_JOB_GIB", string(1.86 * Threads.nthreads())))
+const MAX_PEAK_GIB = min(0.5 * RAM_GIB, (0.9 * JOB_GIB - 1.4) / 2.7)
 const MAX_SLICES = 20_000
 const MARGIN = 0.8                    # as in onesite_choose_cuts
 # ======================================================================================================================
@@ -48,30 +54,46 @@ function procstat()
     return (minflt = parse(Int, p[8]), sys = parse(Int, p[13]) / 100)
 end
 
-# The plans of one set: TREE_CURRENT with k_min cuts (the plan of onesite_choose_cuts), k_min - 1 cuts (smallest peak) and
+# The tree of the set g (see TREE); parent and child find the same tree
+function tree_of(g)
+    TREE === :current && return CE.TREE_CURRENT
+    TREE === :opt_true && return CE.OPT_TRUE
+    m = match(r"^ome_(flops|sc\d*)$", String(TREE))
+    m === nothing && error("CE_SLICING_TREE = $TREE: use current, opt_true, ome_flops, ome_sc or ome_scN")
+    kind = "ome-" * m.captures[1]
+    # the tree is the same for every budget (the cuts differ), so any -mincuts row of these dimensions will do
+    rows = [r for r in CE.onesite_read_plans(CE.ONESITE_PLAN_FILE) if (r.chi_env, r.chi_peps, r.D) == Tuple(g) && endswith(r.source, "-mincuts") &&
+            (kind == "ome-sc" ? occursin(r"^ome-sc\d+-mincuts$", r.source) : r.source == kind * "-mincuts") && r.eltype == string(T_MOCK) && r.allocator == "reuse"]
+    isempty(rows) && error("no $kind-mincuts plan for $g in $(CE.ONESITE_PLAN_FILE): run find_orders_ome.jl first (OME_SLICING = :mincuts or :both)")
+    d = CE.onesite_dims(g...)
+    return rows[argmin([CE.onesite_cost(r.tree, d).flops for r in rows])].tree
+end
+
+# The plans of one set: the tree with k_min cuts (the plan of onesite_choose_cuts), k_min - 1 cuts (smallest peak) and
 # k_min + 1, k_min + 2 cuts (fewest flops with at most half the peak of the plan before, the plan of a about twice smaller budget).
 function plans_of(g)
     d = CE.onesite_dims(g...)
-    base = CE.onesite_choose_cuts(d; ram_gib = RAM_GIB, T = T_MOCK, allocator = :reuse)
+    tree = tree_of(g)
+    base = CE.onesite_choose_cuts(d; ram_gib = RAM_GIB, T = T_MOCK, allocator = :reuse, tree)
     kmin = base.k
     plans = Dict{Int,Vector{Symbol}}(kmin => base.cuts)
     for s in sort([s for s in K_STEPS if s < 0]; rev = true)
         k = kmin + s
         k >= 0 || continue
-        plans[k] = k == 0 ? Symbol[] : CE.onesite_best_cuts(CE.TREE_CURRENT, d, k; order = :best).cuts
+        plans[k] = k == 0 ? Symbol[] : CE.onesite_best_cuts(tree, d, k; order = :best).cuts
     end
-    peak(cuts) = CE.onesite_cost(CE.onesite_reorder(CE.TREE_CURRENT, d; cuts), d; cuts).peak
+    peak(cuts) = CE.onesite_cost(CE.onesite_reorder(tree, d; cuts), d; cuts).peak
     for s in sort([s for s in K_STEPS if s > 0])
         k = kmin + s
         (k <= 5 && haskey(plans, k - 1)) || continue
-        r = CE.onesite_best_cuts(CE.TREE_CURRENT, d, k; cap = peak(plans[k - 1]) / 2, order = :best)
-        r === nothing && (r = CE.onesite_best_cuts(CE.TREE_CURRENT, d, k; order = :best))
+        r = CE.onesite_best_cuts(tree, d, k; cap = peak(plans[k - 1]) / 2, order = :best)
+        r === nothing && (r = CE.onesite_best_cuts(tree, d, k; order = :best))
         plans[k] = r.cuts
     end
     out = NamedTuple[]
     for k in sort(collect(keys(plans)))
         cuts = plans[k]
-        c = CE.onesite_cost(CE.onesite_reorder(CE.TREE_CURRENT, d; cuts), d; cuts)
+        c = CE.onesite_cost(CE.onesite_reorder(tree, d; cuts), d; cuts)
         push!(out, (k = k, kmin = kmin, cuts = cuts, slices = c.slices, flops = c.flops, peak_gib = GiB(c.peak * sizeof(T_MOCK))))
     end
     return out
@@ -84,7 +106,7 @@ function run_child(o)
     ge = parse(Int, o["gc"])
     env, M = CE.onesite_mock_env(ℂ^dims[1], ℂ^dims[2], ℂ^dims[3]; T = T_MOCK, seed = MOCK_SEED)
     d = CE.onesite_dims(env, M)
-    kern = CE.onesite_make_kernel(CE.onesite_reorder(CE.TREE_CURRENT, d; cuts))
+    kern = CE.onesite_make_kernel(CE.onesite_reorder(tree_of(dims), d; cuts))
     cutp = CE.onesite_full_cuts(env, M, cuts)
 
     # We warm up on a tiny mock environment: this compiles the kernel without using the memory of the big one
@@ -145,8 +167,8 @@ function summary(dir)
     rows = filter(r -> isfinite(r.time), read_results(joinpath(dir, "results.tsv")))
     io = IOBuffer()
     rules = CE.ONESITE_RAM_RULES
-    println(io, "Slicing cost of TREE_CURRENT (mock, $T_MOCK, seed $MOCK_SEED, reuse allocator, fastest of $REPS repetitions)")
-    println(io, "varied: number of cuts k, gc_every; fixed: tree TREE_CURRENT, environment, threads, allocator\n")
+    println(io, "Slicing cost of the tree $TREE at $RAM_GIB GiB (mock, $T_MOCK, seed $MOCK_SEED, reuse allocator, fastest of $REPS repetitions)")
+    println(io, "varied: number of cuts k, gc_every; fixed: tree ($TREE), environment, threads, allocator\n")
 
     println(io, "TEST 2: time against slices on the same tree")
     for g in unique(r.dims for r in rows)
@@ -189,8 +211,8 @@ function summary(dir)
         println(io, "plans for $RAM_GIB GiB (margin $MARGIN) with the current rule and with the upper envelope:")
         for g in unique(r.dims for r in rows)
             d = CE.onesite_dims(g...)
-            p0 = CE.onesite_choose_cuts(d; ram_gib = RAM_GIB, T = T_MOCK, allocator = :reuse)
-            p1 = CE.onesite_choose_cuts(d; ram_gib = RAM_GIB, T = T_MOCK, allocator = :reuse, rules = newrules)
+            p0 = CE.onesite_choose_cuts(d; ram_gib = RAM_GIB, T = T_MOCK, allocator = :reuse, tree = tree_of(g))
+            p1 = CE.onesite_choose_cuts(d; ram_gib = RAM_GIB, T = T_MOCK, allocator = :reuse, rules = newrules, tree = tree_of(g))
             @printf(io, "  (%d,%d,%d): current k %d, %d slices (%s)   envelope k %d, %d slices (%s)%s\n", g[1], g[2], g[3], p0.k, round(Int, p0.slices), join(p0.cuts, " "),
                     p1.k, round(Int, p1.slices), join(p1.cuts, " "), p1.fits ? "" : "  does not fit")
         end
@@ -213,7 +235,7 @@ function main()
     open(io -> println(io, HEADER), path, "w")
     open(joinpath(dir, "settings.txt"), "w") do io
         println(io, "Julia ", VERSION, ", threads ", Threads.nthreads(), ", BLAS threads ", BLAS.get_num_threads(), ", host ", gethostname())
-        println(io, "DIMS = ", DIMS, ", GC_EVERYS = ", GC_EVERYS, ", RAM_GIB = ", RAM_GIB, ", REPS = ", REPS, ", K_STEPS = ", K_STEPS,
+        println(io, "TREE = ", TREE, ", DIMS = ", DIMS, ", GC_EVERYS = ", GC_EVERYS, ", RAM_GIB = ", RAM_GIB, ", REPS = ", REPS, ", K_STEPS = ", K_STEPS,
                 ", MAX_PEAK_GIB = ", MAX_PEAK_GIB, ", T_MOCK = ", T_MOCK, ", MOCK_SEED = ", MOCK_SEED)
     end
     println("run folder: ", dir)

@@ -19,8 +19,8 @@ export CE_COMPARE_CORES=$JULIA_THREADS
 [ -n "${CASE:-}" ] && export CE_COMPARE_CASES=$CASE
 [ -n "${RUN:-}" ] && export CE_COMPARE_RUN=$RUN
 # Julia's garbage collector aims at HEAP_FRACTION of the job memory (cores × 1.86 GiB) through --heap-size-hint: Julia sees the whole node
-# and would otherwise let garbage grow past the job limit
-HEAP_FRACTION=${HEAP_FRACTION:-0.6}
+# and would otherwise let garbage grow past the job limit (0.75: the contraction with the 5 GiB plans keeps about 4 GiB alive)
+HEAP_FRACTION=${HEAP_FRACTION:-0.75}
 HEAP_HINT_MIB=$(awk -v c=$JULIA_THREADS -v f=$HEAP_FRACTION 'BEGIN { printf "%d", c * 1.86 * 1024 * f }')
 cd "$REPO"
 julia -t $JULIA_THREADS --heap-size-hint=${HEAP_HINT_MIB}M --project=. development/profiling/comparing/ising_model_3D_CE_CTMRG_compare.jl

@@ -77,13 +77,16 @@ const TREE_KINDS = [
     (; kind = "ome-flops", color = "#1baf7a", marker = :diamond),
     (; kind = "current", color = "#2a78d6", marker = :circle),
     (; kind = "ome-sc", color = "#eda100", marker = :square),
+    (; kind = "ome-flops-mincuts", color = "#7b3fbf", marker = :star5),
+    (; kind = "ome-sc-mincuts", color = "#a0522d", marker = :hexagon),
 ]
 
-# "TREE_CURRENT" -> "current", "OPT_TRUE" -> "opt-true", "ome-flops-sliced" -> "ome-flops", "ome-sc23-sliced" (any number) -> "ome-sc";
-# anything else is returned as it is
+# "TREE_CURRENT" -> "current", "OPT_TRUE" -> "opt-true", "ome-flops-sliced" -> "ome-flops", "ome-sc23-sliced" (any number) -> "ome-sc",
+# "ome-flops-mincuts" -> "ome-flops-mincuts", "ome-sc23-mincuts" -> "ome-sc-mincuts"; anything else is returned as it is
 function tree_kind(source)
     source == "TREE_CURRENT" && return "current"
     source == "OPT_TRUE" && return "opt-true"
+    endswith(source, "-mincuts") && return (startswith(source, "ome-flops") ? "ome-flops" : "ome-sc") * "-mincuts"
     startswith(source, "ome-flops") && return "ome-flops"
     startswith(source, "ome-sc") && return "ome-sc"
     return String(source)

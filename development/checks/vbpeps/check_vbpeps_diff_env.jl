@@ -27,7 +27,7 @@ const BLAS_THREADS = 1                   # as the vbPEPS compare: one Julia thre
 
 const J = 1.0
 const g = 0.0
-const Δβ_iter = 0.005
+const Δβ_iter = 0.0025
 const MAXITER_INIT = 20                  # power-method steps of the start states in the PEPO file
 
 # The settings of the vbPEPS compare (FAST_KWARGS and base_kwargs there)

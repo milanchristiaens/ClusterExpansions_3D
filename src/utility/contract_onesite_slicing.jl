@@ -234,7 +234,7 @@ contract_onesite_dispatch(env, M, ram_gib::Real; kwargs...) = contract_onesite_a
 
 # The plan file has one ready-made plan per row, 22 columns separated by ';' (can be opened in Excel):
 #    chi_env;chi_peps;D;tree;cuts;source;k;slices;flops;peak_gib;ram_gib;eltype;time_s;time_real_s;allocator;rss_gib;pool_gib;sys_s;minflt;check;note;machine
-# Written by onesite_find_plans / onesite_write_plans: the bond dimensions, tree (nested pairs of leaf numbers, see TREE_CURRENT), cuts (labels separated by a space), source (TREE_CURRENT, OPT_TRUE, ome-flops-sliced, ome-scN-sliced),
+# Written by onesite_find_plans / onesite_write_plans: the bond dimensions, tree (nested pairs of leaf numbers, see TREE_CURRENT), cuts (labels separated by a space), source (TREE_CURRENT, OPT_TRUE, ome-flops-sliced, ome-scN-sliced, ome-flops-mincuts, ome-scN-mincuts),
 # k ... ram_gib (for the human reader: number of cuts, slices, predicted flops, predicted peak of the intermediates in GiB, RAM budget in GiB), eltype ("Float64" or "ComplexF64") and allocator ("reuse" or "manual").
 # Written by benchmark_contract_onesite.jl (onesite_update_plans), empty until the row is measured: time_s (dense MOCK environment), time_real_s (REAL environment; it is the time that counts for contract_onesite_auto if it is filled, see onesite_plan_time),
 # rss_gib, pool_gib, sys_s, minflt, check, note (these belong to the real run if there is one, otherwise to the mock run) and machine ("laptop", "hortense": where the time was measured).
@@ -520,14 +520,17 @@ function onesite_slice_tree(ne, d::Vector{Float64}, sc_target::Real; ntrials::In
 end
 
 # Make plans (tree + cuts) for bond dimensions (χenv, χpeps, D) and a list of RAM budgets, and return them as rows for onesite_write_plans.
-# Candidates: TREE_CURRENT and OPT_TRUE (the two fixed trees) with their best cuts by brute force (at most kmax cuts, onesite_choose_cuts), and the trees of onesite_find_trees, which OMEinsumContractionOrders slices itself for each budget
-# (onesite_slice_tree, source "<tree>-sliced"). Its target for the largest tensor is the number of elements that our memory model allows for this budget; if the result does not fit our model (which counts all tensors alive at the same time),
-# the target is lowered by 1 (at most 6 times). Candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
+# Candidates: TREE_CURRENT and OPT_TRUE (the two fixed trees) with their best cuts by brute force (at most kmax cuts, onesite_choose_cuts), and the trees of onesite_find_trees,
+# cut in one of two ways, chosen by ome_slicing (:sliced, :mincuts or :both):
+#   :sliced   OMEinsumContractionOrders slices the tree itself for each budget (onesite_slice_tree, source "<tree>-sliced"). Its target for the largest tensor is the number of elements
+#             that our memory model allows for this budget; if the result does not fit our model (which counts all tensors alive at the same time), the target is lowered by 1 (at most 6 times).
+#   :mincuts  the tree as it is, with the fewest cuts that fit by brute force (onesite_choose_cuts, source "<tree>-mincuts": first the tree, then the cuts). Candidates that do not fit are dropped, the same plan for several budgets is kept once (for the smallest budget).
 # T (element type, written into the column eltype), allocator, margin and rules are used again by contract_onesite_auto when it checks a plan, so use the same values there.
 # The rows have no measured time yet (time_s = NaN): benchmark_contract_onesite.jl times them and writes the time and the other measurements into the plan file.
 function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32, 64, 128, 256, 512), T::Type{<:Number} = ComplexF64, allocator::Symbol = :reuse,
                             kmax::Int = 5, margin::Real = 0.8, rules = ONESITE_RAM_RULES, n_targets::Int = 1, sc_step::Int = 2, ntrials::Int = 4,
-                            niters::Int = 40, slice_ntrials::Int = 10, slice_niters::Int = 10, verbosity::Int = 1)
+                            niters::Int = 40, slice_ntrials::Int = 10, slice_niters::Int = 10, ome_slicing::Symbol = :both, verbosity::Int = 1)
+    ome_slicing in (:sliced, :mincuts, :both) || error("onesite_find_plans: ome_slicing = :$ome_slicing, use :sliced, :mincuts or :both")
     d = onesite_dims(χenv, χpeps, D)
     fixed = NamedTuple[(tree = TREE_CURRENT, source = "TREE_CURRENT"), (tree = OPT_TRUE, source = "OPT_TRUE")]
     found = [t for t in onesite_find_trees(d; n_targets, sc_step, ntrials, niters, verbosity) if !any(c -> c.tree == t.tree, fixed)]
@@ -552,10 +555,21 @@ function onesite_find_plans(χenv::Int, χpeps::Int, D::Int; ram_gibs = (16, 32,
             end
             add!(p, ram)
         end
-        # 2. the trees of OMEinsumContractionOrders: sliced by OMEinsumContractionOrders itself
+        # 2. the trees of OMEinsumContractionOrders as they are, with the fewest cuts by brute force
+        if ome_slicing in (:mincuts, :both)
+            for f in found
+                p = onesite_choose_cuts(d; ram_gib = ram, T, allocator, kmax, margin, rules, tree = f.tree, source = f.source * "-mincuts")
+                if p.fits
+                    add!(p, ram)
+                else
+                    verbosity > 0 && @warn "onesite_find_plans: $(f.source)-mincuts does not fit $ram GiB with at most $kmax cuts"
+                end
+            end
+        end
+        # 3. the trees of OMEinsumContractionOrders: sliced by OMEinsumContractionOrders itself
         # the number of elements our memory model allows (the same formula as in onesite_choose_cuts), as a target for the largest tensor
         allowed_gib = (margin * ram - rules.baseline_gib) / rules[allocator]
-        allowed_gib > 0 || continue
+        (ome_slicing in (:sliced, :both) && allowed_gib > 0) || continue
         target0 = floor(Int, log2(allowed_gib * 2^30 / sizeof(T)))
         for f in found
             fitted = false

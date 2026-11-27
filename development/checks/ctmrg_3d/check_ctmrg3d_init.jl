@@ -40,7 +40,7 @@ const NSPEC = 4                          # number of corner singular values writ
 
 const J = 1.0
 const g = 0.0
-const Δβ_iter = 0.005
+const Δβ_iter = 0.0025
 const T = Float64
 const spin_symmetry = Trivial
 

@@ -1,0 +1,364 @@
+big_oblique.o14550302:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], ctm_maxiter = 275, RUN_BUDGET_S = 57600.0, MAX_SECONDS_OBS = 7680.0, ctm_verbosity = 1, PEPO = exact
+big_oblique.o14550302:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 57600.0 s =====
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.195: m = -0.008281265751648894, 40 iterations, ϵ = 0.5135730153269673, CTMRG 707.3 s (allowed 7680.0 s), contraction 2521.6 s, total 3229.1 s, stopped (no progress); peak RSS 3.44 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.2: m = 0.45810186490709454, 40 iterations, ϵ = 0.07456069067755566, CTMRG 573.7 s (allowed 7680.0 s), contraction 2433.8 s, total 3007.7 s, stopped (no progress); CHECK: |m| = 0.458 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 3.44 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.205: m = 0.5672284279940852, 56 iterations, ϵ = 0.013850099468410393, CTMRG 866.7 s (allowed 7680.0 s), contraction 2485.1 s, total 3352.0 s, stopped (no progress); CHECK: |m| = 0.567 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 3.44 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.21: m = 0.6058258714303791, 63 iterations, ϵ = 0.006718383018345338, CTMRG 1276.6 s (allowed 7680.0 s), contraction 3321.5 s, total 4598.3 s, stopped (no progress); CHECK: |m| = 0.606 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 3.66 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.215: m = 0.6401156481968387, 53 iterations, ϵ = 0.00902083296886407, CTMRG 1276.8 s (allowed 7680.0 s), contraction 3324.8 s, total 4601.6 s, stopped (no progress); peak RSS 3.71 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.22: m = 0.662805472769374, 40 iterations, ϵ = 0.055280172656838975, CTMRG 642.5 s (allowed 7680.0 s), contraction 3419.4 s, total 4062.0 s, stopped (no progress); peak RSS 3.72 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.225: m = 0.6983048357496426, 50 iterations, ϵ = 0.014570696744264774, CTMRG 1192.3 s (allowed 7680.0 s), contraction 3435.7 s, total 4628.2 s, stopped (no progress); peak RSS 3.73 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.23: m = 0.7184012348796328, 40 iterations, ϵ = 0.06689972294529309, CTMRG 867.6 s (allowed 7680.0 s), contraction 3538.0 s, total 4405.6 s, stopped (no progress); peak RSS 3.73 GiB, live 0.24 GiB
+big_oblique.o14550302:OBS oblique_cold_auto β = 0.25: m = 0.802806004553279, 40 iterations, ϵ = 0.028718538318579085, CTMRG 823.2 s (allowed 7680.0 s), contraction 3338.9 s, total 4162.3 s, stopped (no progress); peak RSS 3.73 GiB, live 0.24 GiB
+big_oblique.o14550302:===== Summary per case =====
+big_oblique.o14550302:===== m (real part) per β =====
+big_oblique.o14550302:===== Spread plot: observations left out =====
+big_octantedgelead.o14554176:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], ctm_maxiter = 350, RUN_BUDGET_S = 57600.0, MAX_SECONDS_OBS = 7680.0, ctm_verbosity = 1, PEPO = exact
+big_octantedgelead.o14554176:[ Info: ===== Case octantedgelead_cold: projectors = octantedgelead, warm start = false, west_updates = auto, budget = 57600.0 s =====
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.195: m = 2.784273004566925e-11, 350 iterations, ϵ = 0.0006029330701737933, CTMRG 3278.6 s (allowed 7680.0 s), contraction 1746.4 s, total 5025.1 s, not converged; peak RSS 4.09 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.2: m = 1.8767578276969513e-10, 285 iterations, ϵ = 9.692672895801119e-8, CTMRG 4607.7 s (allowed 7680.0 s), contraction 3093.0 s, total 7701.4 s, ok; peak RSS 4.42 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.205: m = 8.71853391908877e-11, 299 iterations, ϵ = 7.548783638693803e-8, CTMRG 2446.5 s (allowed 7680.0 s), contraction 2278.8 s, total 4726.1 s, ok; peak RSS 4.65 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.21: m = 2.0148095584929007e-5, 179 iterations, ϵ = 7.307573776256943e-8, CTMRG 1309.7 s (allowed 7680.0 s), contraction 1661.7 s, total 2971.8 s, ok; peak RSS 4.65 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.215: m = -0.15069251513483872, 97 iterations, ϵ = 8.545420445226818e-8, CTMRG 663.4 s (allowed 7680.0 s), contraction 1767.2 s, total 2431.1 s, ok; peak RSS 4.65 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.22: m = -0.3532680787322599, 118 iterations, ϵ = 8.732688868537033e-8, CTMRG 813.5 s (allowed 7680.0 s), contraction 1632.1 s, total 2446.0 s, ok; peak RSS 4.65 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.225: m = -0.4808901303417269, 350 iterations, ϵ = 6.96174776965722e-7, CTMRG 2054.3 s (allowed 7680.0 s), contraction 1716.3 s, total 3770.9 s, not converged; peak RSS 4.65 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.23: m = -0.5674491740208051, 350 iterations, ϵ = 1.2265745734839326e-6, CTMRG 2096.1 s (allowed 7680.0 s), contraction 1420.1 s, total 3516.7 s, not converged; peak RSS 4.65 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:OBS octantedgelead_cold β = 0.25: m = -0.7523673940619404, 350 iterations, ϵ = 1.9670280830058385e-6, CTMRG 1372.3 s (allowed 7680.0 s), contraction 1507.8 s, total 2880.5 s, not converged; peak RSS 4.66 GiB, live 0.19 GiB
+big_octantedgelead.o14554176:===== Summary per case =====
+big_octantedgelead.o14554176:===== m (real part) per β =====
+big_octantedgelead.o14554176:===== Spread plot: observations left out =====
+big_octantedge.o14554044:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], ctm_maxiter = 350, RUN_BUDGET_S = 57600.0, MAX_SECONDS_OBS = 7680.0, ctm_verbosity = 1, PEPO = exact
+big_octantedge.o14554044:[ Info: ===== Case octantedge_cold: projectors = octantedge, warm start = false, west_updates = auto, budget = 57600.0 s =====
+big_octantedge.o14554044:OBS octantedge_cold β = 0.195: m = 8.244201154315e-11, 350 iterations, ϵ = 3.267770112128939e-5, CTMRG 4643.6 s (allowed 7680.0 s), contraction 1320.1 s, total 5963.8 s, not converged; peak RSS 4.07 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.2: m = 7.77725324248938e-11, 350 iterations, ϵ = 7.718103124216507e-6, CTMRG 3811.0 s (allowed 7680.0 s), contraction 1308.4 s, total 5119.4 s, not converged; peak RSS 4.18 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.205: m = 2.533239589269992e-10, 350 iterations, ϵ = 6.216872794004428e-6, CTMRG 3496.7 s (allowed 7680.0 s), contraction 1466.9 s, total 4963.7 s, not converged; peak RSS 4.26 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.21: m = -2.6710229279819166e-8, 350 iterations, ϵ = 2.06696457273709e-6, CTMRG 3939.7 s (allowed 7680.0 s), contraction 1609.8 s, total 5549.7 s, not converged; peak RSS 4.3 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.215: m = -0.15881355698369373, 350 iterations, ϵ = 4.342909573921749e-7, CTMRG 3856.6 s (allowed 7680.0 s), contraction 1647.3 s, total 5504.0 s, not converged; peak RSS 4.3 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.22: m = -0.36453508647956584, 350 iterations, ϵ = 1.756130364598499e-6, CTMRG 3470.7 s (allowed 7680.0 s), contraction 1529.5 s, total 5000.4 s, not converged; peak RSS 4.3 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.225: m = -0.4879226606711908, 350 iterations, ϵ = 7.214931567976385e-7, CTMRG 2911.6 s (allowed 7680.0 s), contraction 1461.5 s, total 4373.2 s, not converged; peak RSS 4.41 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.23: m = -0.5719268772718682, 350 iterations, ϵ = 4.278213990050354e-6, CTMRG 2890.2 s (allowed 7680.0 s), contraction 1365.6 s, total 4256.0 s, not converged; peak RSS 4.5 GiB, live 0.19 GiB
+big_octantedge.o14554044:OBS octantedge_cold β = 0.25: m = -0.7534675987409716, 350 iterations, ϵ = 8.832943623105187e-5, CTMRG 2436.9 s (allowed 7680.0 s), contraction 1498.9 s, total 3935.8 s, not converged; peak RSS 4.54 GiB, live 0.19 GiB
+big_octantedge.o14554044:===== Summary per case =====
+big_octantedge.o14554044:===== m (real part) per β =====
+big_octantedge.o14554044:===== Spread plot: observations left out =====
+big_octantedgeplain.o14554045:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], ctm_maxiter = 350, RUN_BUDGET_S = 57600.0, MAX_SECONDS_OBS = 7680.0, ctm_verbosity = 1, PEPO = exact
+big_octantedgeplain.o14554045:[ Info: ===== Case octantedgeplain_cold: projectors = octantedgeplain, warm start = false, west_updates = auto, budget = 57600.0 s =====
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.195: m = -3.4789128632948348e-9, 350 iterations, ϵ = 2.7206616547705485e-5, CTMRG 2777.2 s (allowed 7680.0 s), contraction 1306.9 s, total 4084.1 s, not converged; peak RSS 4.3 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.2: m = -3.997787800871279e-9, 350 iterations, ϵ = 2.4978833838745486e-6, CTMRG 2788.3 s (allowed 7680.0 s), contraction 1267.5 s, total 4055.9 s, not converged; peak RSS 4.3 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.205: m = 1.1664342212195899e-8, 350 iterations, ϵ = 0.00040050968727697644, CTMRG 3168.1 s (allowed 7680.0 s), contraction 1303.6 s, total 4471.7 s, not converged; peak RSS 4.37 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.21: m = 4.632205698839406e-5, 350 iterations, ϵ = 1.028424461776427e-6, CTMRG 3177.4 s (allowed 7680.0 s), contraction 1313.7 s, total 4491.1 s, not converged; peak RSS 4.37 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.215: m = -0.1913711143134642, 350 iterations, ϵ = 3.1668708735028654e-7, CTMRG 2242.3 s (allowed 7680.0 s), contraction 1335.1 s, total 3577.5 s, not converged; peak RSS 4.37 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.22: m = -0.3620136686293386, 350 iterations, ϵ = 3.569335460490677e-7, CTMRG 2274.2 s (allowed 7680.0 s), contraction 1417.9 s, total 3692.2 s, not converged; peak RSS 4.39 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.225: m = -0.48157304867447615, 350 iterations, ϵ = 8.225573143874837e-7, CTMRG 2028.3 s (allowed 7680.0 s), contraction 1468.2 s, total 3496.5 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.23: m = -0.5662483311490412, 350 iterations, ϵ = 2.1835483849640697e-6, CTMRG 2148.2 s (allowed 7680.0 s), contraction 1438.7 s, total 3587.0 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:OBS octantedgeplain_cold β = 0.25: m = -0.7521129507213307, 350 iterations, ϵ = 0.00017527957969722054, CTMRG 1422.9 s (allowed 7680.0 s), contraction 1346.3 s, total 2769.3 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octantedgeplain.o14554045:===== Summary per case =====
+big_octantedgeplain.o14554045:===== m (real part) per β =====
+big_octantedgeplain.o14554045:===== Spread plot: observations left out =====
+big_octant.o14550303:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], ctm_maxiter = 350, RUN_BUDGET_S = 57600.0, MAX_SECONDS_OBS = 7680.0, ctm_verbosity = 1, PEPO = exact
+big_octant.o14550303:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 57600.0 s =====
+big_octant.o14550303:OBS octant_cold β = 0.195: m = 1.3695740620720874e-9, 350 iterations, ϵ = 4.456767955522163e-5, CTMRG 2804.6 s (allowed 7680.0 s), contraction 1438.2 s, total 4242.9 s, not converged; peak RSS 4.37 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.2: m = 2.2755652133544074e-9, 350 iterations, ϵ = 6.367794502855987e-6, CTMRG 2434.4 s (allowed 7680.0 s), contraction 1357.1 s, total 3791.7 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.205: m = 3.993047603230893e-7, 350 iterations, ϵ = 8.077493213108381e-5, CTMRG 2480.6 s (allowed 7680.0 s), contraction 1393.8 s, total 3874.8 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.21: m = -0.05346617127719991, 350 iterations, ϵ = 0.00012127765390766894, CTMRG 2499.5 s (allowed 7680.0 s), contraction 1441.2 s, total 3940.9 s, not converged; CHECK: |m| = 0.0535 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 4.43 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.215: m = -0.22561578343556637, 350 iterations, ϵ = 5.989304648069011e-7, CTMRG 1797.7 s (allowed 7680.0 s), contraction 1472.2 s, total 3270.1 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.22: m = -0.386527347377339, 350 iterations, ϵ = 6.72610877374223e-7, CTMRG 1815.1 s (allowed 7680.0 s), contraction 1474.9 s, total 3290.2 s, not converged; peak RSS 4.43 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.225: m = -0.4973449159955656, 350 iterations, ϵ = 9.85704558750618e-7, CTMRG 1687.6 s (allowed 7680.0 s), contraction 1512.4 s, total 3200.1 s, not converged; peak RSS 4.5 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.23: m = -0.5764528572969807, 350 iterations, ϵ = 1.0131646949987553e-6, CTMRG 1669.5 s (allowed 7680.0 s), contraction 1502.3 s, total 3172.2 s, not converged; peak RSS 4.51 GiB, live 0.19 GiB
+big_octant.o14550303:OBS octant_cold β = 0.25: m = -0.7537245285703056, 350 iterations, ϵ = 1.5750256664756184e-7, CTMRG 1210.8 s (allowed 7680.0 s), contraction 1503.3 s, total 2714.2 s, not converged; peak RSS 4.51 GiB, live 0.19 GiB
+big_octant.o14550303:===== Summary per case =====
+big_octant.o14550303:===== m (real part) per β =====
+big_octant.o14550303:===== Spread plot: observations left out =====
+big_svd.o14550301:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], ctm_maxiter = 200, RUN_BUDGET_S = 57600.0, MAX_SECONDS_OBS = 7680.0, ctm_verbosity = 1, PEPO = exact
+big_svd.o14550301:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 57600.0 s =====
+big_svd.o14550301:OBS svd_cold_auto β = 0.195: m = -0.03967075743083122, 8 iterations, ϵ = 5.9333868597127144e-8, CTMRG 92.3 s (allowed 7680.0 s), contraction 3572.6 s, total 3665.0 s, ok; peak RSS 3.8 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.2: m = -0.018306890163624967, 50 iterations, ϵ = 9.341819673371076e-8, CTMRG 479.2 s (allowed 7680.0 s), contraction 3354.6 s, total 3833.9 s, ok; peak RSS 3.89 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.205: m = -0.18842066348600325, 85 iterations, ϵ = 9.924567807900815e-8, CTMRG 699.3 s (allowed 7680.0 s), contraction 3462.4 s, total 4161.7 s, ok; CHECK: |m| = 0.188 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 3.95 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.21: m = -0.36616910251972523, 41 iterations, ϵ = 9.198042797779556e-8, CTMRG 305.0 s (allowed 7680.0 s), contraction 3321.9 s, total 3627.1 s, ok; CHECK: |m| = 0.366 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 3.95 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.215: m = -0.46995845012897797, 31 iterations, ϵ = 7.788863831590953e-8, CTMRG 240.6 s (allowed 7680.0 s), contraction 3316.5 s, total 3557.2 s, ok; peak RSS 4.06 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.22: m = -0.5448427843305438, 24 iterations, ϵ = 6.885735687632701e-8, CTMRG 271.9 s (allowed 7680.0 s), contraction 3338.3 s, total 3610.3 s, ok; peak RSS 4.06 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.225: m = -0.6031332085272213, 21 iterations, ϵ = 7.26317163220137e-8, CTMRG 172.1 s (allowed 7680.0 s), contraction 3333.5 s, total 3505.8 s, ok; peak RSS 4.06 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.23: m = -0.6503663563045466, 18 iterations, ϵ = 6.712698912746247e-8, CTMRG 144.8 s (allowed 7680.0 s), contraction 3385.2 s, total 3530.1 s, ok; peak RSS 4.06 GiB, live 0.24 GiB
+big_svd.o14550301:OBS svd_cold_auto β = 0.25: m = -0.7758654963855706, 13 iterations, ϵ = 4.439915859073485e-8, CTMRG 107.7 s (allowed 7680.0 s), contraction 3317.1 s, total 3425.0 s, ok; peak RSS 4.1 GiB, live 0.24 GiB
+big_svd.o14550301:===== Summary per case =====
+big_svd.o14550301:===== m (real part) per β =====
+big_svd.o14550301:===== Spread plot: observations left out =====
+check_ad.o14534495:===== fixed (false) against differentiated (true) environment =====
+check_exponent.o14534272:===== |m|, iterations, last ϵ, status, time and corner rank per P (:svd) =====
+check_init.o14534271:===== |m| per start (ones; random: mean ± spread over the seeds), iterations, corner rank =====
+check_west.o14549884:===== west_updates: m, |Δm| to :auto, iterations, West updates (partial_ctmrgstep), CTMRG3D time =====
+ctmrg_16_6_2_c4.o14549168:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 200, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+ctmrg_16_6_2_c4.o14549168:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_16_6_2_c4.o14549168:OBS svd_cold_auto β = 0.225: m = 0.6031326109090226, 21 iterations, ϵ = 7.412232012727766e-8, CTMRG 113.3 s (allowed 14400.0 s), contraction 1517.9 s, total 1631.3 s, ok; peak RSS 3.17 GiB, live 0.24 GiB
+ctmrg_16_6_2_c4.o14549168:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_16_6_2_c4.o14549168:OBS oblique_cold_auto β = 0.225: m = -0.6983250354399704, 200 iterations, ϵ = 0.019338544458636697, CTMRG 2704.5 s (allowed 14400.0 s), contraction 1453.8 s, total 4158.4 s, not converged; peak RSS 3.38 GiB, live 0.24 GiB
+ctmrg_16_6_2_c4.o14549168:===== Summary per case =====
+ctmrg_16_6_2_c4.o14549168:===== m (real part) per β =====
+ctmrg_16_6_2_c4.o14549168:===== Spread plot: observations left out =====
+ctmrg_18_6_2_c4.o14549169:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 200, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+ctmrg_18_6_2_c4.o14549169:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_18_6_2_c4.o14549169:OBS svd_cold_auto β = 0.225: m = -0.6031332085272213, 21 iterations, ϵ = 7.26317163220137e-8, CTMRG 102.3 s (allowed 14400.0 s), contraction 4106.3 s, total 4208.7 s, ok; peak RSS 3.24 GiB, live 0.25 GiB
+ctmrg_18_6_2_c4.o14549169:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_18_6_2_c4.o14549169:OBS oblique_cold_auto β = 0.225: m = 0.6983246258528775, 200 iterations, ϵ = 0.02304452144488525, CTMRG 3098.2 s (allowed 14400.0 s), contraction 3917.7 s, total 7016.1 s, not converged; peak RSS 3.39 GiB, live 0.24 GiB
+ctmrg_18_6_2_c4.o14549169:===== Summary per case =====
+ctmrg_18_6_2_c4.o14549169:===== m (real part) per β =====
+ctmrg_18_6_2_c4.o14549169:===== Spread plot: observations left out =====
+ctmrg_20_6_2_c4.o14549170:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 200, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+ctmrg_20_6_2_c4.o14549170:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_20_6_2_c4.o14549170:OBS svd_cold_auto β = 0.225: m = -0.6031280247106333, 31 iterations, ϵ = 8.556062826041399e-8, CTMRG 423.9 s (allowed 14400.0 s), contraction 12234.0 s, total 12658.0 s, ok; peak RSS 3.25 GiB, live 0.25 GiB
+ctmrg_20_6_2_c4.o14549170:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_20_6_2_c4.o14549170:OBS oblique_cold_auto β = 0.225: m = 0.6565609419373868, 200 iterations, ϵ = 0.03548705602090861, CTMRG 4321.0 s (allowed 14400.0 s), contraction 11323.0 s, total 15644.3 s, not converged; peak RSS 3.74 GiB, live 0.24 GiB
+ctmrg_20_6_2_c4.o14549170:===== Summary per case =====
+ctmrg_20_6_2_c4.o14549170:===== m (real part) per β =====
+ctmrg_20_6_2_c4.o14549170:===== Spread plot: observations left out =====
+ctmrgclass_16_6_2_c4.o14549213:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 200, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+ctmrgclass_16_6_2_c4.o14549213:[ Info: ===== Case svdclass_cold_auto: projectors = svdclass, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrgclass_16_6_2_c4.o14549213:OBS svdclass_cold_auto β = 0.225: m = 0.6031246353237083, 23 iterations, ϵ = 9.013179338307182e-8, CTMRG 42.5 s (allowed 14400.0 s), contraction 1322.5 s, total 1365.1 s, ok; peak RSS 3.1 GiB, live 0.25 GiB
+ctmrgclass_16_6_2_c4.o14549213:[ Info: ===== Case obliqueclass_cold_auto: projectors = obliqueclass, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrgclass_16_6_2_c4.o14549213:OBS obliqueclass_cold_auto β = 0.225: m = -3.4234489892968266e-16, 200 iterations, ϵ = 0.14736871890733905, CTMRG 2798.1 s (allowed 14400.0 s), contraction 1278.7 s, total 4076.8 s, not converged; peak RSS 3.46 GiB, live 0.25 GiB
+ctmrgclass_16_6_2_c4.o14549213:===== Summary per case =====
+ctmrgclass_16_6_2_c4.o14549213:===== m (real part) per β =====
+ctmrgclass_16_6_2_c4.o14549213:===== Spread plot: observations left out =====
+ctmrgclass_18_6_2_c4.o14549214:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 200, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+ctmrgclass_18_6_2_c4.o14549214:[ Info: ===== Case svdclass_cold_auto: projectors = svdclass, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrgclass_18_6_2_c4.o14549214:OBS svdclass_cold_auto β = 0.225: m = -0.6031264300117443, 22 iterations, ϵ = 8.584051176542236e-8, CTMRG 94.5 s (allowed 14400.0 s), contraction 3297.6 s, total 3392.2 s, ok; peak RSS 3.29 GiB, live 0.25 GiB
+ctmrgclass_18_6_2_c4.o14549214:[ Info: ===== Case obliqueclass_cold_auto: projectors = obliqueclass, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrgclass_18_6_2_c4.o14549214:OBS obliqueclass_cold_auto β = 0.225: m = 2.244669328530467e-6, 200 iterations, ϵ = 0.047563855052721406, CTMRG 5051.0 s (allowed 14400.0 s), contraction 3823.8 s, total 8875.3 s, not converged; peak RSS 3.56 GiB, live 0.25 GiB
+ctmrgclass_18_6_2_c4.o14549214:===== Summary per case =====
+ctmrgclass_18_6_2_c4.o14549214:===== m (real part) per β =====
+ctmrgclass_18_6_2_c4.o14549214:===== Spread plot: observations left out =====
+ctmrgclass_20_6_2_c4.o14549215:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 200, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+ctmrgclass_20_6_2_c4.o14549215:[ Info: ===== Case svdclass_cold_auto: projectors = svdclass, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrgclass_20_6_2_c4.o14549215:OBS svdclass_cold_auto β = 0.225: m = -0.6031227373043145, 19 iterations, ϵ = 9.467032428917633e-8, CTMRG 707.9 s (allowed 14400.0 s), contraction 18199.9 s, total 18908.1 s, ok; peak RSS 3.41 GiB, live 0.25 GiB
+ctmrgclass_20_6_2_c4.o14549215:[ Info: ===== Case obliqueclass_cold_auto: projectors = obliqueclass, warm start = false, west_updates = auto, budget = 14400.0 s =====
+ctmrg_pilot_16_5_3.o14534277:OBS svd_cold_auto β = 0.21: m = -0.3654588079312971, 58 iterations, ϵ = 9.252682013226278e-8, CTMRG 301.8 s (allowed 4800.0 s), contraction 778.3 s, total 1080.5 s, ok
+ctmrg_pilot_16_5_3.o14534277:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 4800.0 s =====
+ctmrg_pilot_16_5_3.o14534277:OBS oblique_cold_auto β = 0.21: m = 0.5312701146352731, 80 iterations, ϵ = 0.45384373036364944, CTMRG 901.9 s (allowed 4800.0 s), contraction 766.1 s, total 1668.2 s, not converged
+ctmrg_pilot_16_5_3.o14534277:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 4800.0 s =====
+ctmrg_pilot_16_5_3.o14534277:===== Summary per case =====
+ctmrg_pilot_16_5_3.o14534277:===== m (real part) per β =====
+ctmrg_pilot_16_5_3.o14534277:===== Spread plot: observations left out =====
+ctmrg_pilot5_16_5_3.o14543588:OBS svd_cold_auto β = 0.21: m = -0.3654588079312971, 58 iterations, ϵ = 9.252682013226278e-8, CTMRG 166.6 s (allowed 4800.0 s), contraction 647.6 s, total 815.0 s, ok
+ctmrg_pilot5_16_5_3.o14543588:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 4800.0 s =====
+ctmrg_pilot5_16_5_3.o14543588:OBS oblique_cold_auto β = 0.21: m = 0.6078405781831381, 80 iterations, ϵ = 0.0028255488367611606, CTMRG 687.5 s (allowed 4800.0 s), contraction 652.6 s, total 1340.3 s, not converged
+ctmrg_pilot5_16_5_3.o14543588:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 4800.0 s =====
+ctmrg_pilot5_16_5_3.o14543588:===== Summary per case =====
+ctmrg_pilot5_16_5_3.o14543588:===== m (real part) per β =====
+ctmrg_pilot5_16_5_3.o14543588:===== Spread plot: observations left out =====
+ctmrg_pilot6_16_6_2_gc.o14549126:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 80, RUN_BUDGET_S = 4800.0, MAX_SECONDS_OBS = 4800.0, ctm_verbosity = 1, PEPO = exact
+ctmrg_pilot6_16_6_2_gc.o14549126:[ Info: ===== Case svd_cold_auto: projectors = svd, warm start = false, west_updates = auto, budget = 4800.0 s =====
+ctmrg_pilot6_16_6_2_gc.o14549126:OBS svd_cold_auto β = 0.225: m = 0.6031326109090155, 21 iterations, ϵ = 7.412232014524938e-8, CTMRG 85.0 s (allowed 4800.0 s), contraction 1016.4 s, total 1101.4 s, ok; peak RSS 3.85 GiB, live 0.24 GiB
+ctmrg_pilot6_16_6_2_gc.o14549126:[ Info: ===== Case oblique_cold_auto: projectors = oblique, warm start = false, west_updates = auto, budget = 4800.0 s =====
+ctmrg_pilot6_16_6_2_gc.o14549126:OBS oblique_cold_auto β = 0.225: m = -0.6984131194888481, 80 iterations, ϵ = 0.031165423099198, CTMRG 847.7 s (allowed 4800.0 s), contraction 1013.5 s, total 1861.3 s, not converged; peak RSS 4.19 GiB, live 0.24 GiB
+ctmrg_pilot6_16_6_2_gc.o14549126:===== Summary per case =====
+ctmrg_pilot6_16_6_2_gc.o14549126:===== m (real part) per β =====
+ctmrg_pilot6_16_6_2_gc.o14549126:===== Spread plot: observations left out =====
+ctmrg_pilot6_16_6_2_hint.o14549091:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 80, RUN_BUDGET_S = 4800.0, MAX_SECONDS_OBS = 4800.0, ctm_verbosity = 1, PEPO = exact
+ctmrg_pilot6_16_6_2.o14549051:[ Info: Changed for this job: β_obs = [0.225], ctm_maxiter = 80, RUN_BUDGET_S = 4800.0, MAX_SECONDS_OBS = 4800.0, ctm_verbosity = 1, PEPO = exact
+decompositions.o14534274:===== <psi|psi>: time per CTMRG step (s), sets sorted by n = χenv · bond =====
+decompositions.o14534274:===== <psi|O|psi>: time per CTMRG step (s), sets sorted by n = χenv · bond =====
+oct_16_5_2_ce.o14548046:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 9000.0, MAX_SECONDS_OBS = 9000.0, ctm_verbosity = 1, PEPO = ce
+oct_16_5_2_ce.o14548046:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 9000.0 s =====
+oct_16_5_2_ce.o14548046:OBS octant_cold β = 0.21: m = -0.03684520562698097, 1000 iterations, ϵ = 0.0008512304826447299, CTMRG 2808.2 s (allowed 9000.0 s), contraction 328.6 s, total 3136.9 s, not converged
+oct_16_5_2_ce.o14548046:===== Summary per case =====
+oct_16_5_2_ce.o14548046:===== m (real part) per β =====
+oct_16_5_2_ce.o14548046:===== Spread plot: observations left out =====
+oct_16_5_2_exact.o14548045:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 9000.0, MAX_SECONDS_OBS = 9000.0, ctm_verbosity = 1, PEPO = exact
+oct_16_5_2_exact.o14548045:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 9000.0 s =====
+oct_16_5_2_exact.o14548045:OBS octant_cold β = 0.21: m = -0.024231962823023284, 1000 iterations, ϵ = 0.0007293784506974947, CTMRG 3555.9 s (allowed 9000.0 s), contraction 332.0 s, total 3888.0 s, not converged
+oct_16_5_2_exact.o14548045:===== Summary per case =====
+oct_16_5_2_exact.o14548045:===== m (real part) per β =====
+oct_16_5_2_exact.o14548045:===== Spread plot: observations left out =====
+oct_16_6_2_ce.o14548048:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 16000.0, MAX_SECONDS_OBS = 16000.0, ctm_verbosity = 1, PEPO = ce
+oct_16_6_2_ce.o14548048:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 16000.0 s =====
+oct_16_6_2_ce.o14548048:OBS octant_cold β = 0.21: m = -0.05853302989842259, 1000 iterations, ϵ = 1.6402258223547167e-6, CTMRG 8504.0 s (allowed 16000.0 s), contraction 1297.5 s, total 9801.7 s, not converged
+oct_16_6_2_ce.o14548048:===== Summary per case =====
+oct_16_6_2_ce.o14548048:===== m (real part) per β =====
+oct_16_6_2_ce.o14548048:===== Spread plot: observations left out =====
+oct_16_6_2_exact.o14548047:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 16000.0, MAX_SECONDS_OBS = 16000.0, ctm_verbosity = 1, PEPO = exact
+oct_16_6_2_exact.o14548047:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 16000.0 s =====
+oct_16_6_2_exact.o14548047:OBS octant_cold β = 0.21: m = -0.05908498129017311, 1000 iterations, ϵ = 1.8881596696292753e-6, CTMRG 10451.5 s (allowed 16000.0 s), contraction 1466.1 s, total 11917.7 s, not converged
+oct_16_6_2_exact.o14548047:===== Summary per case =====
+oct_16_6_2_exact.o14548047:===== m (real part) per β =====
+oct_16_6_2_exact.o14548047:===== Spread plot: observations left out =====
+octant_16_5_3.o14548018:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 12000.0, MAX_SECONDS_OBS = 12000.0, ctm_verbosity = 1
+octant_16_5_3.o14548018:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 12000.0 s =====
+octant_16_5_3.o14548018:OBS octant_cold β = 0.21: m = -0.036833878954283146, 1000 iterations, ϵ = 0.0008510563257382416, CTMRG 9111.6 s (allowed 12000.0 s), contraction 659.0 s, total 9770.7 s, not converged
+octant_16_5_3.o14548018:===== Summary per case =====
+octant_16_5_3.o14548018:===== m (real part) per β =====
+octant_16_5_3.o14548018:===== Spread plot: observations left out =====
+octant_16_6_3_6c.o14548333:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 30000.0, MAX_SECONDS_OBS = 30000.0, ctm_verbosity = 1, PEPO = ce
+octant_16_6_3.o14548017:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 1000, RUN_BUDGET_S = 30000.0, MAX_SECONDS_OBS = 30000.0, ctm_verbosity = 1
+octant_20_5_2_gc.o14549127:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 600, RUN_BUDGET_S = 10800.0, MAX_SECONDS_OBS = 10800.0, ctm_verbosity = 1, PEPO = exact
+octant_20_5_2_gc.o14549127:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 10800.0 s =====
+octant_20_5_2_gc.o14549127:OBS octant_cold β = 0.21: m = -0.02873192621403883, 600 iterations, ϵ = 0.0005139184424544256, CTMRG 3083.0 s (allowed 10800.0 s), contraction 1011.1 s, total 4094.5 s, not converged; peak RSS 3.8 GiB, live 0.19 GiB
+octant_20_5_2_gc.o14549127:===== Summary per case =====
+octant_20_5_2_gc.o14549127:===== m (real part) per β =====
+octant_20_5_2_gc.o14549127:===== Spread plot: observations left out =====
+octant_20_5_2_it200.o14549147:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 200, RUN_BUDGET_S = 10800.0, MAX_SECONDS_OBS = 10800.0, ctm_verbosity = 1, PEPO = exact
+octant_20_5_2_it200.o14549147:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 10800.0 s =====
+octant_20_5_2_it200.o14549147:OBS octant_cold β = 0.21: m = 0.12012818690062052, 200 iterations, ϵ = 0.00165977225383597, CTMRG 654.8 s (allowed 10800.0 s), contraction 924.5 s, total 1579.3 s, not converged; CHECK: |m| = 0.12 below βc (exact 0): symmetry broken by the finite bond dimensions or the optimization; peak RSS 3.34 GiB, live 0.19 GiB
+octant_20_5_2_it200.o14549147:===== Summary per case =====
+octant_20_5_2_it200.o14549147:===== m (real part) per β =====
+octant_20_5_2_it200.o14549147:===== Spread plot: observations left out =====
+octant_20_5_2.o14549072:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 600, RUN_BUDGET_S = 10800.0, MAX_SECONDS_OBS = 10800.0, ctm_verbosity = 1, PEPO = exact
+octant_20_6_2_long.o14549211:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 600, RUN_BUDGET_S = 10800.0, MAX_SECONDS_OBS = 10800.0, ctm_verbosity = 1, PEPO = exact
+octant_20_6_2_long.o14549211:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 10800.0 s =====
+octant_20_6_2.o14549145:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 600, RUN_BUDGET_S = 10800.0, MAX_SECONDS_OBS = 10800.0, ctm_verbosity = 1, PEPO = exact
+octant_20_6_2.o14549145:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 10800.0 s =====
+octant_24_5_2.o14549073:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 600, RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, ctm_verbosity = 1, PEPO = exact
+octant_24_6_2.o14549146:[ Info: Changed for this job: β_obs = [0.21], ctm_maxiter = 600, RUN_BUDGET_S = 10800.0, MAX_SECONDS_OBS = 10800.0, ctm_verbosity = 1, PEPO = exact
+octant_24_6_2.o14549146:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 10800.0 s =====
+octant_pilot3.o14546849:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 10800.0 s =====
+octant_pilot3.o14546849:OBS octant_cold β = 0.21: m = -0.05663342209509734, 300 iterations, ϵ = 0.0007293535388436801, CTMRG 2367.7 s (allowed 4800.0 s), contraction 654.2 s, total 3022.6 s, not converged
+octant_pilot3.o14546849:OBS octant_cold β = 0.23: m = -0.5750721519565887, 300 iterations, ϵ = 1.9938497359728546e-7, CTMRG 1686.0 s (allowed 4800.0 s), contraction 653.8 s, total 2340.1 s, not converged
+octant_pilot3.o14546849:OBS octant_cold β = 0.25: m = -0.7534184524322414, 300 iterations, ϵ = 1.3013155339636773e-6, CTMRG 1020.0 s (allowed 4800.0 s), contraction 651.0 s, total 1671.3 s, not converged
+octant_pilot3.o14546849:===== Summary per case =====
+octant_pilot3.o14546849:===== m (real part) per β =====
+octant_pilot3.o14546849:===== Spread plot: observations left out =====
+octant_pilot5.o14543591:OBS octant_cold β = 0.21: m = 0.01488103109581922, 80 iterations, ϵ = 0.0004776843645480496, CTMRG 732.3 s (allowed 4800.0 s), contraction 780.3 s, total 1512.6 s, not converged
+octant_pilot5.o14543591:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 4800.0 s =====
+octant_pilot5.o14543591:===== Summary per case =====
+octant_pilot5.o14543591:===== m (real part) per β =====
+octant_pilot5.o14543591:===== Spread plot: observations left out =====
+octant_pilot.o14536262:OBS octant_cold β = 0.21: m = -0.015657953906559805, 28 iterations, ϵ = 0.002239437450029549, CTMRG 4901.7 s (allowed 4800.0 s), contraction 1383.2 s, total 6285.5 s, timed out
+octant_pilot.o14536262:[ Info: ===== Case octant_cold: projectors = octant, warm start = false, west_updates = auto, budget = 4800.0 s =====
+octant_pilot.o14536262:===== Summary per case =====
+octant_pilot.o14536262:===== m (real part) per β =====
+octant_pilot.o14536262:===== Spread plot: observations left out =====
+plans.o14543587:===== combination 1 of 4: (chi_env, chi_peps, D) = (10, 5, 3) =====
+plans.o14543587:===== combination 2 of 4: (chi_env, chi_peps, D) = (12, 4, 3) =====
+plans.o14543587:===== combination 3 of 4: (chi_env, chi_peps, D) = (12, 5, 3) =====
+plans.o14543587:===== combination 4 of 4: (chi_env, chi_peps, D) = (16, 4, 3) =====
+replot_small_bpk.o14556120:===== Summary per case =====
+replot_small_bpk.o14556120:===== m (real part) per β =====
+replot_small_bpk.o14556120:===== Spread plot: observations left out =====
+vb_16_4_3_b021.o14548237:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = ce
+vb_16_4_3_b021.o14548237:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_4_3_b021.o14548237:OBS false_cold β = 0.21: f = -0.7673422386558124, calls = 135, time = 832.1 s, timed out = false, m = -7.155359772086382e-6 + 0.0im, ok
+vb_16_4_3_b021.o14548237:===== Summary per case =====
+vb_16_4_3_b021.o14548237:===== m (real part) per β =====
+vb_16_4_3_b0225.o14548238:[ Info: Changed for this job: β_obs = [0.225], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = ce
+vb_16_4_3_b0225.o14548238:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_4_3_b0225.o14548238:OBS false_cold β = 0.225: f = -0.7814882054955425, calls = 130, time = 1498.0 s, timed out = false, m = 0.4206820085664031 + 0.0im, ok
+vb_16_4_3_b0225.o14548238:===== Summary per case =====
+vb_16_4_3_b0225.o14548238:===== m (real part) per β =====
+vb_16_5_2_b0225.o14549159:[ Info: Changed for this job: β_obs = [0.225], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_16_5_2_b0225.o14549159:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_5_2_b0225.o14549159:OBS false_cold β = 0.225: f = -0.7711145987008049, calls = 7, time = 99.0 s, timed out = false, m = -8.861204841722437e-6 + 0.0im, ok; peak RSS 3.16 GiB, live 0.37 GiB
+vb_16_5_2_b0225.o14549159:===== Summary per case =====
+vb_16_5_2_b0225.o14549159:===== m (real part) per β =====
+vb_16_5_3_b021.o14548235:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = ce
+vb_16_5_3_b021.o14548235:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_5_3_b021.o14548235:OBS false_cold β = 0.21: f = -0.7673503544733566, calls = 124, time = 2846.0 s, timed out = false, m = 0.00036636268300217854 + 0.0im, ok
+vb_16_5_3_b021.o14548235:===== Summary per case =====
+vb_16_5_3_b021.o14548235:===== m (real part) per β =====
+vb_16_5_3_b0225.o14548236:[ Info: Changed for this job: β_obs = [0.225], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = ce
+vb_16_5_3_b0225.o14548236:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_5_3_b0225.o14548236:OBS false_cold β = 0.225: f = -0.781499670138726, calls = 120, time = 1861.4 s, timed out = false, m = -0.41565576818037725 + 0.0im, ok
+vb_16_5_3_b0225.o14548236:===== Summary per case =====
+vb_16_5_3_b0225.o14548236:===== m (real part) per β =====
+vb_16_6_2_b0225.o14549143:[ Info: Changed for this job: β_obs = [0.225], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_16_6_2_b0225.o14549143:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_6_2_b0225.o14549143:OBS false_cold β = 0.225: f = -2.0153833099465674, calls = 124, time = 4502.0 s, timed out = false, m = -0.49419986990298487 + 0.0im, CHECK: f below the exact lower bound: unphysical; peak RSS 3.43 GiB, live 0.4 GiB
+vb_16_6_2_b0225.o14549143:===== Summary per case =====
+vb_16_6_2_b0225.o14549143:===== m (real part) per β =====
+vb_16_6_2_c3.o14549053:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_16_6_2_c3.o14549053:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_6_2_c3.o14549053:OBS false_cold β = 0.21: f = -0.7673583824209627, calls = 136, time = 1429.7 s, timed out = false, m = 4.318275636126846e-5 + 0.0im, ok
+vb_16_6_2_c3.o14549053:===== Summary per case =====
+vb_16_6_2_c3.o14549053:===== m (real part) per β =====
+vb_16_6_2_c4.o14549054:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_16_6_2_c4.o14549054:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_6_2_c4.o14549054:OBS false_cold β = 0.21: f = -0.7673583824209627, calls = 136, time = 1404.7 s, timed out = false, m = 4.318275636126846e-5 + 0.0im, ok
+vb_16_6_2_c4.o14549054:===== Summary per case =====
+vb_16_6_2_c4.o14549054:===== m (real part) per β =====
+vb_16_7_2_c5.o14549055:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_16_7_2_c5.o14549055:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_16_7_2_c5.o14549055:OBS false_cold β = 0.21: f = -0.7707539446696662, calls = 131, time = 1773.8 s, timed out = false, m = 0.0005691911109603107 + 0.0im, ok
+vb_16_7_2_c5.o14549055:===== Summary per case =====
+vb_16_7_2_c5.o14549055:===== m (real part) per β =====
+vb_18_6_2_c4.o14549056:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_18_6_2_c4.o14549056:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_18_6_2_c4.o14549056:OBS false_cold β = 0.21: f = -0.7673581297596812, calls = 128, time = 1215.0 s, timed out = false, m = 0.0007097423561101792 + 0.0im, ok
+vb_18_6_2_c4.o14549056:===== Summary per case =====
+vb_18_6_2_c4.o14549056:===== m (real part) per β =====
+vb_20_7_2_c4.o14549099:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_20_7_2_c4.o14549099:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_20_7_2_c4.o14549099:OBS false_cold β = 0.21: f = -26.493511944974088, calls = 295, time = 10141.1 s, timed out = false, m = 3.402019720830909e-6 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 4.43 GiB, live 0.52 GiB
+vb_20_7_2_c4.o14549099:===== Summary per case =====
+vb_20_7_2_c4.o14549099:===== m (real part) per β =====
+vb_24_6_2_b0225.o14549160:[ Info: Changed for this job: β_obs = [0.225], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_24_6_2_b0225.o14549160:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_24_7_2_c5.o14549100:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_24_7_2_c5.o14549100:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_24_7_2_c5.o14549100:OBS false_cold β = 0.21: f = -11.340237801402909, calls = 131, time = 17388.9 s, timed out = true, m = 9.959090104018412e-5 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 4.75 GiB, live 0.6 GiB
+vb_24_7_2_c5.o14549100:===== Summary per case =====
+vb_24_7_2_c5.o14549100:===== m (real part) per β =====
+vb_24_8_2_c6.o14549102:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_24_8_2_c6.o14549102:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_24_8_2_c6.o14549102:OBS false_cold β = 0.21: f = -0.7699332849505575, calls = 76, time = 5220.7 s, timed out = false, m = -0.24577557979839917 + 0.0im, ok; peak RSS 5.46 GiB, live 0.63 GiB
+vb_24_8_2_c6.o14549102:===== Summary per case =====
+vb_24_8_2_c6.o14549102:===== m (real part) per β =====
+vb_28_8_2_c8.o14549103:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_28_8_2_c8.o14549103:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_28_8_2_c8.o14549103:OBS false_cold β = 0.21: f = -0.7608258095379391, calls = 8, time = 2837.8 s, timed out = false, m = -1.28207574069264e-6 + 0.0im, ok; peak RSS 5.83 GiB, live 0.92 GiB
+vb_28_8_2_c8.o14549103:===== Summary per case =====
+vb_28_8_2_c8.o14549103:===== m (real part) per β =====
+vb_32_7_2_b0225.o14549144:[ Info: Changed for this job: β_obs = [0.225], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_32_7_2_b0225.o14549144:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_32_7_2_b0225.o14549144:OBS false_cold β = 0.225: f = -0.7815194040048996, calls = 135, time = 7601.0 s, timed out = false, m = -0.41616003953855263 + 0.0im, ok; peak RSS 5.32 GiB, live 0.79 GiB
+vb_32_7_2_b0225.o14549144:===== Summary per case =====
+vb_32_7_2_b0225.o14549144:===== m (real part) per β =====
+vb_32_7_2_c6.o14549101:[ Info: Changed for this job: β_obs = [0.21], RUN_BUDGET_S = 14400.0, MAX_SECONDS_OBS = 14400.0, optimizer_maxiter = 100, PEPO = exact
+vb_32_7_2_c6.o14549101:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 14400.0 s =====
+vb_32_7_2_c6.o14549101:OBS false_cold β = 0.21: f = -0.7673574281149095, calls = 133, time = 7436.9 s, timed out = false, m = -0.00019002482370813765 + 0.0im, ok; peak RSS 6.0 GiB, live 0.79 GiB
+vb_32_7_2_c6.o14549101:===== Summary per case =====
+vb_32_7_2_c6.o14549101:===== m (real part) per β =====
+vb_bpk_12_4_2.o14555661:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], RUN_BUDGET_S = 10000.0, MAX_SECONDS_OBS = 1333.3333333333333, optimizer_maxiter = 100, PEPO = exact
+vb_bpk_12_4_2.o14555661:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 10000.0 s =====
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.195: f = -32.51083723984208, calls = 188, time = 92.9 s, timed out = false, m = 4.1015078642488816e-8 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.2: f = -32.33391909284631, calls = 133, time = 1339.8 s, timed out = true, m = -1.490157219367393e-7 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.205: f = -0.7632822043487878, calls = 121, time = 90.3 s, timed out = false, m = 7.288795511036752e-6 + 0.0im, ok; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.21: f = -0.7673578429735923, calls = 131, time = 70.8 s, timed out = false, m = -0.00025790004960455027 + 0.0im, ok; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.215: f = -0.7717133752225176, calls = 109, time = 291.2 s, timed out = false, m = -0.006147341778925391 + 0.0im, ok; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.22: f = -0.7762422380410872, calls = 137, time = 105.3 s, timed out = false, m = -0.0026969591076368544 + 0.0im, ok; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.225: f = -1.6013146029307852, calls = 52, time = 41.0 s, timed out = false, m = 6.581326914754857e-6 + 0.0im, CHECK: f below the exact lower bound: unphysical; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.23: f = -0.7879643478926108, calls = 97, time = 50.0 s, timed out = false, m = -0.5455667297595649 + 0.0im, ok; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:OBS false_cold β = 0.25: f = -0.8214063469585214, calls = 101, time = 35.6 s, timed out = false, m = -0.7509334592346001 + 0.0im, ok; peak RSS 3.36 GiB, live 0.35 GiB
+vb_bpk_12_4_2.o14555661:===== Summary per case =====
+vb_bpk_12_4_2.o14555661:===== m (real part) per β =====
+vb_chk_14_4_2.o14555732:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.225], RUN_BUDGET_S = 3000.0, MAX_SECONDS_OBS = 1200.0, optimizer_maxiter = 100, PEPO = exact
+vb_chk_14_4_2.o14555732:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 3000.0 s =====
+vb_chk_14_4_2.o14555732:OBS false_cold β = 0.195: f = -41.702695541795414, calls = 285, time = 272.8 s, timed out = false, m = 4.891445367363271e-8 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 3.02 GiB, live 0.35 GiB
+vb_chk_14_4_2.o14555732:OBS false_cold β = 0.2: f = -1.29591434122903, calls = 60, time = 260.5 s, timed out = false, m = -1.3225501017215492e-7 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 3.02 GiB, live 0.35 GiB
+vb_chk_14_4_2.o14555732:OBS false_cold β = 0.225: f = -1.0371512831018868, calls = 69, time = 64.1 s, timed out = false, m = 0.46029359661494185 + 0.0im, ok; peak RSS 3.02 GiB, live 0.35 GiB
+vb_chk_14_4_2.o14555732:===== Summary per case =====
+vb_chk_14_4_2.o14555732:===== m (real part) per β =====
+vb_chk_16_4_2.o14555733:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.225], RUN_BUDGET_S = 3000.0, MAX_SECONDS_OBS = 1200.0, optimizer_maxiter = 100, PEPO = exact
+vb_chk_16_4_2.o14555733:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 3000.0 s =====
+vb_chk_16_4_2.o14555733:OBS false_cold β = 0.195: f = -30.03389840630265, calls = 108, time = 123.6 s, timed out = false, m = 4.8166698376616604e-8 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 2.99 GiB, live 0.36 GiB
+vb_chk_16_4_2.o14555733:OBS false_cold β = 0.2: f = -0.759401007216115, calls = 131, time = 207.9 s, timed out = false, m = 0.00011234102256183332 + 0.0im, ok; peak RSS 3.01 GiB, live 0.35 GiB
+vb_chk_16_4_2.o14555733:OBS false_cold β = 0.225: f = -0.9719535199486539, calls = 68, time = 109.9 s, timed out = false, m = 0.42105434862274055 + 0.0im, ok; peak RSS 3.01 GiB, live 0.35 GiB
+vb_chk_16_4_2.o14555733:===== Summary per case =====
+vb_chk_16_4_2.o14555733:===== m (real part) per β =====
+vb_chk_20_4_2.o14555734:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.225], RUN_BUDGET_S = 3000.0, MAX_SECONDS_OBS = 1200.0, optimizer_maxiter = 100, PEPO = exact
+vb_chk_20_4_2.o14555734:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 3000.0 s =====
+vb_chk_20_4_2.o14555734:OBS false_cold β = 0.195: f = -34.860952224391134, calls = 155, time = 222.5 s, timed out = false, m = 4.793151560079126e-8 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 3.13 GiB, live 0.36 GiB
+vb_chk_20_4_2.o14555734:OBS false_cold β = 0.2: f = -7.794792779433046, calls = 212, time = 1204.9 s, timed out = true, m = 0.044282444751384 + 0.0im, CHECK: f below the exact lower bound: unphysical / f more than 0.01 below the high-temperature series: unphysical; peak RSS 3.17 GiB, live 0.36 GiB
+vb_chk_20_4_2.o14555734:OBS false_cold β = 0.225: f = -0.9255287521092297, calls = 81, time = 168.7 s, timed out = false, m = 0.2961361079269907 + 0.0im, ok; peak RSS 3.17 GiB, live 0.35 GiB
+vb_chk_20_4_2.o14555734:===== Summary per case =====
+vb_chk_20_4_2.o14555734:===== m (real part) per β =====
+vb_pk_12_4_2.o14555662:[ Info: Changed for this job: β_obs = [0.195, 0.2, 0.205, 0.21, 0.215, 0.22, 0.225, 0.23, 0.25], RUN_BUDGET_S = 10000.0, MAX_SECONDS_OBS = 1333.3333333333333, optimizer_maxiter = 100, PEPO = exact
+vb_pk_12_4_2.o14555662:[ Info: ===== Case false_cold: warm_start = false, differentiate_environment = false, budget = 10000.0 s =====
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.195: f = -0.663802320888689, calls = 240, time = 295.0 s, timed out = false, m = -1.9047260578455487e-5, ok; peak RSS 2.68 GiB, live 0.26 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.2: f = -1.1170181922029712, calls = 259, time = 1337.0 s, timed out = true, m = 1.1542711263858083e-7, CHECK: f more than 0.01 below the high-temperature series: unphysical; peak RSS 2.69 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.205: f = -0.763282328515044, calls = 125, time = 189.0 s, timed out = false, m = -0.0001379349721827743, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.21: f = -0.7673577470620858, calls = 134, time = 225.4 s, timed out = false, m = -0.00016855295809696755, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.215: f = -0.7751612778538567, calls = 247, time = 1336.1 s, timed out = true, m = -0.004175411680705632, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.22: f = -0.780060396323352, calls = 380, time = 1337.2 s, timed out = true, m = -0.3927109514317973, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.225: f = -0.8631547302637448, calls = 482, time = 1335.2 s, timed out = true, m = -0.46705318443042637, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.23: f = -0.7879645311348128, calls = 122, time = 151.0 s, timed out = false, m = -0.545524915894015, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:OBS false_cold β = 0.25: f = -0.821406350874575, calls = 117, time = 89.6 s, timed out = false, m = -0.7509381148546971, ok; peak RSS 2.72 GiB, live 0.25 GiB
+vb_pk_12_4_2.o14555662:===== Summary per case =====
+vb_pk_12_4_2.o14555662:===== m (real part) per β =====
+vb_pk_12_4_2.o14555662:===== Spread plot: observations left out =====

@@ -41,7 +41,7 @@ const ONESITE_KWARGS = USE_PLANS ? (; machine = MACHINE) : (; machine = MACHINE,
 
 const J = 1.0
 const g = 0.0
-const Δβ_iter = 0.005
+const Δβ_iter = 0.0025
 const T = Float64
 const spin_symmetry = Trivial
 const to = CE.to                         # the timer that the package code writes to

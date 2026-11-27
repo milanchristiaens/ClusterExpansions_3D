@@ -10,7 +10,7 @@ include(joinpath(@__DIR__, "..", "initial_pepos", "pepo_files.jl"))
 
 # ---------------- settings ----------------
 const ENV_BETA = 0.21            # β of the PEPO (in the PEPO file)
-const ENV_DBETA = 0.005          # Δβ, J, g of the PEPO file
+const ENV_DBETA = 0.0025         # Δβ, J, g of the PEPO file
 const ENV_J = 1.0
 const ENV_G = 0.0
 const ENV_ITERS = 2              # CTMRG3D iterations from the random start

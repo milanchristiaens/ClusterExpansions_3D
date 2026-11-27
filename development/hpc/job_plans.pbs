@@ -9,7 +9,7 @@
 
 # ---------------- settings ----------------
 THREADS=${THREADS:-5}                          # Julia and BLAS threads of the benchmark = the cores of the CTMRG3D jobs (CTMRG_CORES in submit_compare.sh)
-NEW_DIMS=${NEW_DIMS:-10_5_3,12_4_3,12_5_3,16_4_3}   # sets without plans in the plan file (empty: skip step 1)
+NEW_DIMS=${NEW_DIMS:-8_4_3,10_5_3,12_4_3,12_5_3,16_4_3,16_5_3,16_6_3,18_6_3}   # sets that get new plans (empty: skip step 1); qsub -v cannot pass commas: change it here
 # ------------------------------------------
 
 source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"

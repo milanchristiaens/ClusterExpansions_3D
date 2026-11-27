@@ -1,6 +1,7 @@
 #!/bin/bash
-# Times TREE_CURRENT with k_min - 1, k_min, k_min + 1 and k_min + 2 cuts and two garbage-collection intervals on 4 cores (as the CTMRG3D compare),
-# and fits the memory rule of the contraction plans from the measured peak memory. Results in data/contraction_plans/slicing_cost/<run>/.
+# Times one tree (TREE: current, opt_true, ome_flops or ome_scN, see slicing_cost.jl) with k_min - 1, k_min, k_min + 1 and k_min + 2 cuts for the RAM budget RAM
+# and two garbage-collection intervals, and fits the memory rule of the contraction plans from the measured peak memory. Results in data/contraction_plans/slicing_cost/<run>/.
+# RAM = 29 needs a quarter node: qsub -l nodes=1:ppn=16 with THREADS=16 (Julia and BLAS threads).
 #PBS -A starting_2026_079
 #PBS -N slicing_cost
 #PBS -l nodes=1:ppn=4
@@ -8,15 +9,18 @@
 #PBS -j oe
 
 # ---------------- settings ----------------
-JULIA_THREADS=4
-BLAS_THREADS=4
+JULIA_THREADS=${THREADS:-4}
+BLAS_THREADS=${THREADS:-4}
 DIMS="8,4,3;12,4,3;10,5,3;12,5,3;16,4,3"     # (χenv,χpeps,D) sets, cheapest first
 GC_EVERY="1,10"
 MAX_HOURS=8                                   # no new plan is started after this many hours
+TREE=${TREE:-current}                         # current, opt_true, ome_flops or ome_scN
+RAM=${RAM:-3}                                 # RAM budget in GiB that decides k_min (3 or 29)
 # ------------------------------------------
 
 source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
 export OPENBLAS_NUM_THREADS=$BLAS_THREADS
-export CE_SLICING_DIMS="$DIMS" CE_SLICING_GC="$GC_EVERY" CE_SLICING_HOURS=$MAX_HOURS
+export CE_SLICING_DIMS="$DIMS" CE_SLICING_GC="$GC_EVERY" CE_SLICING_HOURS=$MAX_HOURS CE_SLICING_TREE=$TREE CE_SLICING_RAM=$RAM
+export CE_SLICING_JOB_GIB=$(awk -v c=$JULIA_THREADS 'BEGIN { printf "%.2f", c * 1.86 }')
 cd "$REPO"
 julia -O1 -t $JULIA_THREADS --project=. development/contraction_plans/slicing_cost.jl

@@ -41,6 +41,7 @@ const NTRIALS   = 10                             # TreeSA settings (more = bette
 const NITERS    = 100
 const SLICE_NTRIALS = 50                        # settings of the slicer of OMEinsumContractionOrders (TreeSASlicer; its defaults are 10 and 10)
 const SLICE_NITERS  = 50
+const OME_SLICING = :both                       # how the OME trees are cut: :sliced (by the slicer of OME, source ome-*-sliced), :mincuts (the tree as it is, fewest cuts by brute force, source ome-*-mincuts) or :both
 const PLAN_FILE = CE.ONESITE_PLAN_FILE          # plan file that rows are appended to (the same constant is in benchmark_contract_onesite.jl)
 # ======================================================================================================================
 
@@ -60,6 +61,7 @@ function main()
             niters = NITERS,
             slice_ntrials = SLICE_NTRIALS,
             slice_niters = SLICE_NITERS,
+            ome_slicing = OME_SLICING,
             verbosity = 1)
 
         # written right away: an interrupted long list keeps the combinations that are done

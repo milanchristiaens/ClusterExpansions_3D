@@ -1,0 +1,12 @@
+#!/bin/bash
+# Stage 1 of the BP comparison: runs models_3D_CE_pepos.jl (the CE PEPOs of the transverse-field Ising and Bose-Hubbard models of model_pepos.jl).
+#PBS -A starting_2026_079
+#PBS -N models_pepos
+#PBS -l nodes=1:ppn=4
+#PBS -l walltime=04:00:00
+#PBS -j oe
+
+source "$VSC_SCRATCH_PROJECTS_BASE/starting_2026_079/ClusterExpansions/development/hpc/hortense_env.sh"
+[ -n "${MODELS:-}" ] && export CE_MODELS=$MODELS
+cd "$REPO"
+julia -t 4 --project=. development/initial_pepos/models_3D_CE_pepos.jl

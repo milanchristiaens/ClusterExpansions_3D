@@ -227,18 +227,21 @@ end
 const STATES = Dict{String, Any}()     # (psi, env2, env3) of the last observation of every case, for the warm start
 
 # One observation: optimize (warm start from STATES[key] if warm, otherwise from psi0p, the packed start tensor) and measure M.
+# Mp is one packed tensor or a vector of them; m is then one value or the vector of values.
 # Returns (; cost, numfg, timed_out, normgrad, m).
 function run_observation(key::String, Op, Mp, psi0p, χpeps::Int, χenv::Int; warm::Bool, seed::Int, kwargs...)
     Random.seed!(seed)
-    O, M = unpack_tensor(Op), unpack_tensor(Mp)
+    O = unpack_tensor(Op)
+    Ms = Mp isa AbstractVector ? map(unpack_tensor, Mp) : [unpack_tensor(Mp)]
     psi0 = psi0p === nothing ? nothing : InfinitePEPS(unpack_tensor(psi0p))
     state0 = warm ? STATES[key] : nothing
     result = @timeit to "expectation_value (vbPEPS and observable)" begin
         r = bpeps_optimize(O, psi0, χpeps, χenv; state0, kwargs...)
-        (; r, m = only(bpeps_observables(O, [M], r)))
+        (; r, ms = ComplexF64.(bpeps_observables(O, Ms, r)))
     end
     STATES[key] = (result.r.psi, result.r.env2, result.r.env3)
-    return (; cost = result.r.cost, numfg = result.r.numfg, timed_out = result.r.timed_out, normgrad = result.r.normgrad, m = ComplexF64(result.m))
+    return (; cost = result.r.cost, numfg = result.r.numfg, timed_out = result.r.timed_out, normgrad = result.r.normgrad,
+            m = Mp isa AbstractVector ? result.ms : only(result.ms))
 end
 
 # The timer as a plain Dict (TimerOutputs.todict); and a reset (at the start of every case)

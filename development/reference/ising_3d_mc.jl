@@ -5,7 +5,7 @@ include(joinpath(@__DIR__, "ising_3d_reference.jl"))
 
 const LS     = parse.(Int, split(get(ENV, "MC_LS", "8,16,32"), r"[,_ ]+"; keepempty = false))
 const BETAS  = parse.(Float64, split(get(ENV, "MC_BETAS", "0.15,0.19,0.21,0.22,0.225,0.23,0.25,0.35"), r"[,_ ]+"; keepempty = false))
-const SWEEPS = parse(Int, get(ENV, "MC_SWEEPS", "20000"))    # measurements; one measurement after Wolff clusters with ≈ N spins flipped in total
+const SWEEPS = parse(Int, get(ENV, "MC_SWEEPS", "20000"))    # measurements; one measurement after a fixed number of Wolff clusters (≈ N spins flipped on average)
 const THERM  = parse(Int, get(ENV, "MC_THERM", "2000"))      # the same unit, thrown away
 const SEED   = parse(Int, get(ENV, "MC_SEED", "1"))
 const OUT_CSV = get(ENV, "MC_OUT", joinpath(@__DIR__, "..", "..", "data", "reference", "ising3d_mc.csv"))
@@ -41,8 +41,17 @@ end
 function run_mc(L, β; sweeps = SWEEPS, therm = THERM, seed = SEED)
     rng = Xoshiro(hash((seed, L, β)))
     N = L^3; s = ones(Int8, L, L, L); padd = 1 - exp(-2β); stack = CartesianIndex{3}[]
-    step() = (flipped = 0; while flipped < N; flipped += wolff_cluster!(s, padd, rng, stack); end)
-    for _ in 1:therm; step(); end
+    # thermalisation: clusters until about N spins are flipped; the measurements then use a fixed number of clusters per step (the mean number of the
+    # thermalisation), because stopping at a number of flipped spins would make the measured state depend on the size of the last cluster
+    nclusters = 0
+    for _ in 1:therm
+        flipped = 0
+        while flipped < N
+            flipped += wolff_cluster!(s, padd, rng, stack); nclusters += 1
+        end
+    end
+    ncl = max(1, round(Int, nclusters / max(therm, 1)))
+    step() = (for _ in 1:ncl; wolff_cluster!(s, padd, rng, stack); end)
     ms = zeros(sweeps); es = zeros(sweeps)
     for k in 1:sweeps
         step()

@@ -20,15 +20,16 @@ include(joinpath(@__DIR__, "..", "..", "reference", "ising_3d_reference.jl"))   
 const RESULTS_FILE = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "hortense_results.csv"))
 const OUT_DIR = normpath(joinpath(@__DIR__, "..", "..", "..", "data", "profiling", "comparing", "big_compare_plots"))
 
-# The curves: a run is found by the end of its run name (the newest run in the file with that ending); a run without rows is left out
-const VBPEPS_SUFFIX = "_small_bpk"
+# The curves: a run is found by the end of its run name. The newest run in the file with that ending gives the case and the dimensions; for every β we take
+# the newest row of all runs with that ending, the same case and the same dimensions (so a later job with extra β adds to the curve). A curve without rows is left out.
+const VBPEPS_SUFFIX = "_big_vbpeps"
 const SERIES = [
-    (; key = :svd,       suffix = "_big_svd",              label = "CTMRG3D :svd",                color = :royalblue),
-    (; key = :oblique,   suffix = "_big_oblique",          label = "CTMRG3D :oblique",            color = :crimson),
-    (; key = :edgeplain, suffix = "_big_octantedgeplain",  label = "octant, P_f :edge",           color = :olive),
-    (; key = :edge,      suffix = "_big_octantedge",       label = "octant, P_f :edge_env",       color = :teal),
-    (; key = :lead,      suffix = "_big_octantedgelead",   label = "octant, P_f :edge_lead",      color = :purple),
-    (; key = :vbpeps,    suffix = VBPEPS_SUFFIX,           label = "vbPEPS",      color = :darkorange),
+    (; key = :svd,        suffix = "_big_svd",                  label = "CTMRG3D :svd",                color = :royalblue),
+    (; key = :oblique,    suffix = "_big_oblique",              label = "CTMRG3D :oblique",            color = :crimson),
+    (; key = :unweighted, suffix = "_big_octantunweighted",     label = "octant, P_f :unweighted",     color = :olive),
+    (; key = :sigma,      suffix = "_big_octantsigmaweighted",  label = "octant, P_f :sigma_weighted", color = :teal),
+    (; key = :lead,       suffix = "_big_octantleadweighted",   label = "octant, P_f :lead_weighted",  color = :purple),
+    (; key = :vbpeps,     suffix = VBPEPS_SUFFIX,               label = "vbPEPS",      color = :darkorange),
 ]
 
 # The results file does not say whether LBFGS of a vbPEPS observation converged: here we list, per run (end of the run name), the β where the job log says
@@ -41,10 +42,10 @@ const FIGURES = [
     (; file = "2_svd",                      series = [:svd],                                bethe = false),
     (; file = "3_svd_bethe",                series = [:svd],                                bethe = true),
     (; file = "4_oblique",                  series = [:svd, :oblique],                      bethe = true),
-    (; file = "5_octant_edgeplain",         series = [:svd, :oblique, :edgeplain],          bethe = true),
-    (; file = "6_octant_edge",              series = [:svd, :oblique, :edgeplain, :edge],   bethe = true),
-    (; file = "7_octant_edgelead",          series = [:svd, :oblique, :edgeplain, :edge, :lead], bethe = true),
-    (; file = "8_edgelead_vbpeps",          series = [:svd, :oblique, :lead, :vbpeps],      bethe = true),
+    (; file = "5_octant_unweighted",        series = [:svd, :oblique, :unweighted],          bethe = true),
+    (; file = "6_octant_sigmaweighted",     series = [:svd, :oblique, :unweighted, :sigma],  bethe = true),
+    (; file = "7_octant_leadweighted",      series = [:svd, :oblique, :unweighted, :sigma, :lead], bethe = true),
+    (; file = "8_leadweighted_vbpeps",      series = [:svd, :oblique, :lead, :vbpeps],       bethe = true),
 ]
 
 # The same axes in every figure
@@ -79,12 +80,20 @@ function load_series(rows_all)
             @info "No run ending in $(s.suffix) in $RESULTS_FILE: $(s.label) is left out"
             continue
         end
-        rows = sort(filter(r -> r.run == run && isfinite(r.m_re) && BETA_RANGE[1] <= r.β <= BETA_RANGE[2], rows_all); by = r -> r.β)
+        ref = first(r for r in rows_all if r.run == run)
+        same(r) = endswith(r.run, s.suffix) && r.case == ref.case && (r.chienv, r.chipeps, r.D_CE, r.setting) == (ref.chienv, ref.chipeps, ref.D_CE, ref.setting)
+        newest = Dict{Float64, Any}()
+        for r in rows_all
+            (same(r) && isfinite(r.m_re) && BETA_RANGE[1] <= r.β <= BETA_RANGE[2]) || continue
+            k = round(r.β; digits = 8)
+            (!haskey(newest, k) || r.run > newest[k].run) && (newest[k] = r)
+        end
+        rows = sort(collect(values(newest)); by = r -> r.β)
         isempty(rows) && continue
         exact = endswith(rows[1].setting, "_exactpepo")
         label = "$(s.label), (χenv, χpeps) = ($(rows[1].chienv), $(rows[1].chipeps))" * (exact ? "" : ", CE PEPO D_CE = $(rows[1].D_CE)")
         data[s.key] = merge(s, (; run = run, rows = rows, label = label, exact = exact))
-        @info "$(s.label): run $run, $(length(rows)) β, $(count(not_converged, rows)) not converged, timed out or unphysical f"
+        @info "$(s.label): runs $(join(unique(r.run for r in rows), ", ")), $(length(rows)) β, $(count(not_converged, rows)) not converged, timed out or unphysical f"
     end
     return data
 end
@@ -128,7 +137,9 @@ function make_figure(spec, data, βs)
     vline!(p_d, [βc_ising]; color = :gray, linestyle = :dot, label = "")
 
     all_exact = all(data[k].exact for k in spec.series if haskey(data, k))
-    title = "3D Ising model, g = 0, " * (all_exact ? "exact PEPO (D_CE = 2), " : "PEPO kind per curve in the legend, ") * "cold start (dotted gray = βc)"
+    all_cold = all(endswith(r.case, "_cold") for k in spec.series if haskey(data, k) for r in data[k].rows)
+    title = "3D Ising model, g = 0, " * (all_exact ? "exact PEPO (D_CE = 2), " : "PEPO kind per curve in the legend, ") *
+            (all_cold ? "cold start" : "warm start, cold near βc") * " (dotted gray = βc)"
     return compare_figure([p_m, p_d], title; height = 520)
 end
 
