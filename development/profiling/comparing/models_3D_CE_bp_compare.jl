@@ -1,5 +1,5 @@
 # Does CTMRG3D :svd give the belief propagation (BP) answer also for the transverse-field Ising model at g ≠ 0 and for the Bose-Hubbard model, and do the octant
-# variants do better? For one model of model_pepos.jl we run BP and the cases below at its β list (warm, cold near βc) and append both observables per β
+# variants do better? For one model of model_pepos.jl we run BP and the cases below at its β list (cold start at every β) and append both observables per β
 # to data/profiling/comparing/models_3D_CE_results.csv.
 
 using TensorKit
@@ -37,7 +37,8 @@ const MINITER = 3
 const TOL = 1e-7
 const INIT = :random
 const INIT_SEED = 1
-const WARM_WINDOW = 0.02          # warm rule: cold start when |β - beta_c of the model| < WARM_WINDOW
+const WARM_START = false          # false: cold start at every β (a warm start from a symmetric state stays symmetric between the BP βc and the true βc)
+const WARM_WINDOW = 0.02          # with WARM_START: cold start when |β - beta_c of the model| < WARM_WINDOW
 const STAGNATION_WINDOW = 20      # stagnation stop of the :svd P = 0 cases (they may not converge)
 const RAM_GIB = env_override("CE_COMPARE_RAM", s -> parse(Float64, s), 5.0)   # RAM budget (GiB) of the sliced contraction: TREE_CURRENT with the fewest cuts
 const BP_TOL = 1e-12
@@ -81,7 +82,7 @@ function run_case(name, kw, Os, obss, names, run)
     env_prev = nothing
     for (i, β) in enumerate(β_obs)
         allowed = obs_seconds_allowed(RUN_BUDGET_S, t_case, length(β_obs) - i + 1; min_s = MIN_SECONDS_OBS, max_s = MAX_SECONDS_OBS)
-        warm = env_prev !== nothing && warm_start_at(β, M.beta_c, WARM_WINDOW)
+        warm = WARM_START && env_prev !== nothing && warm_start_at(β, M.beta_c, WARM_WINDOW)
         t0 = time()
         try
             # the environment only (no observable), then O and both M contracted once each
@@ -93,7 +94,7 @@ function run_case(name, kw, Os, obss, names, run)
             den = CE.contract_onesite_dispatch(env, O, RAM_GIB; kwc...)
             vals = [CE.contract_onesite_dispatch(env, Mo, RAM_GIB; kwc...) / den for Mo in Ms]
             conv = ϵs[end] < TOL
-            check = (conv ? "ok" : timed_out ? "timed out" : length(ϵs) < MAXITER ? "stopped (no progress)" : "not converged") * (warm ? "" : "; cold start")
+            check = (conv ? "ok" : timed_out ? "timed out" : length(ϵs) < MAXITER ? "stopped (no progress)" : "not converged") * (warm || !WARM_START ? "" : "; cold start")
             dt = time() - t0
             println("OBS $name β = $β: $(names[1]) = $(real(vals[1])), $(names[2]) = $(real(vals[2])), $(length(ϵs)) iterations, ϵ = $(ϵs[end]), ",
                     "$(round(dt; digits = 1)) s, $check; ", memory_note())
@@ -117,7 +118,7 @@ function main()
     run = basename(outdir)
     open(joinpath(outdir, "settings.txt"), "a") do io
         println(io, "MODEL = $MODEL ($M), dims = ($chienv, $chipeps, $D_CE), β = $β_obs, cases = $([c[1] for c in CASES]), budget $RUN_BUDGET_S s on $CORES cores, ",
-                "MAXITER = $MAXITER, TOL = $TOL, INIT = $INIT, WARM_WINDOW = $WARM_WINDOW, RAM_GIB = $RAM_GIB, Julia $(VERSION), host $(gethostname())")
+                "MAXITER = $MAXITER, TOL = $TOL, INIT = $INIT, WARM_START = $WARM_START, WARM_WINDOW = $WARM_WINDOW, RAM_GIB = $RAM_GIB, Julia $(VERSION), host $(gethostname())")
     end
     obss = model_observables(M)
     names = model_observable_names(M)

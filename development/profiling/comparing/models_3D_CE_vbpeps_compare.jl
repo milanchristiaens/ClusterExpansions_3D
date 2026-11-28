@@ -1,5 +1,5 @@
 # The vbPEPS part of the model comparison (models_3D_CE_bp_compare.jl): for one model of model_pepos.jl (vbpeps = true) we run vbPEPS with the fixed
-# environment at its β list (warm, cold near the βc estimate of the model) and append both observables per β to data/profiling/comparing/models_3D_CE_results.csv.
+# environment at its β list (cold start at every β; vbpeps_warm: warm, cold near the βc estimate) and append both observables per β to data/profiling/comparing/models_3D_CE_results.csv.
 # The settings of the optimization are those of ising_model_3D_CE_vbPEPS_compare.jl; it runs with BetterPEPSKit (environment development/fast_vbpeps) or PEPSKit (the clone).
 
 # Which environment: development/fast_vbpeps (BetterPEPSKit) or the ClusterExpansions environment of the clone
@@ -61,7 +61,7 @@ const base_kwargs = (;
 )
 # (name, warm)
 const CASES_ALL = [("vbpeps_warm", true), ("vbpeps_cold", false)]
-const CASES = filter(c -> c[1] in compare_cases(["vbpeps_warm"], first.(CASES_ALL)), CASES_ALL)
+const CASES = filter(c -> c[1] in compare_cases(["vbpeps_cold"], first.(CASES_ALL)), CASES_ALL)
 # ======================================================================================================================
 
 # One observation: ((; cost, numfg, timed_out, normgrad, m = [m1, m2]), state for the next warm start)
